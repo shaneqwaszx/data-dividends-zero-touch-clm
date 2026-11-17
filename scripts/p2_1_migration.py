@@ -39,7 +39,7 @@ APPLY_REFUSAL = (
 )
 # Built by the service workstream with the signature Callable[[WorkflowVersion], RequiredBaseline].
 SEEDER_MODULE = "app.services.workflow_ratchet"
-SEEDER_NAME = "seed_required_baseline"
+SEEDER_NAME = "seed_baseline"
 
 
 def _print(report: dict[str, object]) -> None:
@@ -96,7 +96,7 @@ def main(
             }
         )
         return 2
-    if args.database in FORBIDDEN_DATABASES:
+    if args.database.strip().lower() in FORBIDDEN_DATABASES:
         _print({"status": "REFUSED", "reason": "FORBIDDEN_DATABASE"})
         return 2
     seeder = seed_baseline or _default_seeder()

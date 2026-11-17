@@ -842,25 +842,110 @@ def highest_version(definition: WorkflowDefinition) -> int:
     return max((item.version for item in definition.versions), default=0)
 
 
+class GovernanceHistoryRewriteError(WorkflowHistoryUnavailableError):
+    """A governance write would remove or rewrite stored history outside the archiver's
+    and compaction's own verified paths (owner condition). Fails closed, nothing written."""
+
+
+def check_history_preserved(
+    stored: GovernedDefinition,
+    definition: WorkflowDefinition,
+    governance: WorkflowGovernanceState,
+) -> None:
+    """History is append-only for a caller: every stored outbox entry, decided entry,
+    event, hot version, provenance entry and notice must still be present unchanged, and
+    everything new must be unarchived and referenced by the outbox. Only ``mark_archived``
+    (after durable acknowledgement) and ``compact_history`` (after a verified cold copy)
+    remove or flag history, and they run inside the repository, never through a caller."""
+
+    before, workflow_id = stored.governance, definition.workflow_id
+
+    def refuse(reason: str) -> None:
+        raise GovernanceHistoryRewriteError(reason)
+
+    if definition.workflow_id != stored.definition.workflow_id:
+        refuse("WORKFLOW_ID_CHANGED")
+    if governance.migration_marker != before.migration_marker:
+        refuse("MARKER_CHANGED")
+    if governance.governance_sequence < before.governance_sequence:
+        refuse("SEQUENCE_DECREASED")
+    outbox = set(governance.outbox)
+    if any(item not in outbox for item in before.outbox):
+        refuse("OUTBOX_ENTRY_REMOVED")
+    referenced = {(item.collection, item.logical_id) for item in governance.outbox}
+    decided = {item.proposal_id: item for item in governance.decided_proposals}
+    old_decided = {item.proposal_id for item in before.decided_proposals}
+    if any(decided.get(item.proposal_id) != item for item in before.decided_proposals):
+        refuse("DECIDED_ENTRY_REMOVED_OR_CHANGED")
+    for item in governance.decided_proposals:
+        if item.proposal_id not in old_decided and (
+            item.archived
+            or item.record is None
+            or (OutboxCollection.PROPOSALS, item.proposal_id) not in referenced
+        ):
+            refuse("NEW_DECIDED_ENTRY_NOT_IN_OUTBOX")
+    events = {item.sequence: item for item in governance.governance_events}
+    old_events = {item.sequence for item in before.governance_events}
+    if any(events.get(item.sequence) != item for item in before.governance_events):
+        refuse("EVENT_REMOVED_OR_CHANGED")
+    for event in governance.governance_events:
+        key = (OutboxCollection.EVENTS, event_logical_id(workflow_id, event.sequence))
+        if event.sequence not in old_events and (event.archived or key not in referenced):
+            refuse("NEW_EVENT_NOT_IN_OUTBOX")
+    versions = {item.version: item for item in definition.versions}
+    old_versions = {item.version for item in stored.definition.versions}
+    if any(versions.get(item.version) != item for item in stored.definition.versions):
+        # Covers the pinned active and latest versions and any version not yet in cold.
+        refuse("VERSION_REMOVED_OR_CHANGED")
+    for version in definition.versions:
+        key = (OutboxCollection.VERSIONS, version_logical_id(workflow_id, version.version))
+        if version.version not in old_versions and key not in referenced:
+            refuse("NEW_VERSION_NOT_IN_OUTBOX")
+    count = len(before.version_provenance)
+    if governance.version_provenance[:count] != before.version_provenance:
+        refuse("PROVENANCE_REWRITTEN")
+    notices = {item.notice_id for item in governance.notices}
+    if any(item.notice_id not in notices for item in before.notices):
+        refuse("NOTICE_REMOVED")
+
+
+def check_outbox_integrity(
+    definition: WorkflowDefinition, governance: WorkflowGovernanceState, cold: ColdHistoryStore
+) -> None:
+    """Every outbox entry resolves to its full hot record, and no cold record with the same
+    logical id carries a different hash. Runs inside every governance write, so a skipped
+    drain cannot hide an integrity failure (fails closed with ``503``)."""
+
+    for entry in governance.outbox:
+        if dict_hash(outbox_record(definition, governance, entry)) != entry.content_hash:
+            raise ColdHistoryIntegrityError("OUTBOX_HASH_MISMATCH")
+        lookup_cold(cold, entry.collection, entry.logical_id, expected_hash=entry.content_hash)
+
+
 def prepare_governance_write(
+    stored: GovernedDefinition,
     definition: WorkflowDefinition,
     governance: WorkflowGovernanceState,
     cold: ColdHistoryStore,
     *,
-    current_active: int | None,
-    current_latest: int | None,
     active_version: int | None,
     latest_version: int | None,
 ) -> tuple[WorkflowDefinition, WorkflowGovernanceState, int, int]:
-    """Validate the publication fields, compact, and return what the CAS writes.
+    """Validate against the **stored** document, guard history, compact, and return what
+    the CAS writes (the caller-supplied version fields are never trusted).
 
-    Without a publication, no payload version may pass the stored high-water mark.
-    With one, ``latest_version`` never decreases, the newest hot version is the latest,
-    and ``active_version`` is 0 or the latest (ADR-017 3.5).
+    Without a publication, no payload version may pass the stored high-water mark and the
+    stored ``active_version``/``latest_version`` are kept. A publication raises
+    ``latest_version`` by exactly one (never equal, lower or skipping), the newest hot
+    version is the latest, and ``active_version`` is 0 or the latest (ADR-017 3.5).
     """
 
     if not governance.migrated:
         raise WorkflowGovernanceNotMigratedError
+    if not stored.governance.migrated:
+        raise PersistenceConflictError
+    current_active = stored.definition.stored_active_version
+    current_latest = stored.definition.latest_version
     if current_latest is None or current_active is None:
         raise PersistenceDataInvalidError
     highest = highest_version(definition)
@@ -871,13 +956,15 @@ def prepare_governance_write(
             raise PersistenceConflictError
         active, latest = current_active, current_latest
     else:
-        if latest_version < current_latest:
-            raise ValueError("latest_version never decreases")
+        if latest_version != current_latest + 1:
+            raise ValueError("a publication raises latest_version by exactly one")
         if active_version not in {0, latest_version}:
             raise ValueError("active_version is 0 or latest_version")
         if highest != latest_version:
             raise ValueError("the newest hot version is the latest version")
         active, latest = active_version, latest_version
+    check_history_preserved(stored, definition, governance)
+    check_outbox_integrity(definition, governance, cold)
     compact_definition, compact_state = compact_history(
         definition, governance, cold, active_version=active, latest_version=latest
     )

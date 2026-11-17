@@ -200,6 +200,10 @@ class InMemoryWorkflowDefinitionRepository:
                 or current.write_nonce != definition.write_nonce
             ):
                 raise PersistenceConflictError
+            if self._state(definition.workflow_id).migrated:
+                # P2-1: a migrated definition is written only by ``write_governance``
+                # (parity with the Mongo filter ``p2_1_migration_marker: {$exists: false}``).
+                raise PersistenceConflictError
             latest = current.latest_version
             if latest is not None and _highest(definition) > latest:
                 # No ungoverned append may pass the high-water mark (activation is frozen).
@@ -334,11 +338,10 @@ class InMemoryWorkflowDefinitionRepository:
                 # Parity with the Mongo filter on the marker.
                 raise PersistenceConflictError
             compacted, state, active, latest = prepare_governance_write(
+                GovernedDefinition(current, self._state(definition.workflow_id)),
                 definition,
                 governance,
                 self._cold,
-                current_active=current.stored_active_version,
-                current_latest=current.latest_version,
                 active_version=active_version,
                 latest_version=latest_version,
             )
@@ -386,7 +389,10 @@ class InMemoryWorkflowDefinitionRepository:
                     active_version=active,
                     latest_version=latest,
                 )
-                # Housekeeping rotates the nonce and keeps the revision (Mongo parity).
+                # Housekeeping rotates the nonce and keeps the revision (Mongo parity): the
+                # revision is the client's optimistic token and housekeeping changes no
+                # governance meaning; the new nonce refuses any writer holding the old
+                # snapshot, which must re-read (ADR-017 3.2).
                 stored = compacted.model_copy(update={"write_nonce": secrets.token_hex(16)})
                 check_document_size(
                     governed_document(
