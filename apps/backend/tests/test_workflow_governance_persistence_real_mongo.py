@@ -26,7 +26,13 @@ from scripts.mongo_test_safety import (
     require_ephemeral_mongo_database,
 )
 from test_p2_1_migration import Seeder, p2_0_raw
-from test_workflow_governance_repository import WID, approve, born, payload
+from test_workflow_governance_repository import (
+    WID,
+    approve,
+    born,
+    payload,
+    pending_proposal,
+)
 
 from app.domain.workflow_governance import COLD_COLLECTIONS, OutboxCollection
 from app.persistence.adr017_backfill import (
@@ -105,6 +111,16 @@ def store() -> Iterator[MongoWorkflowStore]:
         admin.close()
 
 
+def _submit(repository: MongoWorkflowDefinitionRepository, current: Any, number: int) -> Any:
+    """Store a PENDING_APPROVAL open proposal; a decision may only end that proposal."""
+
+    return repository.write_governance(
+        current.definition.model_copy(update={"revision": current.definition.revision + 1}),
+        current.governance.model_copy(update={"open_proposal": pending_proposal(current, number)}),
+        expected_revision=current.definition.revision,
+    )
+
+
 def test_cold_indexes_are_created_idempotently(store: MongoWorkflowStore) -> None:
     store.initialize()
     database = store.definitions.database
@@ -121,6 +137,7 @@ def test_governed_publication_drain_compaction_and_cold_reads(
     with pytest.raises(PersistenceConflictError):
         repository.create_governed(payload(), born())
     for number in range(1, 21):
+        current = _submit(repository, current, number)
         definition, governance = approve(current, number)
         repository.write_governance(
             definition,
@@ -202,6 +219,7 @@ def test_migration_apply_then_mixed_version_checks(store: MongoWorkflowStore) ->
 def _two_published(repository: MongoWorkflowDefinitionRepository) -> Any:
     current = repository.create_governed(payload(), born())
     for number in (1, 2):
+        current = _submit(repository, current, number)
         definition, governance = approve(current, number)
         current = repository.write_governance(
             definition,

@@ -59,6 +59,7 @@ from app.domain.workflow_governance import (
     GovernanceEvent,
     OutboxCollection,
     OutboxEntry,
+    ProposalOrigin,
     ProposalState,
     RequiredBaseline,
     WorkflowGovernanceState,
@@ -888,6 +889,19 @@ def check_history_preserved(
             or (OutboxCollection.PROPOSALS, item.proposal_id) not in referenced
         ):
             refuse("NEW_DECIDED_ENTRY_NOT_IN_OUTBOX")
+        if item.proposal_id not in old_decided and not _summary_matches_record(item):
+            refuse("DECIDED_SUMMARY_MISMATCH")
+        if item.proposal_id in old_decided:
+            continue
+        still_open = governance.open_proposal
+        if still_open is not None and still_open.proposal_id == item.proposal_id:
+            refuse("DECIDED_ENTRY_STILL_OPEN")
+        # A governed decided entry is only ever the end of the stored open proposal; only
+        # the migration's legacy PRE_GOVERNANCE_DRAFT entries are created otherwise.
+        if item.origin != ProposalOrigin.PRE_GOVERNANCE_DRAFT and (
+            before.open_proposal is None or before.open_proposal.proposal_id != item.proposal_id
+        ):
+            refuse("DECIDED_ENTRY_WITHOUT_OPEN_PROPOSAL")
     events = {item.sequence: item for item in governance.governance_events}
     old_events = {item.sequence for item in before.governance_events}
     if any(events.get(item.sequence) != item for item in before.governance_events):
@@ -944,12 +958,10 @@ def _check_open_proposal(
     if incoming is not None and incoming.proposal_id == stored.proposal_id:
         if incoming.revision < stored.revision:
             refuse("OPEN_PROPOSAL_REVISION_DECREASED")
+        if not _same_identity(stored, incoming):
+            refuse("OPEN_PROPOSAL_IDENTITY_CHANGED")
         if stored.state == ProposalState.PENDING_APPROVAL and (
-            incoming.state != stored.state
-            or incoming.content_hash != stored.content_hash
-            or incoming.stages != stored.stages
-            or incoming.kind != stored.kind
-            or incoming.base_version != stored.base_version
+            incoming.state != stored.state or not _same_frozen_content(stored, incoming)
         ):
             refuse("PENDING_PROPOSAL_CONTENT_CHANGED")
         return
@@ -966,6 +978,58 @@ def _check_open_proposal(
         or entry.record.revision < stored.revision
     ):
         refuse("OPEN_PROPOSAL_DROPPED")
+        return
+    record = entry.record
+    if not _same_identity(stored, record):
+        refuse("OPEN_PROPOSAL_IDENTITY_CHANGED")
+    if record.stages != stored.stages:
+        # Ending (withdraw, decide, stale) is a state change only; the last stored
+        # content is what gets archived, whatever the state.
+        refuse("ENDED_PROPOSAL_CONTENT_CHANGED")
+    if stored.state == ProposalState.PENDING_APPROVAL and not _same_frozen_content(stored, record):
+        # What is decided (and possibly published) is exactly what was submitted.
+        refuse("PENDING_PROPOSAL_CONTENT_CHANGED")
+
+
+def _same_identity(stored: WorkflowProposal, other: WorkflowProposal) -> bool:
+    """Never changes in any state: who wrote it, for which workflow, of what kind."""
+
+    return (
+        other.author_id == stored.author_id
+        and other.workflow_id == stored.workflow_id
+        and other.origin == stored.origin
+        and other.kind == stored.kind
+        and other.created_at == stored.created_at
+    )
+
+
+def _same_frozen_content(stored: WorkflowProposal, other: WorkflowProposal) -> bool:
+    """A submitted (PENDING_APPROVAL) proposal's content is frozen by its hash."""
+
+    return (
+        _same_identity(stored, other)
+        and other.stages == stored.stages
+        and other.content_hash == stored.content_hash
+        and other.base_version == stored.base_version
+        and other.submitted_at == stored.submitted_at
+        and other.restore_target_version == stored.restore_target_version
+    )
+
+
+def _summary_matches_record(entry: DecidedProposalEntry) -> bool:
+    record = entry.record
+    return record is not None and (
+        entry.proposal_id == record.proposal_id
+        and entry.kind == record.kind
+        and entry.state == record.state
+        and entry.origin == record.origin
+        and entry.author_id == record.author_id
+        and entry.decided_by == record.decided_by
+        and entry.decided_at == record.decided_at
+        and entry.published_version == record.published_version
+        and entry.content_hash == record.content_hash
+        and entry.record_hash == record_content_hash(record)
+    )
 
 
 def _check_baseline(
