@@ -110,6 +110,8 @@ const APPROVAL_ERROR_MESSAGES: Partial<Record<GovernanceErrorCode | "WORKFLOW_CO
     "Approval was refused: a required step or field would be removed or made optional. Nothing was changed.",
   WORKFLOW_REQUIRED_OBLIGATION_WEAKENED:
     "Approval was refused: a required step or field would be weakened. Nothing was changed.",
+  WORKFLOW_PROPOSAL_INVALID: "Approval was refused: the proposal is no longer valid. Nothing was changed.",
+  WORKFLOW_PROPOSAL_TOO_LARGE: "Approval was refused: the proposal is too large. Nothing was changed.",
 };
 
 const RELOAD_CODES = new Set<string>([
@@ -118,6 +120,11 @@ const RELOAD_CODES = new Set<string>([
   "WORKFLOW_PROPOSAL_CONTENT_CHANGED",
   "WORKFLOW_CONFLICT",
   "WORKFLOW_PROPOSAL_STATE_INVALID",
+  // Decision-time ratchet and content refusals repeat until the comparison is reloaded.
+  "WORKFLOW_REQUIRED_OBLIGATION_REMOVED",
+  "WORKFLOW_REQUIRED_OBLIGATION_WEAKENED",
+  "WORKFLOW_PROPOSAL_INVALID",
+  "WORKFLOW_PROPOSAL_TOO_LARGE",
 ]);
 
 function errorIssues(error: ApiError): ValidationIssue[] {

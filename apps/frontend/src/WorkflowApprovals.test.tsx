@@ -150,6 +150,10 @@ describe("workflowApprovalsApi", () => {
     [409, "WORKFLOW_PERMANENT_OBLIGATION_ACKNOWLEDGEMENT_REQUIRED", true, false],
     [403, "WORKFLOW_SELF_DECISION_REFUSED", false, true],
     [503, "WORKFLOW_HISTORY_UNAVAILABLE", false, false],
+    [422, "WORKFLOW_REQUIRED_OBLIGATION_REMOVED", true, false],
+    [422, "WORKFLOW_REQUIRED_OBLIGATION_WEAKENED", true, false],
+    [422, "WORKFLOW_PROPOSAL_INVALID", true, false],
+    [422, "WORKFLOW_PROPOSAL_TOO_LARGE", true, false],
   ])("maps %s %s", (status, code, reload, refused) => {
     const view = approvalErrorView(new ApiError("server text", status, code));
     expect(view.reload).toBe(reload);
@@ -348,13 +352,31 @@ describe("WorkflowCompare", () => {
     expect(calls(DECISION_URL).length).toBe(1);
   });
 
-  it("lists ratchet refusal issues from the server", async () => {
-    mockFetch(comparisonHandler(comparison(), () => json(422, errorBody("error_ratchet_removed.json"))));
+  it.each([
+    ["error_ratchet_removed.json", null],
+    [null, "WORKFLOW_REQUIRED_OBLIGATION_WEAKENED"],
+    [null, "WORKFLOW_PROPOSAL_INVALID"],
+    [null, "WORKFLOW_PROPOSAL_TOO_LARGE"],
+  ])("handles a 422 refusal %s %s by listing issues, blocking a repeat and offering a reload", async (fixture, code) => {
+    const issue = { code: code ?? "", rule: "RR-5", stage_id: "sanctions-attestation", field_id: null, message: "A required field would be weakened." };
+    const body = fixture ? errorBody(fixture) : { detail: { code, message: "server", rule: "RR-5", issues: [issue] } };
+    mockFetch(comparisonHandler(comparison(), () => json(422, body)));
     await render(page());
     await typeReason("Required by the sanctions screening procedure.");
     await click(checkbox()!);
     await click(button("Approve and publish"));
-    expect(container.querySelector("ul[aria-label='Refusal issues']")?.textContent).toContain("RR-1: The required stage 'Sanctions attestation' cannot be removed.");
+    expect(container.querySelector("ul[aria-label='Refusal issues']")?.textContent).toContain(
+      fixture ? "RR-1: The required stage 'Sanctions attestation' cannot be removed." : "RR-5: A required field would be weakened.");
+    expect(container.querySelector("[role=alert]")?.textContent).toContain("Nothing was changed.");
+    expect(button("Approve and publish").disabled).toBe(true);
+    expect(button("Reject").disabled).toBe(true);
+    await click(button("Approve and publish"));
+    expect(calls(DECISION_URL).length).toBe(1);
+    const before = calls(COMPARISON_URL).length;
+    await click(button("Reload comparison"));
+    expect(calls(COMPARISON_URL).length).toBe(before + 1);
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    expect(calls(DECISION_URL).length).toBe(1);
   });
 
   it("shows a governed active version as approved with author and approver", async () => {
