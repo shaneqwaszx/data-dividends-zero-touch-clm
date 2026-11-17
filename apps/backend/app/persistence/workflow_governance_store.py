@@ -24,7 +24,7 @@ Nothing here truncates history: past ``HARD_CEILING_BYTES`` a write is refused w
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
@@ -59,6 +59,8 @@ from app.domain.workflow_governance import (
     GovernanceEvent,
     OutboxCollection,
     OutboxEntry,
+    ProposalState,
+    RequiredBaseline,
     WorkflowGovernanceState,
     WorkflowProposal,
     canonical_json,
@@ -851,6 +853,8 @@ def check_history_preserved(
     stored: GovernedDefinition,
     definition: WorkflowDefinition,
     governance: WorkflowGovernanceState,
+    *,
+    publication: bool = False,
 ) -> None:
     """History is append-only for a caller: every stored outbox entry, decided entry,
     event, hot version, provenance entry and notice must still be present unchanged, and
@@ -904,9 +908,102 @@ def check_history_preserved(
     count = len(before.version_provenance)
     if governance.version_provenance[:count] != before.version_provenance:
         refuse("PROVENANCE_REWRITTEN")
-    notices = {item.notice_id for item in governance.notices}
-    if any(item.notice_id not in notices for item in before.notices):
-        refuse("NOTICE_REMOVED")
+    notices = {item.notice_id: item for item in governance.notices}
+    for notice in before.notices:
+        incoming = notices.get(notice.notice_id)
+        if incoming is None:
+            refuse("NOTICE_REMOVED")
+            return
+        # Only the acknowledgement may be added (None -> value); nothing else changes.
+        keep = {"acknowledged_by", "acknowledged_at"}
+        if incoming.model_dump(exclude=keep) != notice.model_dump(exclude=keep):
+            refuse("NOTICE_CHANGED")
+        for name in keep:
+            if getattr(notice, name) is not None and getattr(incoming, name) != getattr(
+                notice, name
+            ):
+                refuse("NOTICE_ACKNOWLEDGEMENT_CHANGED")
+    _check_open_proposal(before, governance, old_decided, refuse)
+    _check_baseline(before.required_baseline, governance.required_baseline, publication, refuse)
+
+
+def _check_open_proposal(
+    before: WorkflowGovernanceState,
+    governance: WorkflowGovernanceState,
+    old_decided: set[str],
+    refuse: Callable[[str], None],
+) -> None:
+    """A stored open proposal is never lost: it stays (same id, revision not lower,
+    frozen content unchanged while pending) or ends as a new, unarchived decided entry
+    with its full record, referenced by the outbox (checked with the other new entries)."""
+
+    stored = before.open_proposal
+    if stored is None:
+        return
+    incoming = governance.open_proposal
+    if incoming is not None and incoming.proposal_id == stored.proposal_id:
+        if incoming.revision < stored.revision:
+            refuse("OPEN_PROPOSAL_REVISION_DECREASED")
+        if stored.state == ProposalState.PENDING_APPROVAL and (
+            incoming.state != stored.state
+            or incoming.content_hash != stored.content_hash
+            or incoming.stages != stored.stages
+            or incoming.kind != stored.kind
+            or incoming.base_version != stored.base_version
+        ):
+            refuse("PENDING_PROPOSAL_CONTENT_CHANGED")
+        return
+    entry = next(
+        (item for item in governance.decided_proposals if item.proposal_id == stored.proposal_id),
+        None,
+    )
+    if (
+        entry is None
+        or stored.proposal_id in old_decided
+        or entry.archived
+        or entry.record is None
+        or entry.record.proposal_id != stored.proposal_id
+        or entry.record.revision < stored.revision
+    ):
+        refuse("OPEN_PROPOSAL_DROPPED")
+
+
+def _check_baseline(
+    before: RequiredBaseline,
+    incoming: RequiredBaseline,
+    publication: bool,
+    refuse: Callable[[str], None],
+) -> None:
+    """Defence in depth for the ratchet's baseline (ADR-017 2): it changes only on a
+    publication, and then only becomes stricter; no stored obligation disappears."""
+
+    if incoming == before:
+        return
+    if not publication:
+        refuse("BASELINE_CHANGED_WITHOUT_PUBLICATION")
+        return
+    stages = {item.stage_id: item for item in incoming.stages}
+    for stage in before.stages:
+        new_stage = stages.get(stage.stage_id)
+        if new_stage is None or new_stage.normalised_name != stage.normalised_name:
+            refuse("BASELINE_STAGE_REMOVED_OR_RENAMED")
+            return
+        fields = {item.field_id: item.signature for item in new_stage.fields}
+        for field in stage.fields:
+            old, new = field.signature, fields.get(field.field_id)
+            if new is None:
+                refuse("BASELINE_FIELD_REMOVED")
+                return
+            if new.kind != old.kind or new.normalised_label != old.normalised_label:
+                refuse("BASELINE_SIGNATURE_CHANGED")
+            if old.choice_options is not None and (
+                new.choice_options is None or not set(new.choice_options) <= set(old.choice_options)
+            ):
+                refuse("BASELINE_CHOICE_WIDENED")
+            if new.has_case_data_key and not old.has_case_data_key:
+                refuse("BASELINE_CASE_DATA_KEY_GAINED")
+            if new.applicability != old.applicability:
+                refuse("BASELINE_APPLICABILITY_CHANGED")
 
 
 def check_outbox_integrity(
@@ -963,7 +1060,7 @@ def prepare_governance_write(
         if highest != latest_version:
             raise ValueError("the newest hot version is the latest version")
         active, latest = active_version, latest_version
-    check_history_preserved(stored, definition, governance)
+    check_history_preserved(stored, definition, governance, publication=latest_version is not None)
     check_outbox_integrity(definition, governance, cold)
     compact_definition, compact_state = compact_history(
         definition, governance, cold, active_version=active, latest_version=latest

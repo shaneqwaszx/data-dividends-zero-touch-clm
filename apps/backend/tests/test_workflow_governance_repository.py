@@ -16,12 +16,17 @@ from test_workflow_governance_cold_store import FakeClient
 from app.domain.workflow_governance import (
     COLD_VERSIONS,
     GOVERNANCE_TOP_LEVEL_FIELDS,
+    BaselineField,
+    BaselineStage,
     ColdRecord,
+    FieldSignature,
     GovernanceEvent,
     GovernanceEventKind,
+    GovernanceNotice,
     MigrationMarker,
     ProposalKind,
     ProposalState,
+    RequiredBaseline,
     VersionOrigin,
     VersionProvenance,
     WorkflowGovernanceState,
@@ -620,3 +625,209 @@ def test_integrity_conflict_refuses_writes_even_without_a_drain(harness: Harness
             latest_version=2,
         )
     assert harness.repository.get_governed(WID) == current
+
+
+# --- QG R2 notes: open proposal, notices, baseline ------------------------------------
+
+
+def _bump(current: GovernedDefinition) -> WorkflowDefinition:
+    return current.definition.model_copy(update={"revision": current.definition.revision + 1})
+
+
+def _event(current: GovernedDefinition, kind: GovernanceEventKind, pid: str) -> GovernanceEvent:
+    return GovernanceEvent(
+        sequence=current.governance.governance_sequence + 1,
+        occurred_at=NOW,
+        actor_id="hr-author",
+        kind=kind,
+        proposal_id=pid,
+        summary=kind.value.title(),
+    )
+
+
+def _with_open_proposal(harness: Harness, *, pending: bool = False) -> GovernedDefinition:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    content = stages("Open")
+    proposal = WorkflowProposal(
+        proposal_id=str(uuid4()),
+        workflow_id=WID,
+        state=ProposalState.PENDING_APPROVAL if pending else ProposalState.DRAFT,
+        base_version=1,
+        stages=content,
+        author_id="hr-author",
+        created_at=NOW,
+        updated_at=NOW,
+        last_activity_at=NOW,
+        revision=2,
+        submitted_at=NOW if pending else None,
+        content_hash=proposal_content_hash(ProposalKind.CHANGE, content) if pending else None,
+    )
+    created = _event(current, GovernanceEventKind.PROPOSAL_CREATED, proposal.proposal_id)
+    state = current.governance
+    governance = state.model_copy(
+        update={
+            "open_proposal": proposal,
+            "governance_events": (*state.governance_events, created),
+            "outbox": (*state.outbox, outbox_for_event(WID, created)),
+            "governance_sequence": created.sequence,
+        }
+    )
+    return harness.repository.write_governance(
+        _bump(current), governance, expected_revision=current.definition.revision
+    )
+
+
+def _refused(harness: Harness, current: GovernedDefinition, governance: Any) -> None:
+    with pytest.raises(GovernanceHistoryRewriteError):
+        harness.repository.write_governance(
+            _bump(current), governance, expected_revision=current.definition.revision
+        )
+    assert harness.repository.get_governed(WID) == current
+
+
+def test_an_open_proposal_is_never_silently_dropped_or_replaced(harness: Harness) -> None:
+    current = _with_open_proposal(harness)
+    stored = current.governance.open_proposal
+    assert stored is not None
+    _refused(harness, current, current.governance.model_copy(update={"open_proposal": None}))
+    other = stored.model_copy(update={"proposal_id": str(uuid4())})
+    _refused(harness, current, current.governance.model_copy(update={"open_proposal": other}))
+    older = stored.model_copy(update={"revision": 1})
+    _refused(harness, current, current.governance.model_copy(update={"open_proposal": older}))
+    # Withdrawal: the record ends as a new, unarchived decided entry in the outbox.
+    withdrawn = stored.model_copy(
+        update={"state": ProposalState.WITHDRAWN, "withdrawn_at": NOW, "revision": 3}
+    )
+    event = _event(current, GovernanceEventKind.PROPOSAL_WITHDRAWN, stored.proposal_id)
+    state = current.governance
+    without_outbox = state.model_copy(
+        update={
+            "open_proposal": None,
+            "decided_proposals": (
+                *state.decided_proposals,
+                decided_entry(withdrawn, ended_at=NOW),
+            ),
+            "governance_events": (*state.governance_events, event),
+            "outbox": (*state.outbox, outbox_for_event(WID, event)),
+            "governance_sequence": event.sequence,
+        }
+    )
+    _refused(harness, current, without_outbox)
+    complete = without_outbox.model_copy(
+        update={"outbox": (*without_outbox.outbox, outbox_for_proposal(withdrawn))}
+    )
+    written = harness.repository.write_governance(
+        _bump(current), complete, expected_revision=current.definition.revision
+    )
+    assert written.governance.open_proposal is None
+    assert written.governance.decided_proposals[-1].record == withdrawn
+
+
+def test_a_pending_proposal_keeps_its_frozen_content(harness: Harness) -> None:
+    current = _with_open_proposal(harness, pending=True)
+    stored = current.governance.open_proposal
+    assert stored is not None
+    edited = stored.model_copy(update={"stages": stages("Edited"), "revision": 3})
+    _refused(harness, current, current.governance.model_copy(update={"open_proposal": edited}))
+    touched = stored.model_copy(update={"revision": 3})
+    written = harness.repository.write_governance(
+        _bump(current),
+        current.governance.model_copy(update={"open_proposal": touched}),
+        expected_revision=current.definition.revision,
+    )
+    assert written.governance.open_proposal == touched
+
+
+def test_notices_only_gain_an_acknowledgement(harness: Harness) -> None:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    notice = GovernanceNotice(
+        notice_id=str(uuid4()),
+        raised_at=NOW,
+        raised_by="director-one",
+        version=1,
+        reason="Emergency fallback for the test.",
+    )
+    current = harness.repository.write_governance(
+        _bump(current),
+        current.governance.model_copy(update={"notices": (notice,)}),
+        expected_revision=current.definition.revision,
+    )
+    changed = notice.model_copy(update={"reason": "A rewritten reason text."})
+    _refused(harness, current, current.governance.model_copy(update={"notices": (changed,)}))
+    _refused(harness, current, current.governance.model_copy(update={"notices": ()}))
+    acknowledged = notice.model_copy(
+        update={"acknowledged_by": "hr-author", "acknowledged_at": NOW}
+    )
+    current = harness.repository.write_governance(
+        _bump(current),
+        current.governance.model_copy(update={"notices": (acknowledged,)}),
+        expected_revision=current.definition.revision,
+    )
+    other = acknowledged.model_copy(update={"acknowledged_by": "someone-else"})
+    _refused(harness, current, current.governance.model_copy(update={"notices": (other,)}))
+
+
+def _baseline(options: tuple[str, ...], *, case_key: bool = False) -> RequiredBaseline:
+    field = WorkflowField(
+        field_id="choice",
+        label="Choice",
+        kind=WorkflowFieldKind.CHOICE,
+        options=options,
+    )
+    return RequiredBaseline(
+        seeded_from_version=1,
+        updated_at_version=1,
+        stages=(
+            BaselineStage(
+                stage_id="review",
+                normalised_name="review",
+                representative_name="Review",
+                fields=(
+                    BaselineField(
+                        field_id="choice",
+                        signature=FieldSignature(
+                            kind=WorkflowFieldKind.CHOICE,
+                            normalised_label="choice",
+                            choice_options=options,
+                            has_case_data_key=case_key,
+                        ),
+                        representative=field,
+                    ),
+                ),
+                first_published_version=1,
+                last_published_version=1,
+            ),
+        ),
+    )
+
+
+def _publish_with_baseline(
+    harness: Harness, current: GovernedDefinition, number: int, baseline: RequiredBaseline
+) -> GovernedDefinition:
+    definition, governance = approve(current, number)
+    return harness.repository.write_governance(
+        definition,
+        governance.model_copy(update={"required_baseline": baseline}),
+        expected_revision=current.definition.revision,
+        active_version=number,
+        latest_version=number,
+    )
+
+
+def test_baseline_only_tightens_and_only_on_a_publication(harness: Harness) -> None:
+    current = harness.repository.create_governed(payload(), born())
+    current = _publish_with_baseline(harness, current, 1, _baseline(("a", "b", "c")))
+    stricter = _baseline(("a", "b"))
+    _refused(
+        harness, current, current.governance.model_copy(update={"required_baseline": stricter})
+    )
+    for weaker in (
+        _baseline(("a", "b", "c", "d")),
+        _baseline(("a",), case_key=True),
+        RequiredBaseline(),
+    ):
+        with pytest.raises(GovernanceHistoryRewriteError):
+            _publish_with_baseline(harness, current, 2, weaker)
+        assert harness.repository.get_governed(WID) == current
+    written = _publish_with_baseline(harness, current, 2, stricter)
+    assert written.governance.required_baseline == stricter
