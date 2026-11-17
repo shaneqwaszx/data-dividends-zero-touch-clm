@@ -720,3 +720,75 @@ def test_after_publication_a_new_onboarding_case_is_held_until_the_stage_is_conf
         expected_revision=saved.revision,
     )
     assert world.workflows.send_hold_code(case_id) is None
+
+
+def test_a_failure_while_counting_the_report_never_fails_the_committed_decision():
+    def raising_bucket() -> Any:
+        yield (uuid4(), (SimpleNamespace(attempted_operations=None, workflow_dispatch=None),))
+
+    world = World(ledger=raising_bucket)  # has_write_marker raises on this row
+    decision = world.decide(world.submit(world.create()))
+    assert decision.published_version == 1 and decision.publication_report is None
+    assert world.state().definition.latest_version == 1
+
+
+def test_one_unreadable_workflow_never_fails_the_approval_inbox():
+    world = World()
+    world.decide(world.submit(world.create()))  # onboarding version 1 is now active
+    pending = world.submit(world.create((STAGE,)))  # a second, identical pending proposal
+    refresh = world.workflows.create_workflow(
+        lambda: HR, name="Refresh", use_case="Refresh", country="SG"
+    )
+    other_stage = STAGE.model_copy(update={"after_node_id": None})
+    other = world.submit(world.create((other_stage,), workflow_id=refresh.workflow_id))
+    # The active onboarding version can no longer be read (hot copy and cold copy gone).
+    repo = world.repository
+    current = repo._items[ONBOARDING_WORKFLOW_ID]  # noqa: SLF001
+    repo._items[ONBOARDING_WORKFLOW_ID] = current.model_copy(update={"versions": ()})  # noqa: SLF001
+    repo.get_version = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+
+    items = world.governance.approvals_inbox(DIRECTOR).items
+    assert [item.workflow_id for item in items] == [refresh.workflow_id]
+    assert items[0].proposal.proposal_id == other.proposal_id
+    with pytest.raises(WorkflowGovernanceError) as comparison:
+        world.governance.comparison(DIRECTOR, ONBOARDING_WORKFLOW_ID, pending.proposal_id)
+    assert code(comparison) == "WORKFLOW_HISTORY_UNAVAILABLE"
+    with pytest.raises(WorkflowGovernanceError) as decision:
+        world.decide(pending, acks=())
+    assert code(decision) == "WORKFLOW_HISTORY_UNAVAILABLE"
+
+
+def test_a_role_revoked_mid_request_is_refused_inside_the_lock_and_writes_nothing():
+    world = World()
+    lock = world.workflows.definition_lock
+    owned: list[bool] = []
+    reads: list[bool] = []
+
+    def revoked() -> AuthenticatedActor:
+        owned.append(lock._is_owned())  # type: ignore[attr-defined]  # noqa: SLF001
+        return ONBOARDER  # the HR role was removed after the request was accepted
+
+    original = world.repository.get_governed
+
+    def spy(workflow_id: str) -> Any:
+        reads.append(True)
+        return original(workflow_id)
+
+    before = world.state()
+    world.repository.get_governed = spy  # type: ignore[method-assign]
+    with pytest.raises(WorkflowForbiddenError):
+        world.governance.create_proposal(
+            revoked,
+            ONBOARDING_WORKFLOW_ID,
+            CreateProposalRequest(expected_workflow_revision=world.revision(), stages=(STAGE,)),
+        )
+    assert owned == [True] and reads == []  # refused inside the lock, before any read
+    world.repository.get_governed = original  # type: ignore[method-assign]
+    after = world.state()
+    assert after.definition == before.definition and after.governance == before.governance
+
+    pending = world.submit(world.create())
+    with pytest.raises(WorkflowForbiddenError):  # a Director demoted to HR cannot decide
+        world.decide(pending, by=actor("olivia-koh", Role.HR))
+    assert world.state().governance.open_proposal.state == ProposalState.PENDING_APPROVAL
+    assert world.state().definition.versions == ()

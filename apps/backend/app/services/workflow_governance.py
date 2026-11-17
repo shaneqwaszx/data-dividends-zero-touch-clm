@@ -308,8 +308,17 @@ class WorkflowGovernanceService:
             proposal = governed.governance.open_proposal
             if proposal is None or proposal.state != ProposalState.PENDING_APPROVAL:
                 continue
-            number, active = self._active(governed)
             definition = governed.definition
+            try:
+                number, active = self._active(governed)
+            except (WorkflowGovernanceError, PersistenceError) as error:
+                # One unreadable workflow never fails the inbox; its comparison and
+                # decision still fail closed (503) on their own.
+                LOGGER.warning(
+                    "approval inbox item unavailable",
+                    extra={"workflow_id": definition.workflow_id, "reason": type(error).__name__},
+                )
+                continue
             items.append(
                 ApprovalInboxItem(
                     workflow_id=definition.workflow_id,
@@ -782,27 +791,33 @@ class WorkflowGovernanceService:
         to count never undoes or fails the committed decision."""
 
         now = self._clock()
-        past_first_write = authorised = possibly = 0
-        if stored.definition.is_onboarding:
-            if self._ledger is None:
-                return None
-            try:
-                rows = list(self._ledger())
-            except Exception:  # noqa: BLE001
-                LOGGER.warning("publication report unavailable")
-                return None
-            for _case_id, entries in rows:
-                bucket = _case_bucket(entries, published, now)
-                past_first_write += bucket == "WRITE"
-                authorised += bucket == "AUTHORISED"
-                possibly += bucket == "TENTATIVE"
-        return PublicationReport(
-            published_version=published,
-            cases_past_first_write_under_earlier_version=past_first_write,
-            cases_authorised_under_earlier_version=authorised,
-            cases_possibly_authorised=possibly,
-            counted_at=now,
-        )
+        if stored.definition.is_onboarding and self._ledger is None:
+            return None
+        try:
+            past_first_write = authorised = possibly = 0
+            if stored.definition.is_onboarding:
+                assert self._ledger is not None
+                for _case_id, entries in self._ledger():
+                    bucket = _case_bucket(entries, published, now)
+                    past_first_write += bucket == "WRITE"
+                    authorised += bucket == "AUTHORISED"
+                    possibly += bucket == "TENTATIVE"
+            return PublicationReport(
+                published_version=published,
+                cases_past_first_write_under_earlier_version=past_first_write,
+                cases_authorised_under_earlier_version=authorised,
+                cases_possibly_authorised=possibly,
+                counted_at=now,
+            )
+        except Exception as error:  # noqa: BLE001 - the decision is already committed
+            LOGGER.warning(
+                "publication report unavailable",
+                extra={
+                    "workflow_id": stored.definition.workflow_id,
+                    "reason": type(error).__name__,
+                },
+            )
+            return None
 
     def _report(
         self,
