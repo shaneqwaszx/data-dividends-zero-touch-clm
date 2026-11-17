@@ -76,7 +76,13 @@ function fakeServer(options: ServerOptions = {}) {
   let revision = 4;
   let proposal: ProposalResponse | null = options.proposal ?? null;
   const calls: Call[] = [];
-  const control = { failDetail: false, putConflict: options.putConflictOnce ?? false };
+  const control = {
+    /** HTTP status for the next detail reads (0 = succeed). */
+    failDetail: 0, failList: 0, putConflict: options.putConflictOnce ?? false,
+  };
+  const failure = (status: number) => status >= 500
+    ? json({ detail: fixture("error_history_unavailable.json") }, status)
+    : json({ detail: { code: status === 404 ? "WORKFLOW_NOT_FOUND" : "WORKFLOW_FORBIDDEN", message: "Server text." } }, status);
   const workflow = (): WorkflowDetail => ({
     workflow_id: WID, name: "Corporate onboarding", use_case: "Onboarding", country: "Singapore",
     case_source: "EXISTING_CASE", revision, is_onboarding: true, status: "ACTIVE", active_version: 2,
@@ -97,10 +103,10 @@ function fakeServer(options: ServerOptions = {}) {
     const body = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
     calls.push({ method, url, body });
     const base = `/api/workflows/${WID}`;
-    if (method === "GET" && url === "/api/workflows") return json([workflow()]);
+    if (method === "GET" && url === "/api/workflows") return control.failList ? failure(control.failList) : json([workflow()]);
     if (method === "GET" && url === "/api/workflows/simulation-scenarios") return json(fixture("simulation_scenarios.json"));
     if (method === "GET" && url === base) {
-      if (control.failDetail) return json({ detail: fixture("error_history_unavailable.json") }, 503);
+      if (control.failDetail) return failure(control.failDetail);
       return json(workflow());
     }
     if (method === "POST" && url === `${base}/proposals`) {
@@ -111,6 +117,8 @@ function fakeServer(options: ServerOptions = {}) {
     if (method === "PUT" && url === `${base}/proposals/${PID}`) {
       if (control.putConflict) {
         control.putConflict = false;
+        // Someone else saved the same proposal (for example the author in another tab).
+        proposal = { ...proposal!, revision: proposal!.revision + 1, stages: [{ ...proposal!.stages[0], name: "Changed elsewhere" }] };
         revision += 1;
         return json({ detail: { code: "WORKFLOW_CONFLICT", message: "Conflict." } }, 409);
       }
@@ -390,7 +398,7 @@ describe("editor resilience and role shaping (QG P3)", () => {
     type(stageNameInput(host), "Unsaved edit");
     await click(host, "Save changes");
     expect(host.querySelector('[data-testid="governance-refusal"]')?.textContent).toContain(CONFLICT_TEXT);
-    server.control.failDetail = true;
+    server.control.failDetail = 503;
     await click(host, "Reload");
     expect(host.querySelector('[data-testid="workflow-refresh-error"]')?.textContent).toContain("unsaved changes, is kept");
     expect(stageNameInput(host).value).toBe("Unsaved edit");
@@ -398,7 +406,7 @@ describe("editor resilience and role shaping (QG P3)", () => {
     expect(buttonTexts(host)).toContain("Save changes");
   });
 
-  it("offers Reload after a conflict, refetches the workflow and clears the stale validation", async () => {
+  async function conflictThenReload() {
     const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
     const host = await openEditor();
     await click(host, "Validate");
@@ -412,10 +420,110 @@ describe("editor resilience and role shaping (QG P3)", () => {
     expect(detailReads()).toBe(before + 1);
     expect(host.querySelector('[data-testid="governance-refusal"]')).toBeNull();
     expect(host.querySelector('[data-testid="validation-report"]')).toBeNull();
+    return { server, host };
+  }
+
+  it("never silently overwrites a proposal changed elsewhere: it shows the saved version and asks", async () => {
+    const { server, host } = await conflictThenReload();
+    const banner = host.querySelector('[data-testid="proposal-changed-elsewhere"]')!;
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(banner.textContent).toContain("revision 4");
+    expect(banner.textContent).toContain("based on revision 3");
+    expect(host.querySelector('[data-testid="server-version"]')?.textContent).toContain("Changed elsewhere");
     expect(stageNameInput(host).value).toBe("Edited");
-    await click(host, "Save changes");
-    expect(server.mutations().at(-1)?.body).toMatchObject({ expected_workflow_revision: 5, expected_proposal_revision: 3 });
+    expect(button(host, "Save changes").disabled).toBe(true);
+    const writes = server.mutations().filter(call => call.method === "PUT").length;
+
+    await click(host, "Keep my edits");
+    expect(host.querySelector('[data-testid="proposal-changed-elsewhere"]')).toBeNull();
     expect(button(host, "Submit for approval").disabled).toBe(true);
+    expect(server.mutations().filter(call => call.method === "PUT")).toHaveLength(writes);
+    await click(host, "Save changes");
+    expect(server.mutations().at(-1)?.body).toMatchObject({ expected_workflow_revision: 5, expected_proposal_revision: 4 });
+    expect(button(host, "Submit for approval").disabled).toBe(true);
+    await click(host, "Validate");
+    expect(button(host, "Submit for approval").disabled).toBe(false);
+  });
+
+  it("can discard local edits and load the version saved elsewhere", async () => {
+    const { server, host } = await conflictThenReload();
+    const writes = server.mutations().filter(call => call.method === "PUT").length;
+    await click(host, "Discard my edits and load the saved version");
+    expect(host.querySelector('[data-testid="proposal-changed-elsewhere"]')).toBeNull();
+    expect(stageNameInput(host).value).toBe("Changed elsewhere");
+    expect(host.textContent).not.toContain("Unsaved changes");
+    expect(button(host, "Save changes").disabled).toBe(true);
+    expect(server.mutations().filter(call => call.method === "PUT")).toHaveLength(writes);
+  });
+
+  it("does not offer Reload as the remedy for a stale proposal", async () => {
+    fakeServer({ proposal: DRAFT });
+    // A STALE refusal body (frozen code) on submit.
+    const stale = { code: "WORKFLOW_PROPOSAL_STALE", message: "Stale.", rule: null, issues: [] };
+    const original = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/submit")
+      ? json({ detail: stale }, 409) : original(input, init)));
+    const host = await openEditor();
+    await click(host, "Validate");
+    await click(host, "Submit for approval");
+    const refusal = host.querySelector('[data-testid="governance-refusal"]')!;
+    expect(refusal.textContent).toContain(GOVERNANCE_ERROR_MESSAGES.WORKFLOW_PROPOSAL_STALE);
+    expect([...refusal.querySelectorAll("button")].map(item => item.textContent)).toEqual(["Show current status"]);
+  });
+
+  it.each([401, 403, 404])("drops the cached editor when a refetch returns %i", async status => {
+    const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
+    const host = await openEditor();
+    type(stageNameInput(host), "Unsaved edit");
+    await click(host, "Save changes");
+    server.control.failDetail = status;
+    await click(host, "Reload");
+    expect(host.querySelector('[aria-label="Stage settings"]')).toBeNull();
+    expect(host.textContent).not.toContain("Unsaved edit");
+    const unavailable = host.querySelector('[data-testid="workflow-unavailable"]')!.textContent;
+    if (status !== 401) expect(unavailable).toBe("This workflow is not available.");
+  });
+
+  it("removes the dropped workflow from the cache when leaving", async () => {
+    const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => root!.render(<QueryClientProvider client={client}><WorkflowManager actor={hr} /></QueryClientProvider>));
+    await settle();
+    await click(host, "Edit");
+    type(stageNameInput(host), "x");
+    await click(host, "Save changes");
+    server.control.failDetail = 404;
+    await click(host, "Reload");
+    expect(client.getQueryData(["auth", hr.user_id, "workflows", "detail", WID])).toBeDefined();
+    await click(host, "← Back to Workflows");
+    expect(client.getQueryData(["auth", hr.user_id, "workflows", "detail", WID])).toBeUndefined();
+  });
+
+  it("shows a non-destructive banner with Reload when the list refetch fails", async () => {
+    const server = fakeServer();
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => root!.render(<QueryClientProvider client={client}><WorkflowManager actor={hr} /></QueryClientProvider>));
+    await settle();
+    server.control.failList = 503;
+    await act(async () => { await client.refetchQueries({ queryKey: ["auth", hr.user_id, "workflows"], exact: true }); });
+    await settle();
+    expect(host.querySelector('[data-testid="workflow-list-refresh-error"]')?.textContent).toContain("may be out of date");
+    expect(host.textContent).toContain("Corporate onboarding");
+    server.control.failList = 0;
+    await click(host, "Reload");
+    expect(host.querySelector('[data-testid="workflow-list-refresh-error"]')).toBeNull();
+    expect(host.textContent).toContain("Corporate onboarding");
+
+    server.control.failList = 403;
+    await act(async () => { await client.refetchQueries({ queryKey: ["auth", hr.user_id, "workflows"], exact: true }); });
+    await settle();
+    expect(host.textContent).not.toContain("Corporate onboarding");
   });
 
   it("shows New workflow only to holders of POLICY_MUTATE", async () => {

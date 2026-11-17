@@ -141,8 +141,19 @@ export function governanceRefusal(error: unknown): GovernanceRefusal {
 
 /** Refusals caused by out-of-date local state; the editor offers a Reload for these. */
 export const RELOADABLE_CODES: ReadonlySet<string> = new Set([
-  "WORKFLOW_CONFLICT", "WORKFLOW_PROPOSAL_NOT_FOUND", "WORKFLOW_PROPOSAL_STATE_INVALID", "WORKFLOW_PROPOSAL_STALE",
+  "WORKFLOW_CONFLICT", "WORKFLOW_PROPOSAL_NOT_FOUND", "WORKFLOW_PROPOSAL_STATE_INVALID",
 ]);
+
+/**
+ * A stale proposal cannot be fixed by reloading: its remedy is withdraw and propose again (the message says
+ * so). The editor only offers to refresh the page so the STALE state is shown.
+ */
+export const SHOW_STATUS_CODES: ReadonlySet<string> = new Set(["WORKFLOW_PROPOSAL_STALE"]);
+
+/** Access was lost or the item is gone: cached workflow data must not stay on screen (safe 404; 401 via session). */
+export function isAccessLoss(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
 
 export function governanceErrorMessage(error: unknown): string {
   return governanceRefusal(error).message;

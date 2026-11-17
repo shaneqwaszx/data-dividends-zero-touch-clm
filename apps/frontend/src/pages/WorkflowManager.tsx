@@ -9,6 +9,7 @@ import {
   VersionHistoryList,
 } from "../components/workflow-governance/GovernancePanels";
 import { SimulationPanel } from "../components/workflow-governance/SimulationPanel";
+import { ApiError } from "../api";
 import type { AuthenticatedProfile } from "../types";
 import {
   createWorkflow,
@@ -27,6 +28,8 @@ import {
   governanceErrorMessage,
   governanceRefusal,
   RELOADABLE_CODES,
+  SHOW_STATUS_CODES,
+  isAccessLoss,
   submitProposal,
   updateProposal,
   validateProposal,
@@ -186,8 +189,19 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
   const [validating, setValidating] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [note, setNote] = useState("");
+  // The proposal revision the local stages are based on. A newer server revision while there are
+  // unsaved edits means the proposal changed elsewhere: never rebase silently (QG R1 P3-1).
+  const [basedOn, setBasedOn] = useState<number | null>(proposal?.revision ?? null);
   const validateController = useRef<AbortController | null>(null);
   useEffect(() => () => validateController.current?.abort(), []);
+  useEffect(() => {
+    // Without local edits, simply follow the server's latest content.
+    if (proposal && !dirty && proposal.revision !== basedOn) {
+      setStages(proposal.stages);
+      setBasedOn(proposal.revision);
+      setValidation(null);
+    }
+  }, [proposal, dirty, basedOn]);
   const anchors = workflow.locked_stages.slice(0, -1);
   const selected = stages.find(stage => stage.stage_id === selectedId) ?? null;
   const problem = editable ? draftProblem(stages, workflow.is_onboarding) : null;
@@ -235,12 +249,13 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
   });
   const save = useMutation({
     mutationFn: async () => {
-      await updateProposal(workflow.workflow_id, proposal!.proposal_id, {
+      const saved = await updateProposal(workflow.workflow_id, proposal!.proposal_id, {
         expected_workflow_revision: workflow.revision,
         expected_proposal_revision: proposal!.revision,
         stages,
         note: proposal!.note,
       });
+      setBasedOn(saved.revision);
       await onChanged();
     },
     onSuccess: () => { setDirty(false); onNotice("Changes saved to your proposal. It is not submitted."); },
@@ -289,6 +304,7 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
   }
 
   const busy = create.isPending || save.isPending || submit.isPending || withdraw.isPending || validating;
+  const diverged = editable && dirty && !save.isPending && basedOn !== null && proposal!.revision !== basedOn;
   const validatedCurrent = validation !== null && validation.snapshot === snapshot(stages);
   const canSubmit = editable && proposal!.can_submit && !dirty && !busy && problem === null
     && validation !== null && validation.report.valid && validatedCurrent;
@@ -304,6 +320,19 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
     onNotice(null);
     void onChanged();
   }
+  function discardLocalEdits() {
+    if (!proposal) return;
+    setStages(proposal.stages);
+    setBasedOn(proposal.revision);
+    setDirty(false);
+    setValidation(null);
+    setSelectedId(proposal.stages[0]?.stage_id ?? null);
+  }
+  function keepLocalEdits() {
+    // The edits stay unsaved; an old validation never carries over, so submit needs a new one.
+    setBasedOn(proposal!.revision);
+    setValidation(null);
+  }
   function confirmWithdraw() {
     if (window.confirm("Withdraw this proposal? It ends here and can't be submitted again.")) withdraw.mutate();
   }
@@ -318,7 +347,7 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
         </div>
         <div className="case-header-actions">
           {editable && <>
-            <button type="button" className="btn btn-secondary" disabled={busy || !dirty} onClick={() => save.mutate()}>Save changes</button>
+            <button type="button" className="btn btn-secondary" disabled={busy || !dirty || diverged} onClick={() => save.mutate()}>Save changes</button>
             <button type="button" className="btn btn-secondary" disabled={busy || problem !== null} onClick={() => void validate()}>Validate</button>
             <button type="button" className="btn btn-secondary" aria-expanded={simulating} aria-controls="workflow-simulation" onClick={() => setSimulating(value => !value)}>Simulate</button>
             <button type="button" className="btn btn-primary" disabled={!canSubmit} aria-describedby="submit-hint" onClick={() => submit.mutate()}>Submit for approval</button>
@@ -365,7 +394,26 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
           <button type="button" className="btn btn-secondary" onClick={reload}>Reload</button>
         </div>
       )}
-      {refusal && <GovernanceRefusalPanel refusal={refusal} onReload={refusal.code && RELOADABLE_CODES.has(refusal.code) ? reload : undefined} />}
+      {diverged && (
+        <div className="ds-banner ds-banner-warn" role="alert" data-testid="proposal-changed-elsewhere" style={{ marginBottom: 16 }}>
+          <p style={{ margin: 0 }}>
+            <strong>This proposal was changed elsewhere.</strong> The saved version is now revision {proposal!.revision}; your
+            unsaved edits are based on revision {basedOn}. Choose what to do before saving.
+          </p>
+          <p className="card-kicker" style={{ marginTop: 8 }}>Saved version</p>
+          <ol data-testid="server-version">{proposal!.stages.map(stage => (
+            <li key={stage.stage_id}>{stage.name} · {stage.fields.length} {stage.fields.length === 1 ? "field" : "fields"}</li>
+          ))}</ol>
+          <div className="case-header-actions" style={{ justifyContent: "flex-start" }}>
+            <button type="button" className="btn btn-secondary" onClick={discardLocalEdits}>Discard my edits and load the saved version</button>
+            <button type="button" className="btn btn-ghost" onClick={keepLocalEdits}>Keep my edits</button>
+          </div>
+          <p className="text-muted" style={{ margin: "6px 0 0" }}>Keeping your edits replaces the saved version when you save, and you must validate again before submitting.</p>
+        </div>
+      )}
+      {refusal && <GovernanceRefusalPanel refusal={refusal}
+        onReload={refusal.code && (RELOADABLE_CODES.has(refusal.code) || SHOW_STATUS_CODES.has(refusal.code)) ? reload : undefined}
+        reloadLabel={refusal.code && SHOW_STATUS_CODES.has(refusal.code) ? "Show current status" : "Reload"} />}
       {problem && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{problem}</div>}
       {editable && validation && <ValidationReportPanel report={validation.report} current={validatedCurrent} />}
       {editable && simulating && proposal && (
@@ -494,12 +542,22 @@ function GovernedWorkflowEditor({ actor, workflowId, workflows, onBack }: {
     () => queryClient.invalidateQueries({ queryKey: workflowQueryKeys.list(actor.user_id) }),
     [queryClient, actor.user_id],
   );
+  const detailKey = workflowQueryKeys.detail(actor.user_id, workflowId);
+  const accessLost = detail.isError && isAccessLoss(detail.error);
+  // Lost access (401/403/404): the cached workflow is dropped when leaving, never shown again.
+  useEffect(() => {
+    if (!accessLost) return undefined;
+    return () => queryClient.removeQueries({ queryKey: detailKey, exact: true });
+  }, [accessLost, queryClient, detailKey]);
   if (detail.isPending) return <p className="text-muted">Loading workflow…</p>;
-  // Only a failed first load replaces the editor; a failed background refetch keeps the cached data.
-  if (detail.isError && detail.data === undefined) {
+  // A failed first load, or lost access, replaces the editor. A network or 5xx refetch failure keeps the cached data.
+  if (detail.isError && (detail.data === undefined || accessLost)) {
     return <>
       <button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Workflows</button>
-      <p className="ds-banner ds-banner-warn">{governanceErrorMessage(detail.error)}</p>
+      <p className="ds-banner ds-banner-warn" data-testid="workflow-unavailable">
+        {accessLost && detail.error instanceof ApiError && detail.error.status !== 401
+          ? "This workflow is not available." : governanceErrorMessage(detail.error)}
+      </p>
     </>;
   }
   const workflow = detail.data;
@@ -534,7 +592,7 @@ export default function WorkflowManager({ actor }: { actor: AuthenticatedProfile
   });
 
   if (query.isPending) return <section className="ds-root ds-page"><p className="text-muted">Loading workflows…</p></section>;
-  if (query.isError && query.data === undefined) return <section className="ds-root ds-page"><p className="ds-banner ds-banner-warn">{workflowErrorMessage(query.error)}</p></section>;
+  if (query.isError && (query.data === undefined || isAccessLoss(query.error))) return <section className="ds-root ds-page"><p className="ds-banner ds-banner-warn">{workflowErrorMessage(query.error)}</p></section>;
   if (query.data === null) {
     return <section className="ds-root ds-page"><h1>Workflows</h1><p className="text-muted">Workflow management is switched off on this server.</p></section>;
   }
@@ -554,6 +612,12 @@ export default function WorkflowManager({ actor }: { actor: AuthenticatedProfile
           <div className="case-header-actions"><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New workflow</button></div>
         )}
       </div>
+      {query.isError && (
+        <div className="ds-banner ds-banner-warn" role="alert" data-testid="workflow-list-refresh-error" style={{ marginBottom: 16 }}>
+          The latest workflow list could not be loaded: {workflowErrorMessage(query.error)} The list below may be out of date.{" "}
+          <button type="button" className="btn btn-secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Reload</button>
+        </div>
+      )}
       {creating && (
         <section className="card" aria-labelledby="new-workflow" style={{ marginBottom: 16 }}>
           <h2 id="new-workflow">New workflow</h2>

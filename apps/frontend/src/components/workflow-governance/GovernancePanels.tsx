@@ -27,12 +27,14 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
 }
 
 /** A refused request, with each ratchet issue under its rule id. */
-export function GovernanceRefusalPanel({ refusal, onReload }: { refusal: GovernanceRefusal; onReload?: () => void }) {
+export function GovernanceRefusalPanel({ refusal, onReload, reloadLabel = "Reload" }: {
+  refusal: GovernanceRefusal; onReload?: () => void; reloadLabel?: string;
+}) {
   return (
     <div className="ds-banner ds-banner-warn" role="alert" data-testid="governance-refusal" style={{ marginBottom: 16 }}>
       <p style={{ margin: 0 }}>{refusal.message}</p>
       {refusal.issues.length > 0 && <IssueList issues={refusal.issues} />}
-      {onReload && <button type="button" className="btn btn-secondary" style={{ marginTop: 8 }} onClick={onReload}>Reload</button>}
+      {onReload && <button type="button" className="btn btn-secondary" style={{ marginTop: 8 }} onClick={onReload}>{reloadLabel}</button>}
     </div>
   );
 }
