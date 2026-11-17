@@ -699,6 +699,20 @@ continue.
 It cannot bypass the ratchet, the mandatory stages, D-136 enforcement, the fence, ledgers or
 recovery.
 
+**Owner clarification (2026-11-18): the fallback never expands the baseline.**
+- A Director's single-actor emergency fallback must not expand the permanent required-obligation
+  baseline. It preserves every existing obligation (the safe target), and adds none.
+- If the target would add or tighten any permanent obligation, the fallback is refused with
+  `422 WORKFLOW_PROPOSAL_INVALID`, listing each obligation. Examples: a required stage or field
+  not in the baseline, a narrower CHOICE intersection, or a dropped `case_data_key`. Nothing is
+  written.
+- Stripping the extra required content instead is not allowed. Later candidates are checked
+  against the active version, so that content would become sticky anyway.
+- A fallback to the built-in default (the baseline's own representative content), or to any
+  version within the baseline, remains available. On success the stored baseline is unchanged.
+- Any additional permanent obligation goes through a normal proposal and one Director's
+  approval, with the §1.3 warning and acknowledgement.
+
 **Deactivate:**
 - It is applied under the definition lock and **never modifies any run**.
 - Existing runs keep their frozen stages and remain completable: answer, confirm and view.
