@@ -216,3 +216,8 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
     0, and `latest_version` and the baseline are kept.
   - It applies to non-onboarding workflows only, and only while a version is active
     (`active_version == latest_version > 0`).
+- **CC-6 (2026-11-18, integrator). Additive.**
+  - `ProposalResponse` gains four optional fields, all defaulting to null:
+    `restore_target_version`, `copied_from`, `released_by` and `release_reason` (PR-7 QG P3-3).
+  - The `VersionProvenance` validator now enforces that an `EMERGENCY_FALLBACK` version has no
+    `author_id` and no `approved_by`, and names its Director in `activated_by` (PR-7 QG P3-4).

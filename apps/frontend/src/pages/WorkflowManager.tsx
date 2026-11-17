@@ -6,8 +6,9 @@ import {
   GovernanceRefusalPanel,
   ProposalStatus,
   ValidationReportPanel,
-  VersionHistoryList,
 } from "../components/workflow-governance/GovernancePanels";
+import { WorkflowNoticesPanel } from "../components/workflow-governance/NoticesPanel";
+import { EmergencyFallbackPanel, HistoryRecoveryPanel, ReleaseDraftPanel } from "../components/workflow-governance/RecoveryPanels";
 import { SimulationPanel } from "../components/workflow-governance/SimulationPanel";
 import { ApiError } from "../api";
 import type { AuthenticatedProfile } from "../types";
@@ -37,6 +38,7 @@ import {
   type GovernanceRefusal,
 } from "../workflowGovernanceApi";
 import type { CreateProposalRequest, ValidationReport } from "../workflowGovernanceTypes";
+import { fixedContentKind } from "../workflowRecoveryApi";
 import { ONBOARDING_STAGE_TEMPLATES } from "../workflowStageTemplates";
 
 const FIELD_KINDS: Array<{ kind: WorkflowFieldKind; label: string }> = [
@@ -171,15 +173,21 @@ const snapshot = (stages: WorkflowStage[]) => JSON.stringify(stages);
  * route reauthorizes the actor. `onChanged` refetches the workflow so the next request carries the
  * current workflow and proposal revisions.
  */
-export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged, notice = null, onNotice = () => {}, refreshError = null }: {
+export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onChanged, notice = null, onNotice = () => {}, refreshError = null }: {
   workflow: WorkflowDetail; workflows: WorkflowDetail[]; userId: string; onBack: () => void;
+  /** M2 UI shaping (HR recovery, Director emergency fallback); the backend decides. */
+  actor?: Pick<AuthenticatedProfile, "user_id" | "capabilities">;
   onChanged: () => Promise<unknown>; notice?: string | null; onNotice?: (text: string | null) => void;
   /** A background refetch failed; the cached workflow and any unsaved edits stay on screen. */
   refreshError?: string | null;
 }) {
+  const viewer = actor ?? { user_id: userId, capabilities: [] };
   const governance = workflow.governance?.migrated ? workflow.governance : null;
   const proposal = governance?.open_proposal ?? null;
-  const editable = proposal !== null && proposal.state === "DRAFT" && proposal.can_edit;
+  const ownDraft = proposal !== null && proposal.state === "DRAFT" && proposal.can_edit;
+  // Restore, reset and deactivate carry backend-computed content: validate and submit only, never edit.
+  const fixedDraft = ownDraft && fixedContentKind(proposal!.kind);
+  const editable = ownDraft && !fixedDraft;
   const [stages, setStages] = useState<WorkflowStage[]>(() => proposal?.stages ?? activeStages(workflow));
   const [selectedId, setSelectedId] = useState<string | null>(stages[0]?.stage_id ?? null);
   const [dirty, setDirty] = useState(false);
@@ -302,7 +310,7 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
     setValidating(true);
     setRefusal(null);
     try {
-      const report = await validateProposal(workflow.workflow_id, proposal.proposal_id, { stages }, controller.signal);
+      const report = await validateProposal(workflow.workflow_id, proposal.proposal_id, fixedDraft ? {} : { stages }, controller.signal);
       if (!controller.signal.aborted) setValidation({ report, snapshot: sent });
     } catch (error) {
       if (!controller.signal.aborted) onError(error);
@@ -314,7 +322,7 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
   const busy = create.isPending || save.isPending || submit.isPending || withdraw.isPending || validating;
   const diverged = editable && dirty && !save.isPending && basedOn !== null && proposal!.revision !== basedOn;
   const validatedCurrent = validation !== null && validation.snapshot === snapshot(stages);
-  const canSubmit = editable && proposal!.can_submit && !dirty && !busy && problem === null
+  const canSubmit = ownDraft && proposal!.can_submit && !dirty && !busy && problem === null
     && validation !== null && validation.report.valid && validatedCurrent;
   const selectedIndex = stages.findIndex(stage => stage.stage_id === selectedId);
   function leave() {
@@ -360,6 +368,10 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
             <button type="button" className="btn btn-secondary" aria-expanded={simulating} aria-controls="workflow-simulation" onClick={() => setSimulating(value => !value)}>Simulate</button>
             <button type="button" className="btn btn-primary" disabled={!canSubmit} aria-describedby="submit-hint" onClick={() => submit.mutate()}>Submit for approval</button>
           </>}
+          {fixedDraft && <>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void validate()}>Validate</button>
+            <button type="button" className="btn btn-primary" disabled={!canSubmit} aria-describedby="submit-hint" onClick={() => submit.mutate()}>Submit for approval</button>
+          </>}
           {proposal && proposal.can_withdraw && (proposal.state === "DRAFT" || proposal.state === "PENDING_APPROVAL") && (
             <button type="button" className="btn btn-danger" disabled={busy} onClick={confirmWithdraw}>Withdraw</button>
           )}
@@ -388,7 +400,8 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
         </section>
       )}
       {proposal && <ProposalStatus proposal={proposal} />}
-      {editable && (
+      {proposal && <ReleaseDraftPanel workflow={workflow} proposal={proposal} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
+      {ownDraft && (
         <p id="submit-hint" className="text-muted" style={{ marginTop: 0 }}>
           {dirty ? "Save your changes, then validate before submitting."
             : !validatedCurrent ? "Validate the current content before submitting."
@@ -423,7 +436,7 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
         onReload={refusal.code && (RELOADABLE_CODES.has(refusal.code) || SHOW_STATUS_CODES.has(refusal.code)) ? reload : undefined}
         reloadLabel={refusal.code && SHOW_STATUS_CODES.has(refusal.code) ? "Show current status" : "Reload"} />}
       {problem && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{problem}</div>}
-      {editable && validation && <ValidationReportPanel report={validation.report} current={validatedCurrent} />}
+      {ownDraft && validation && <ValidationReportPanel report={validation.report} current={validatedCurrent} />}
       {editable && simulating && proposal && (
         <SimulationPanel id="workflow-simulation" userId={userId} workflowId={workflow.workflow_id} proposalId={proposal.proposal_id} stages={stages} />
       )}
@@ -520,7 +533,8 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
       </div>
 
       <EntityApplicabilityPlaceholder />
-      {governance && <VersionHistoryList governance={governance} />}
+      {governance && <HistoryRecoveryPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
+      {governance && <EmergencyFallbackPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
 
       <section className="card" aria-labelledby="workflow-history" style={{ marginTop: 16 }}>
         <h2 id="workflow-history">History</h2>
@@ -577,7 +591,7 @@ function GovernedWorkflowEditor({ actor, workflowId, workflows, onBack }: {
   const proposalId = workflow.governance?.open_proposal?.proposal_id ?? "none";
   return (
     <WorkflowEditor key={`${workflow.workflow_id}:${proposalId}`} workflow={workflow} workflows={workflows}
-      userId={actor.user_id} onBack={onBack} onChanged={refresh} notice={notice} onNotice={setNotice}
+      userId={actor.user_id} actor={actor} onBack={onBack} onChanged={refresh} notice={notice} onNotice={setNotice}
       refreshError={detail.isError ? governanceErrorMessage(detail.error) : null} />
   );
 }
@@ -612,6 +626,7 @@ export default function WorkflowManager({ actor }: { actor: AuthenticatedProfile
   if (open) {
     return (
       <section className="ds-root ds-page">
+        <WorkflowNoticesPanel actor={actor} workflowId={open.workflow_id} />
         <GovernedWorkflowEditor key={open.workflow_id} actor={actor} workflowId={open.workflow_id} workflows={workflows} onBack={() => setOpenId(null)} />
       </section>
     );
@@ -625,6 +640,7 @@ export default function WorkflowManager({ actor }: { actor: AuthenticatedProfile
           <div className="case-header-actions"><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New workflow</button></div>
         )}
       </div>
+      <WorkflowNoticesPanel actor={actor} />
       {query.isError && (
         <div className="ds-banner ds-banner-warn" role="alert" data-testid="workflow-list-refresh-error" style={{ marginBottom: 16 }}>
           The latest workflow list could not be loaded: {workflowErrorMessage(query.error)} The list below may be out of date.{" "}

@@ -180,6 +180,11 @@ class ProposalResponse(_Contract):
     decision_reason: str | None
     published_version: int | None
     stale_by_version: int | None
+    # CC-6 (additive): stored recovery and administration fields
+    restore_target_version: int | None = None
+    copied_from: str | None = None
+    released_by: str | None = None
+    release_reason: str | None = None
     # Server-computed for the caller (never trusted from the client):
     can_edit: bool
     can_submit: bool
@@ -218,6 +223,10 @@ class ProposalResponse(_Contract):
             decision_reason=item.decision_reason,
             published_version=item.published_version,
             stale_by_version=item.stale_by_version,
+            restore_target_version=item.restore_target_version,
+            copied_from=item.copied_from,
+            released_by=item.released_by,
+            release_reason=item.release_reason,
             can_edit=can_edit,
             can_submit=can_submit,
             can_withdraw=can_withdraw,
