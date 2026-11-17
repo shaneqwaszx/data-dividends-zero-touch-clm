@@ -73,6 +73,7 @@ from app.domain.workflow_governance import (
     ProposalOrigin,
     ProposalState,
     RatchetRule,
+    RequiredBaseline,
     VersionOrigin,
     VersionProvenance,
     WorkflowGovernanceState,
@@ -776,31 +777,17 @@ class WorkflowGovernanceService:
             )
             director = actor.profile.user_id
             published = (definition.latest_version or 0) + 1
-            # Transparency only (QG P3-2; publication unchanged): obligations this
-            # fallback makes permanent without the section 1.3 acknowledgement.
-            added = permanent_obligations(stages, active=active, baseline=state.required_baseline)
-            if added:
-                LOGGER.warning(
-                    "emergency fallback adds permanent obligations",
-                    extra={
-                        "workflow_id": definition.workflow_id,
-                        "version": published,
-                        "obligations": [
-                            f"{item.key.stage_id}/{item.key.field_id or '-'}" for item in added
-                        ],
-                    },
-                )
-            target_label = (
-                f"v{request.target_version}" if request.target == "VERSION" else "the default"
-            )
-            plural = "" if len(added) == 1 else "s"
-            fallback_summary = (
-                f"Emergency fallback to {target_label} (version {published}); "
-                f"{len(added)} new permanent obligation{plural}"
-            )[:160]
             version = WorkflowVersion(
                 version=published, stages=stages, activated_at=now, activated_by=director
             )
+            # Owner policy (2026-11-18): a single-actor fallback never expands the
+            # permanent baseline. Every existing obligation is kept (the safe target);
+            # anything new or tighter goes through a proposal and a Director's approval.
+            _refuse_new_permanent_obligations(stages, active, state.required_baseline, version)
+            target_label = (
+                f"v{request.target_version}" if request.target == "VERSION" else "the default"
+            )
+            fallback_summary = f"Emergency fallback to {target_label} (version {published})"[:160]
             provenance = VersionProvenance(
                 version=published,
                 origin=VersionOrigin.EMERGENCY_FALLBACK,
@@ -841,18 +828,22 @@ class WorkflowGovernanceService:
                 )
             )
             outcome = (version, provenance, notice, () if staled is None else (staled.proposal_id,))
-            return outcome, self._write(
+            write = self._write(
                 governed,
                 now,
                 open_proposal=None,
                 decided=staled,
                 version=version,
-                required_baseline=self._advanced(state.required_baseline, version),
+                # The baseline is kept exactly as stored (never advanced by a fallback).
                 version_provenance=(*state.version_provenance, provenance),
                 notices=(*state.notices, notice),
                 events=events,
                 summaries={GovernanceEventKind.EMERGENCY_FALLBACK: fallback_summary},
             )
+            if write.governance.required_baseline != state.required_baseline:
+                # Fail closed before the compare-and-set: a fallback never moves the baseline.
+                raise WorkflowGovernanceError(GovernanceErrorCode.HISTORY_UNAVAILABLE)
+            return outcome, write
 
         with self._lock:
             _actor, outcome, stored = self._mutate_locked(
@@ -1585,6 +1576,60 @@ def _provenance(
         if "WORKFLOW_SELF_DECISION_REFUSED" in str(error):
             raise WorkflowGovernanceError(GovernanceErrorCode.SELF_DECISION_REFUSED) from None
         raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_INVALID) from None
+
+
+FALLBACK_OBLIGATION_MESSAGE = (
+    "This would add a permanent obligation; propose it through normal approval instead."
+)
+
+
+def _obligation_shape(baseline: RequiredBaseline) -> frozenset[tuple[Any, ...]]:
+    """The obligations a baseline enforces, without its version bookkeeping."""
+
+    return frozenset(
+        (stage.stage_id, stage.normalised_name, field.field_id, field.signature)
+        for stage in baseline.stages
+        for field in stage.fields
+    )
+
+
+def _refuse_new_permanent_obligations(
+    stages: tuple[WorkflowStage, ...],
+    active: WorkflowVersion | None,
+    baseline: RequiredBaseline,
+    version: WorkflowVersion,
+) -> None:
+    """Refuse (422, nothing written) a fallback that would add or tighten any permanent
+    obligation: new required stages or fields, a narrowed CHOICE intersection or a dropped
+    ``case_data_key``. Stripping the extra content instead is not safe: later candidates
+    are also checked against the active version, which would make it sticky."""
+
+    added = permanent_obligations(stages, active=active, baseline=baseline)
+    issues = [
+        ValidationIssue(
+            code=GovernanceErrorCode.PROPOSAL_INVALID.value,
+            stage_id=item.key.stage_id,
+            field_id=item.key.field_id,
+            message=FALLBACK_OBLIGATION_MESSAGE,
+        )
+        for item in added
+    ]
+    if not issues:
+        try:
+            advanced = advance_baseline(baseline, version)
+        except ValueError:
+            advanced = None
+        if advanced is None or _obligation_shape(advanced) != _obligation_shape(baseline):
+            issues.append(
+                ValidationIssue(
+                    code=GovernanceErrorCode.PROPOSAL_INVALID.value,
+                    message=FALLBACK_OBLIGATION_MESSAGE,
+                )
+            )
+    if issues:
+        raise WorkflowGovernanceError(
+            GovernanceErrorCode.PROPOSAL_INVALID, FALLBACK_OBLIGATION_MESSAGE, issues=issues
+        )
 
 
 def _refuse_client_stages(
