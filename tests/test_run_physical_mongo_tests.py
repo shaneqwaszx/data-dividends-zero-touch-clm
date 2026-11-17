@@ -101,6 +101,12 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
     def test_slice_c_partial_reconciliation_restart_is_a_required_physical_suite(self) -> None:
         self.assertIn("test_slice_c_real_mongo.py", {path.name for path in RUNNER.PHYSICAL_SUITES})
 
+    def test_every_physical_suite_file_is_selected(self) -> None:
+        # F-6: a physical suite missing from this list never ran in the "full" physical suite.
+        tests = ROOT / "apps" / "backend" / "tests"
+        on_disk = {path.name for path in tests.glob("test_*_real_mongo.py")}
+        self.assertEqual(on_disk - {path.name for path in RUNNER.PHYSICAL_SUITES}, set())
+
     def test_current_phase24c_and_slice_d_e_suites_are_required(self) -> None:
         names = {path.name for path in RUNNER.PHYSICAL_SUITES}
         for name in (
