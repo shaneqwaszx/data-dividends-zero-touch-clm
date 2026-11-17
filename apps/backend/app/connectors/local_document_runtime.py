@@ -11,6 +11,17 @@ from tempfile import TemporaryDirectory
 from app.connectors.idp import LocalDocumentProcessingError
 from app.connectors.local_process import run_bounded_process
 
+# Exit codes from local_document_worker.REJECTION_EXIT_CODES (kept as a copy so the
+# parent never imports the native PDF/image libraries). Unmapped codes, including the
+# worker's EXIT_MALFORMED (2), stay DOCUMENT_STRUCTURE_INVALID.
+DOCUMENT_REJECTION_CODES = {
+    10: "DOCUMENT_TOO_MANY_PAGES",
+    11: "DOCUMENT_ENCRYPTED",
+    12: "DOCUMENT_ACTIVE_CONTENT",
+    13: "DOCUMENT_PAGE_TOO_LARGE",
+    14: "DOCUMENT_CONTENT_TOO_LARGE",
+}
+
 
 @dataclass(frozen=True)
 class LocalDocumentPage:
@@ -49,6 +60,7 @@ def isolated_document_pages(
             unavailable_code="DOCUMENT_RUNTIME_UNAVAILABLE",
             timeout_code="DOCUMENT_PROCESSING_TIMEOUT",
             failed_code="DOCUMENT_STRUCTURE_INVALID",
+            failed_codes=DOCUMENT_REJECTION_CODES,
         )
         try:
             decoded = json.loads(output)
