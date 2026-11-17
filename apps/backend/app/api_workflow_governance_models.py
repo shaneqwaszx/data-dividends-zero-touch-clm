@@ -375,7 +375,7 @@ class GovernanceErrorBody(_Contract):
 
 
 class EmergencyFallbackRequest(_Contract):
-    """Director alone, mandatory reason. Publishes the safe target with origin EMERGENCY_FALLBACK."""
+    """Director alone, mandatory reason. Publishes the safe target (origin EMERGENCY_FALLBACK)."""
 
     reason: DecisionReason
     expected_workflow_revision: int = Field(ge=1)
