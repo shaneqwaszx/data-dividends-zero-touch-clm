@@ -10,6 +10,7 @@ import {
 import { WorkflowNoticesPanel } from "../components/workflow-governance/NoticesPanel";
 import { EmergencyFallbackPanel, HistoryRecoveryPanel, ReleaseDraftPanel } from "../components/workflow-governance/RecoveryPanels";
 import { SimulationPanel } from "../components/workflow-governance/SimulationPanel";
+import { WorkflowHistory } from "../components/workflow-governance/WorkflowHistory";
 import { ApiError } from "../api";
 import type { AuthenticatedProfile } from "../types";
 import {
@@ -538,14 +539,7 @@ export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onC
       {governance && <HistoryRecoveryPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
       {governance && <EmergencyFallbackPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
 
-      <section className="card" aria-labelledby="workflow-history" style={{ marginTop: 16 }}>
-        <h2 id="workflow-history">History</h2>
-        <p className="text-muted">Open cases follow the latest active version. Cases already sent stay as they were.</p>
-        {workflow.audit.length === 0 && <p className="text-muted">No changes yet.</p>}
-        <ul>{[...workflow.audit].reverse().map(item => (
-          <li key={`${item.occurred_at}-${item.action}`}>{new Date(item.occurred_at).toLocaleString()} · {item.actor_id} · {item.summary}</li>
-        ))}</ul>
-      </section>
+      <WorkflowHistory workflow={workflow} />
     </>
   );
 }
