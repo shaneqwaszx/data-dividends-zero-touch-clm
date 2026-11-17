@@ -221,3 +221,11 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
     `restore_target_version`, `copied_from`, `released_by` and `release_reason` (PR-7 QG P3-3).
   - The `VersionProvenance` validator now enforces that an `EMERGENCY_FALLBACK` version has no
     `author_id` and no `approved_by`, and names its Director in `activated_by` (PR-7 QG P3-4).
+- **CC-7 (2026-11-18, integrator). Owner policy; ADR-017 §4 "Owner clarification".**
+  - An emergency fallback never expands the required-obligation baseline. If its safe target would
+    add or tighten any permanent obligation, it is refused with `422 WORKFLOW_PROPOSAL_INVALID`:
+    `issues` lists each obligation, and nothing is written.
+  - An allowed fallback leaves `required_baseline` byte-identical. Its `updated_at_version`
+    therefore does not advance on a fallback.
+  - Fallback to `DEFAULT`, or to a version within the baseline, stays available. Additional
+    permanent obligations go through a normal proposal and one Director's approval.
