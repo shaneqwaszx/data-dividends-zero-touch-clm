@@ -1,0 +1,18 @@
+{
+  "active_version": 2,
+  "base_version": 2,
+  "content_hash": "70d7ec24109a07b17e126b6ba418f94a3b59eb2e7ebb741a92f5923c9e76170d",
+  "encoded_bytes": 2,
+  "issues": [
+    {
+      "code": "WORKFLOW_REQUIRED_OBLIGATION_REMOVED",
+      "field_id": null,
+      "message": "The required stage 'Sanctions attestation' cannot be removed.",
+      "rule": "RR-1",
+      "stage_id": "sanctions-attestation"
+    }
+  ],
+  "max_encoded_bytes": 1048576,
+  "permanent_obligations": [],
+  "valid": false
+}

@@ -1,0 +1,6 @@
+{
+  "code": "WORKFLOW_SELF_DECISION_REFUSED",
+  "issues": [],
+  "message": "You cannot decide a proposal you authored.",
+  "rule": null
+}

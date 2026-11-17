@@ -1,0 +1,14 @@
+{
+  "code": "WORKFLOW_REQUIRED_OBLIGATION_REMOVED",
+  "issues": [
+    {
+      "code": "WORKFLOW_REQUIRED_OBLIGATION_REMOVED",
+      "field_id": null,
+      "message": "The required stage 'Sanctions attestation' cannot be removed.",
+      "rule": "RR-1",
+      "stage_id": "sanctions-attestation"
+    }
+  ],
+  "message": "A required step or field cannot be removed or made optional.",
+  "rule": "RR-1"
+}

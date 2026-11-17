@@ -1,0 +1,48 @@
+{
+  "baseline": {
+    "required_fields": 2,
+    "required_stages": 1,
+    "seeded_from_version": 1,
+    "updated_at_version": 2
+  },
+  "can_create_proposal": true,
+  "decided_proposals": [],
+  "latest_version": 2,
+  "migrated": true,
+  "open_proposal": null,
+  "recent_events": [
+    {
+      "actor_id": "director-synthetic-1",
+      "archived": false,
+      "kind": "VERSION_PUBLISHED",
+      "occurred_at": "2026-11-17T10:00:00Z",
+      "proposal_id": "0b6f7c2e-1d3a-4c5b-9e8f-7a6b5c4d3e2f",
+      "sequence": 5,
+      "summary": "Published version 2",
+      "version": 2
+    }
+  ],
+  "unacknowledged_notices": [],
+  "version_provenance": [
+    {
+      "activated_by": "director-legacy-1",
+      "approved_by": null,
+      "author_id": null,
+      "note": "Activated by a Director before approval governance; not independently approved.",
+      "origin": "PRE_GOVERNANCE_DIRECTOR_ACTIVATION",
+      "proposal_id": null,
+      "published_at": "2026-11-17T09:00:00Z",
+      "version": 1
+    },
+    {
+      "activated_by": null,
+      "approved_by": "director-synthetic-1",
+      "author_id": "hr-synthetic-1",
+      "note": null,
+      "origin": "GOVERNED_APPROVAL",
+      "proposal_id": "0b6f7c2e-1d3a-4c5b-9e8f-7a6b5c4d3e2f",
+      "published_at": "2026-11-17T10:00:00Z",
+      "version": 2
+    }
+  ]
+}

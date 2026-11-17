@@ -1,0 +1,276 @@
+{
+  "active_provenance": {
+    "activated_by": "director-legacy-1",
+    "approved_by": null,
+    "author_id": null,
+    "note": "Activated by a Director before approval governance; not independently approved.",
+    "origin": "PRE_GOVERNANCE_DIRECTOR_ACTIVATION",
+    "proposal_id": null,
+    "published_at": "2026-11-17T09:00:00Z",
+    "version": 1
+  },
+  "active_version": {
+    "activated_at": "2026-11-17T09:00:00Z",
+    "activated_by": "director-legacy-1",
+    "stages": [],
+    "version": 1
+  },
+  "affected_cases": {
+    "counted_at": "2026-11-17T09:30:00Z",
+    "open_runs_on_active_version": 4
+  },
+  "is_onboarding": true,
+  "locked_stages": [
+    [
+      "CASE_START",
+      "Case created"
+    ],
+    [
+      "INITIAL_IDENTITY",
+      "Initial identity"
+    ],
+    [
+      "JURISDICTION",
+      "Jurisdiction"
+    ],
+    [
+      "GOLDTIER_SEARCH",
+      "Existing-customer search"
+    ],
+    [
+      "ACRA_REGISTRY",
+      "Registry verification"
+    ],
+    [
+      "DOCUMENT_IDP",
+      "Document verification"
+    ],
+    [
+      "RECONCILIATION",
+      "Data reconciliation"
+    ],
+    [
+      "OWNERSHIP_UBO",
+      "Ownership & UBO"
+    ],
+    [
+      "ADVISORY",
+      "Risk assessment"
+    ],
+    [
+      "GOLDTIER_DETAILS",
+      "GoldTier Details & Status"
+    ],
+    [
+      "FINAL_REVIEW_SEND",
+      "Final review & send"
+    ]
+  ],
+  "permanent_obligation_warning": "Once approved, this required step or field can never be removed or weakened in the product.",
+  "permanent_obligations": [
+    {
+      "change": "NEW_REQUIRED_STAGE",
+      "detail": "New required stage; it will hold the send until confirmed.",
+      "field_label": null,
+      "key": {
+        "field_id": null,
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    },
+    {
+      "change": "NEW_REQUIRED_FIELD",
+      "detail": "New required text field.",
+      "field_label": "Screened by",
+      "key": {
+        "field_id": "screened-by",
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    },
+    {
+      "change": "NEW_REQUIRED_FIELD",
+      "detail": "New required choice: Clear, Escalated.",
+      "field_label": "Screening outcome",
+      "key": {
+        "field_id": "outcome",
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    }
+  ],
+  "proposal": {
+    "author_id": "hr-synthetic-1",
+    "base_version": 1,
+    "can_decide": true,
+    "can_edit": false,
+    "can_submit": false,
+    "can_withdraw": false,
+    "content_hash": "306a1db210e1ad991884effd8f68275018c8e1530cb5248a72eefc2aac72dc9f",
+    "created_at": "2026-11-17T09:00:00Z",
+    "decided_at": null,
+    "decided_by": null,
+    "decision_reason": null,
+    "kind": "CHANGE",
+    "last_activity_at": "2026-11-17T09:30:00Z",
+    "legacy_editor": null,
+    "note": "Add a sanctions attestation after ownership review.",
+    "origin": "GOVERNED",
+    "proposal_id": "0b6f7c2e-1d3a-4c5b-9e8f-7a6b5c4d3e2f",
+    "published_version": null,
+    "revision": 3,
+    "stages": [
+      {
+        "after_node_id": "OWNERSHIP_UBO",
+        "fields": [
+          {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "screened-by",
+            "kind": "TEXT",
+            "label": "Screened by",
+            "options": [],
+            "required": true
+          },
+          {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "outcome",
+            "kind": "CHOICE",
+            "label": "Screening outcome",
+            "options": [
+              "Clear",
+              "Escalated"
+            ],
+            "required": true
+          },
+          {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "comment",
+            "kind": "TEXT",
+            "label": "Comment",
+            "options": [],
+            "required": false
+          }
+        ],
+        "name": "Sanctions attestation",
+        "stage_id": "sanctions-attestation"
+      }
+    ],
+    "stale_by_version": null,
+    "state": "PENDING_APPROVAL",
+    "submitted_at": "2026-11-17T09:30:00Z",
+    "updated_at": "2026-11-17T09:30:00Z",
+    "workflow_id": "corporate-onboarding"
+  },
+  "stages": [
+    {
+      "after_node_id_after": "OWNERSHIP_UBO",
+      "after_node_id_before": null,
+      "blocks_send_after": true,
+      "blocks_send_before": false,
+      "change": "ADDED",
+      "fields": [
+        {
+          "after": {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "screened-by",
+            "kind": "TEXT",
+            "label": "Screened by",
+            "options": [],
+            "required": true
+          },
+          "before": null,
+          "change": "ADDED",
+          "field_id": "screened-by"
+        },
+        {
+          "after": {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "outcome",
+            "kind": "CHOICE",
+            "label": "Screening outcome",
+            "options": [
+              "Clear",
+              "Escalated"
+            ],
+            "required": true
+          },
+          "before": null,
+          "change": "ADDED",
+          "field_id": "outcome"
+        },
+        {
+          "after": {
+            "autofill": false,
+            "case_data_key": null,
+            "document_label": null,
+            "field_id": "comment",
+            "kind": "TEXT",
+            "label": "Comment",
+            "options": [],
+            "required": false
+          },
+          "before": null,
+          "change": "ADDED",
+          "field_id": "comment"
+        }
+      ],
+      "name_after": "Sanctions attestation",
+      "name_before": null,
+      "stage_id": "sanctions-attestation"
+    }
+  ],
+  "validation": {
+    "active_version": 1,
+    "base_version": 1,
+    "content_hash": "306a1db210e1ad991884effd8f68275018c8e1530cb5248a72eefc2aac72dc9f",
+    "encoded_bytes": 612,
+    "issues": [],
+    "max_encoded_bytes": 1048576,
+    "permanent_obligations": [
+      {
+        "change": "NEW_REQUIRED_STAGE",
+        "detail": "New required stage; it will hold the send until confirmed.",
+        "field_label": null,
+        "key": {
+          "field_id": null,
+          "stage_id": "sanctions-attestation"
+        },
+        "stage_name": "Sanctions attestation"
+      },
+      {
+        "change": "NEW_REQUIRED_FIELD",
+        "detail": "New required text field.",
+        "field_label": "Screened by",
+        "key": {
+          "field_id": "screened-by",
+          "stage_id": "sanctions-attestation"
+        },
+        "stage_name": "Sanctions attestation"
+      },
+      {
+        "change": "NEW_REQUIRED_FIELD",
+        "detail": "New required choice: Clear, Escalated.",
+        "field_label": "Screening outcome",
+        "key": {
+          "field_id": "outcome",
+          "stage_id": "sanctions-attestation"
+        },
+        "stage_name": "Sanctions attestation"
+      }
+    ],
+    "valid": true
+  },
+  "workflow_id": "corporate-onboarding",
+  "workflow_name": "Corporate onboarding",
+  "workflow_revision": 7
+}
