@@ -120,7 +120,7 @@ def test_garden_discovery_survives_restart_with_issuer_cache_and_current_envelop
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(case.case_id)}
         )
-        assert raw is not None and raw["schema_version"] == 20
+        assert raw is not None and raw["schema_version"] == 21
         identity = RegistryProviderIdentity(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
@@ -212,7 +212,7 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert second.ownership.get_for_case(case.case_id) == record
         collection = client[hybrid.mongo_database][hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 20
+        assert raw is not None and raw["schema_version"] == 21
         assert raw["ownership"]["discovery"]["overlay_scenario_id"] == (
             "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
         )
@@ -223,7 +223,10 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert transport.get_count == first_gets
         assert reused.discovery is not None and reused.discovery.cache_hits == 5
         # An exact schema-11 envelope can never carry hybrid evidence: fail closed.
-        collection.update_one({"_id": str(case.case_id)}, {"$set": {"schema_version": 11}})
+        collection.update_one(
+            {"_id": str(case.case_id)},
+            {"$set": {"schema_version": 11}, "$unset": {"write_nonce": ""}},
+        )
         with pytest.raises(PersistenceDataInvalidError):
             second.onboarding.get(case.case_id)
     finally:
@@ -330,7 +333,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
         database = client[hybrid.mongo_database]
         collection = database[hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 20
+        assert raw is not None and raw["schema_version"] == 21
         cache = database[hybrid.mongo_registry_cache_collection]
         assert (
             cache.count_documents(
@@ -348,7 +351,10 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
         # An exact schema-13 envelope can never carry a D-080 share class, and a
         # schema-12 envelope never carries the rows at all: both fail closed.
         for legacy in (13, 12):
-            collection.update_one({"_id": str(case.case_id)}, {"$set": {"schema_version": legacy}})
+            collection.update_one(
+                {"_id": str(case.case_id)},
+                {"$set": {"schema_version": legacy}, "$unset": {"write_nonce": ""}},
+            )
             with pytest.raises(PersistenceDataInvalidError):
                 second.onboarding.get(case.case_id)
 
@@ -371,6 +377,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
             {
                 "$set": {"schema_version": 13},
                 "$unset": {
+                    "write_nonce": "",  # ADR-017 schema 21 only
                     f"{rows}.share_type": "", f"{rows}.currency": "",
                     # D-101 (schema 17) keys never existed in schema 13.
                     "onboarding.government_status_confirmation": "",
@@ -451,7 +458,7 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
             "TARGET_CONFIRMATION_REQUIRED"
         ]
     raw = collection.find_one({"_id": case_id})
-    assert raw is not None and raw["schema_version"] == 20
+    assert raw is not None and raw["schema_version"] == 21
     assert raw["ownership"]["poc_acceptance"]["policy"] == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
     assert raw["ownership"]["poc_acceptance"]["overlay_scenario_id"] == "EVIDENCE_POC_BASIS_V1"
     assert raw["ownership"]["poc_acceptance"]["accepted_assumptions"] == [
@@ -534,7 +541,8 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
                 "$set": {
                     "ownership.poc_acceptance": raw["ownership"]["poc_acceptance"],
                     "schema_version": 13,
-                }
+                },
+                "$unset": {"write_nonce": ""},
             },
         )
         with pytest.raises(PersistenceDataInvalidError):

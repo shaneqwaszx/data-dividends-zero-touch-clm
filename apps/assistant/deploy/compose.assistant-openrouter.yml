@@ -45,6 +45,10 @@ services:
       AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS: "${ASSISTANT_GPTOSS_OWNER_ATTESTS:?owner attestations required}"
       AI_ASSISTANT_LLM_REASONING_EFFORT: "${ASSISTANT_GPTOSS_REASONING_EFFORT:?reasoning effort required}"
       AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS: "${ASSISTANT_GPTOSS_REASONING_ALLOWANCE:?reasoning allowance required}"
+      # GPT-OSS answers take about 17 s (first line about 6 s). compose.assistant.yml keeps 2 s for
+      # the model-free baseline; run 2eda4185 timed out at that 2 s. 90 s is the config default
+      # GPT-OSS was qualified with locally. Claude uses its own timeout and is not affected.
+      AI_ASSISTANT_LLM_TIMEOUT_SECONDS: "90"
     # TEST-NET-1: nothing answers, so no external name resolves (container names still do).
     dns: [192.0.2.53]
     dns_opt: ["timeout:1", "attempts:1"]

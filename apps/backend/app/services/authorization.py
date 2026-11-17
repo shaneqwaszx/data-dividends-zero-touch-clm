@@ -126,11 +126,6 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/clm/cases/{case_id}/submission-plan", RouteAccess.CASE_SCOPED),
-    RoutePolicy(
-        "POST",
-        "/api/clm/cases/{case_id}/target-confirmation",
-        RouteAccess.CASE_SCOPED,
-    ),
     RoutePolicy("POST", "/api/clm/cases/{case_id}/submit", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",

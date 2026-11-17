@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
+from typing import Any
 from uuid import UUID
 
 from app.domain.case_management import (
@@ -27,7 +28,7 @@ from app.domain.models import OnboardingCase
 from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.domain.reconciliation import ReconciliationCaseRecord
-from app.domain.target_submission import GoldTierExecutionLedgerEntry
+from app.domain.target_submission import GoldTierExecutionLedgerEntry, GoldTierOperationMarker
 from app.domain.zero_touch import (
     AutomationStatus,
     ZeroTouchAutomationRecord,
@@ -56,6 +57,10 @@ from app.services.reconciliation_repository import (
 from app.services.repository import CaseTeamImmutableError
 from app.services.target_execution_repository import (
     TargetExecutionRepositoryConflictError,
+    authorise_selectable,
+    claim_selectable,
+    first_write_selectable,
+    has_write_marker,
 )
 from app.services.zero_touch_repository import (
     AutomationReadBatch,
@@ -98,7 +103,11 @@ class MongoOnboardingCaseRepository:
             if current.onboarding.created_by_actor_id != validated.created_by_actor_id:
                 raise PersistenceConflictError
             candidate = current.model_copy(update={"onboarding": validated}, deep=True)
-            self._store.replace(candidate, expected_revision=current.revision)
+            self._store.replace(
+                candidate,
+                expected_revision=current.revision,
+                expected_nonce=current.write_nonce,
+            )
 
     def get(self, case_id: UUID) -> OnboardingCase | None:
         snapshot = self._store.get(case_id)
@@ -151,7 +160,11 @@ class MongoOnboardingCaseRepository:
         with self._store.locked():
             snapshot = self._store.get(case_id)
             if snapshot is not None:
-                self._store.delete(case_id, expected_revision=snapshot.revision)
+                self._store.delete(
+                    case_id,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
 
 
 class MongoCasePortfolioRepository:
@@ -197,7 +210,11 @@ class MongoCaseDeletionRepository:
             if snapshot.automation is not None
             else None
         )
-        self._store.delete(snapshot.case_id, expected_revision=snapshot.revision)
+        self._store.delete(
+            snapshot.case_id,
+            expected_revision=snapshot.revision,
+            expected_nonce=snapshot.write_nonce,
+        )
         return binding_id
 
 
@@ -217,7 +234,11 @@ class MongoDocumentProcessingRepository:
             else:
                 documents.append(validated)
             candidate = current.model_copy(update={"documents": tuple(documents)}, deep=True)
-            self._store.replace(candidate, expected_revision=current.revision)
+            self._store.replace(
+                candidate,
+                expected_revision=current.revision,
+                expected_nonce=current.write_nonce,
+            )
 
     def get(self, document_id: UUID) -> DocumentProcessingRecord | None:
         snapshot = self._store.find_by_document(document_id)
@@ -283,7 +304,11 @@ class MongoOwnershipAnalysisRepository:
             persisted = validated.model_copy(update={"version": next_version}, deep=True)
             candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise OwnershipRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -313,7 +338,11 @@ class MongoOwnershipAnalysisRepository:
             )
             candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise OwnershipRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -355,7 +384,11 @@ class MongoOwnershipAnalysisRepository:
             persisted = validated.model_copy(update={"version": expected_version + 1}, deep=True)
             candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise OwnershipRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -380,7 +413,11 @@ class MongoOwnershipAnalysisRepository:
             persisted = validated.model_copy(update={"version": expected_version + 1}, deep=True)
             candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise OwnershipRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -419,7 +456,11 @@ class MongoOnboardingIntelligenceRepository:
                 raise OnboardingIntelligenceRepositoryConflictError
             candidate = snapshot.model_copy(update={"intelligence": validated}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise OnboardingIntelligenceRepositoryConflictError from None
             return validated.model_copy(deep=True)
@@ -461,7 +502,11 @@ class MongoClmOrchestrationRepository:
             persisted = validated.model_copy(update={"version": next_version}, deep=True)
             candidate = snapshot.model_copy(update={"clm": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise ClmRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -525,7 +570,11 @@ class MongoZeroTouchAutomationRepository:
             persisted = validated.model_copy(update={"version": next_version}, deep=True)
             candidate = snapshot.model_copy(update={"automation": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise ZeroTouchRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -584,7 +633,11 @@ class MongoReconciliationRepository:
             persisted = validated.model_copy(update={"version": next_version}, deep=True)
             candidate = snapshot.model_copy(update={"reconciliation": persisted}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise ReconciliationRepositoryConflictError from None
             return persisted.model_copy(deep=True)
@@ -678,7 +731,11 @@ class MongoReconciliationUnitOfWork:
             try:
                 if self._fault is not None:
                     self._fault("before_atomic_commit")
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise ReconciliationRepositoryConflictError from None
             except Exception:
@@ -720,7 +777,11 @@ class MongoTargetExecutionRepository:
                 deep=True,
             )
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise TargetExecutionRepositoryConflictError from None
 
@@ -729,7 +790,12 @@ class MongoTargetExecutionRepository:
         entry: GoldTierExecutionLedgerEntry,
         *,
         expected_state: str,
+        expected_attempted: tuple[GoldTierOperationMarker, ...],
     ) -> None:
+        """ADR-017 3.2 same-snapshot correction: the caller's predicate (state and the
+        attempted operations it read) is asserted in the filter of the compare-and-set on
+        the revision and nonce, never only on a separate read."""
+
         submission_id = entry.submission_input.submission_id
         with self._store.locked():
             snapshot = self._store.get(entry.submission_input.case_id)
@@ -738,17 +804,118 @@ class MongoTargetExecutionRepository:
             entries = list(snapshot.target_executions)
             for index, current in enumerate(entries):
                 if current.submission_input.submission_id == submission_id:
-                    if current.state.value != expected_state:
+                    if (
+                        current.state.value != expected_state
+                        or current.attempted_operations != tuple(expected_attempted)
+                    ):
+                        raise TargetExecutionRepositoryConflictError
+                    if current.workflow_dispatch != entry.workflow_dispatch:
+                        # A claim changes only through the fence steps, never a replace.
+                        raise TargetExecutionRepositoryConflictError
+                    if has_write_marker(entry) and not has_write_marker(current):
+                        # The first write attempt marker is recorded only by the fence (D5).
                         raise TargetExecutionRepositoryConflictError
                     entries[index] = entry
                     break
             else:
                 raise TargetExecutionRepositoryConflictError
             candidate = snapshot.model_copy(update={"target_executions": tuple(entries)}, deep=True)
+            predicate = {
+                "target_executions": {
+                    "$elemMatch": {
+                        "submission_input.submission_id": str(submission_id),
+                        "state": expected_state,
+                        "attempted_operations": [item.value for item in expected_attempted],
+                    }
+                }
+            }
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                    predicate=predicate,
+                )
             except PersistenceConflictError:
                 raise TargetExecutionRepositoryConflictError from None
+
+    def probe_durability(self) -> tuple[bool, str | None]:
+        return self._store.probe_durability()
+
+    def _fence_step(
+        self,
+        submission_id: UUID,
+        selectable: Callable[[GoldTierExecutionLedgerEntry, datetime], bool],
+        write: Callable[[DurableCaseSnapshot], dict[str, Any] | None],
+    ) -> GoldTierExecutionLedgerEntry | None:
+        """Read, select (advisory), then one fence write whose filter re-asserts it all.
+
+        A filter mismatch caused by an unrelated writer is re-read and re-selected, at most
+        three times. Only a post-image showing own token and receipt is a success.
+        """
+
+        for _ in range(3):
+            with self._store.locked():
+                snapshot = self._store.find_by_submission(submission_id)
+                entry = None if snapshot is None else next(
+                    (
+                        item for item in snapshot.target_executions
+                        if item.submission_input.submission_id == submission_id
+                    ),
+                    None,
+                )
+                if snapshot is None or entry is None or not selectable(entry, datetime.now(UTC)):
+                    return None
+                post = write(snapshot)
+                if post is not None:
+                    decoded = self._store.decode_raw(post)
+                    return next(
+                        item for item in decoded.target_executions
+                        if item.submission_input.submission_id == submission_id
+                    )
+        return None
+
+    def fence_claim(
+        self, submission_id: UUID, *, token: str, version: int
+    ) -> GoldTierExecutionLedgerEntry | None:
+        ledger = self._store.fence_ledger()
+        return self._fence_step(
+            submission_id,
+            lambda entry, now: claim_selectable(entry, token, now),
+            lambda snapshot: ledger.claim(
+                case_id=snapshot.case_id, revision=snapshot.revision,
+                nonce=snapshot.write_nonce, submission_id=submission_id, token=token,
+                version=version,
+            ),
+        )
+
+    def fence_authorise(
+        self, submission_id: UUID, *, token: str, version: int
+    ) -> GoldTierExecutionLedgerEntry | None:
+        ledger = self._store.fence_ledger()
+        return self._fence_step(
+            submission_id,
+            lambda entry, now: authorise_selectable(entry, token, version, now),
+            lambda snapshot: ledger.authorise(
+                case_id=snapshot.case_id, revision=snapshot.revision,
+                nonce=snapshot.write_nonce, submission_id=submission_id, token=token,
+                version=version,
+            ),
+        )
+
+    def fence_first_write(
+        self, submission_id: UUID, *, token: str, operation: GoldTierOperationMarker
+    ) -> GoldTierExecutionLedgerEntry | None:
+        ledger = self._store.fence_ledger()
+        return self._fence_step(
+            submission_id,
+            lambda entry, now: first_write_selectable(entry, token, now),
+            lambda snapshot: ledger.first_write(
+                case_id=snapshot.case_id, revision=snapshot.revision,
+                nonce=snapshot.write_nonce, submission_id=submission_id, token=token,
+                operation=operation,
+            ),
+        )
 
     def delete_if_unattempted(self, submission_id: UUID) -> None:
         with self._store.locked():
@@ -764,7 +931,11 @@ class MongoTargetExecutionRepository:
                 entries.append(current)
             candidate = snapshot.model_copy(update={"target_executions": tuple(entries)}, deep=True)
             try:
-                self._store.replace(candidate, expected_revision=snapshot.revision)
+                self._store.replace(
+                    candidate,
+                    expected_revision=snapshot.revision,
+                    expected_nonce=snapshot.write_nonce,
+                )
             except PersistenceConflictError:
                 raise TargetExecutionRepositoryConflictError from None
 
@@ -782,7 +953,11 @@ class MongoDemoScenarioRepository:
             if snapshot is None:
                 raise PersistenceConflictError
             candidate = snapshot.model_copy(update={"demo_scenario": scenario}, deep=True)
-            self._store.replace(candidate, expected_revision=snapshot.revision)
+            self._store.replace(
+                candidate,
+                expected_revision=snapshot.revision,
+                expected_nonce=snapshot.write_nonce,
+            )
 
     def get(self, case_id: UUID) -> str | None:
         snapshot = self._store.get(case_id)

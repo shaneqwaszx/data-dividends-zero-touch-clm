@@ -108,6 +108,9 @@ class WorkflowAuditEvent(BaseModel):
     summary: str = Field(min_length=1, max_length=160)
 
 
+WORKFLOW_WRITE_NONCE_PATTERN = r"^[0-9a-f]{32}$"
+
+
 class WorkflowDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -124,6 +127,16 @@ class WorkflowDefinition(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+    # ADR-017 section 3.2: the per-write nonce of the stored document, carried from the
+    # read to the compare-and-set. Backend-only: never in the payload or an API body.
+    write_nonce: str | None = Field(
+        default=None, pattern=WORKFLOW_WRITE_NONCE_PATTERN, exclude=True
+    )
+    # ADR-017 section 3.5 (writer release): the stored top-level authoritative active version
+    # (0 = none) and the monotonic high-water mark. Backend-only; set only by provisioning,
+    # the one-time P2-0 backfill and (from P2-1) governed publication. None = not backfilled.
+    stored_active_version: int | None = Field(default=None, ge=0, exclude=True)
+    latest_version: int | None = Field(default=None, ge=0, exclude=True)
 
     @property
     def is_onboarding(self) -> bool:

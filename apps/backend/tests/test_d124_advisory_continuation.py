@@ -284,7 +284,8 @@ def test_the_direct_clm_routes_cannot_pass_a_held_case() -> None:
         summary = read(client, case_id)
         before = state(bundle, case_id)
         teammate, csrf = signed_in(client, "ethan-tan")
-        assert direct_target_routes(teammate, case_id, summary, csrf) == [409, 409]
+        # ADR-017 P2-0: the legacy confirmation route is retired (404).
+        assert direct_target_routes(teammate, case_id, summary, csrf) == [404, 409]
         assert writes(target) == []
         assert state(bundle, case_id) == before
         assert bundle.onboarding.get(UUID(case_id)).target_dispatch_confirmation is None
@@ -300,7 +301,8 @@ def test_the_direct_clm_routes_cannot_pass_a_failed_continuation() -> None:
         summary = read(client, case_id)
         assert summary["status"] == "TECHNICAL_FAILURE"
         teammate, csrf = signed_in(client, "ethan-tan")
-        assert direct_target_routes(teammate, case_id, summary, csrf) == [409, 409]
+        # ADR-017 P2-0: the legacy confirmation route is retired (404).
+        assert direct_target_routes(teammate, case_id, summary, csrf) == [404, 409]
         assert writes(target) == []
 
 

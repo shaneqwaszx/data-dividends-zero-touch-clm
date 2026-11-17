@@ -20,6 +20,7 @@ from scripts.mongo_test_safety import (
     generate_ephemeral_mongo_database,
 )
 from test_slice_a_legacy_compatibility import rich_v7_snapshot
+from workflow_publication_seed import bind_test_fence
 
 import app.composition as composition
 from app.composition import (
@@ -178,6 +179,7 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
                 repository=MongoOnboardingCaseRepository(store),
                 target_execution_repository=MongoTargetExecutionRepository(store),
             )
+            bind_test_fence(onboarding)
             services.append(
                 build_document_processing_service(
                     onboarding,
@@ -192,12 +194,13 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
                 *,
                 expected_revision: int,
                 replace: Callable[..., object] = original_replace,
+                **kwargs: object,
             ) -> object:
                 # Race the initial decisions only. The CAS winner subsequently
                 # persists review completion after automatic sibling confirmation.
                 if expected_revision == race_revision:
                     barrier.wait(timeout=10)
-                return replace(snapshot, expected_revision=expected_revision)
+                return replace(snapshot, expected_revision=expected_revision, **kwargs)
 
             monkeypatch.setattr(store, "replace", synchronized_replace)
 
@@ -268,6 +271,7 @@ def test_real_mongo_restart_rejects_policy_unbound_intelligence(
             bound_at=datetime(2026, 9, 23, tzinfo=UTC),
         ),
     )
+    bind_test_fence(onboarding)
     case = onboarding.create_staged_case("202400001A")
     now = datetime.now(UTC)
     record = OnboardingIntelligenceRecord(
@@ -706,6 +710,7 @@ def _build_mongo_reconciliation_service(
         repository=MongoOnboardingCaseRepository(store),
         target_execution_repository=MongoTargetExecutionRepository(store),
     )
+    bind_test_fence(onboarding)
     documents = build_document_processing_service(
         onboarding,
         settings,
@@ -953,7 +958,8 @@ def test_real_mongo_interrupted_document_recovers_to_bounded_same_case_retry(
         },
         deep=True,
     )
-    store.replace(interrupted_snapshot, expected_revision=snapshot.revision)
+    store.replace(interrupted_snapshot, expected_revision=snapshot.revision,
+                  expected_nonce=snapshot.write_nonce)
     store.close()
 
     before_restart = counters.copy()
@@ -1093,7 +1099,7 @@ def test_real_mongo_technical_failure_restart_preserves_safe_terminal_state(
     )
     store.replace(
         snapshot.model_copy(update={"automation": failed}, deep=True),
-        expected_revision=snapshot.revision,
+        expected_revision=snapshot.revision, expected_nonce=snapshot.write_nonce,
     )
     store.close()
 
@@ -1152,7 +1158,7 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
             update={"automation": running, "target_executions": (uncertain,)},
             deep=True,
         ),
-        expected_revision=snapshot.revision,
+        expected_revision=snapshot.revision, expected_nonce=snapshot.write_nonce,
     )
     store.close()
 
@@ -1232,7 +1238,7 @@ def test_real_mongo_shell_and_policy_recovery_facts_survive_restart_with_amend_n
     )
     store.replace(
         snapshot.model_copy(update={"target_executions": (recovered,)}, deep=True),
-        expected_revision=snapshot.revision,
+        expected_revision=snapshot.revision, expected_nonce=snapshot.write_nonce,
     )
     store.close()
 
@@ -1347,12 +1353,12 @@ def test_real_mongo_stale_envelope_cas_rejects_second_writer(
 
         persisted_a = writer_a.replace(
             snapshot_a.model_copy(update={"demo_scenario": "STRAIGHT_THROUGH"}),
-            expected_revision=snapshot_a.revision,
+            expected_revision=snapshot_a.revision, expected_nonce=snapshot_a.write_nonce,
         )
         with pytest.raises(PersistenceConflictError):
             writer_b.replace(
                 snapshot_b.model_copy(update={"demo_scenario": "DOCUMENT_DISCREPANCY"}),
-                expected_revision=snapshot_b.revision,
+                expected_revision=snapshot_b.revision, expected_nonce=snapshot_b.write_nonce,
             )
 
         durable = writer_a.get(case_id)
@@ -1481,7 +1487,7 @@ def test_real_mongo_phase11_stale_cas_changes_neither_atomic_half(
         assert current is not None
         concurrent.replace(
             current.model_copy(update={"demo_scenario": "STRAIGHT_THROUGH"}),
-            expected_revision=current.revision,
+            expected_revision=current.revision, expected_nonce=current.write_nonce,
         )
 
     try:
@@ -1602,7 +1608,7 @@ def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_conf
         assert retained.onboarding.target_dispatch_confirmation is None
         assert retained.automation.active_exceptions[0].decisions
         raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 20
+        assert raw is not None and raw["schema_version"] == 21
     finally:
         store.close()
 
@@ -1725,6 +1731,9 @@ def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_repla
     try:
         raw = store._encode(snapshot)  # noqa: SLF001
         raw["schema_version"] = 7
+        raw.pop("write_nonce", None)
+        for entry in raw.get("target_executions", ()):
+            entry.pop("workflow_dispatch", None)  # schema 21 only
         omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}
@@ -1803,6 +1812,9 @@ def test_real_mongo_actual_v7_uncertain_target_recovery_never_replays(
     try:
         raw = store._encode(interrupted)  # noqa: SLF001
         raw["schema_version"] = 7
+        raw.pop("write_nonce", None)
+        for entry in raw.get("target_executions", ()):
+            entry.pop("workflow_dispatch", None)  # schema 21 only
         omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}

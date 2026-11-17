@@ -42,15 +42,15 @@ def confirmed(snapshot: DurableCaseSnapshot) -> bool:
 
 
 def test_schema_20_round_trip_keeps_the_founding_statute(government):
-    assert CASE_SNAPSHOT_SCHEMA_VERSION == 20
-    assert _SUPPORTED_SCHEMA_VERSIONS[-2:] == [19, 20]
+    assert CASE_SNAPSHOT_SCHEMA_VERSION == 21
+    assert _SUPPORTED_SCHEMA_VERSIONS[-3:] == [19, 20, 21]
     confirmation = government.onboarding.government_status_confirmation
     assert confirmation is not None
     assert confirmation.founding_statute == "Demo Parks FYP Test Authority Act"
     assert confirmation.government_body_type == "STATUTORY_BOARD"
     assert confirmation.statute_match == "MATCHED_AFTER_NORMALISATION"
     raw = CODEC._encode(government)  # noqa: SLF001
-    assert raw["schema_version"] == 20
+    assert raw["schema_version"] == 21
     stored = raw["onboarding"]["government_status_confirmation"]
     assert stored["founding_statute"] == "Demo Parks FYP Test Authority Act"
     assert stored["statute_section"] is None  # the store writes every declared field
@@ -66,7 +66,7 @@ def test_a_schema_19_confirmation_loads_unchanged_but_must_be_confirmed_again(go
     original = deepcopy(legacy)
     decoded = CODEC._decode(legacy)  # noqa: SLF001
     assert legacy == original  # the read never rewrites the stored envelope
-    assert decoded.schema_version == 20
+    assert decoded.schema_version == 21
     confirmation = decoded.onboarding.government_status_confirmation
     assert confirmation is not None
     assert all(getattr(confirmation, name) is None for name in STATUTE_FIELDS)
@@ -75,7 +75,7 @@ def test_a_schema_19_confirmation_loads_unchanged_but_must_be_confirmed_again(go
     assert not confirmed(decoded)
     # Re-encoded as schema 20: every other field kept, the D-125 keys written as null.
     expected = deepcopy(original)
-    expected["schema_version"] = 20
+    expected["schema_version"] = 21
     expected["onboarding"]["government_status_confirmation"].update(
         dict.fromkeys(STATUTE_FIELDS)
     )
@@ -121,10 +121,10 @@ def test_a_schema_20_half_recorded_statute_is_refused(government):
         CODEC._decode(raw)  # noqa: SLF001
 
 
-def test_schema_21_is_unsupported(government):
+def test_schema_22_is_unsupported(government):
     from app.persistence.errors import PersistenceSchemaUnsupportedError
 
     raw = CODEC._encode(government)  # noqa: SLF001
-    raw["schema_version"] = 21
+    raw["schema_version"] = 22
     with pytest.raises((PersistenceSchemaUnsupportedError, PersistenceDataInvalidError)):
         CODEC._decode(raw)  # noqa: SLF001

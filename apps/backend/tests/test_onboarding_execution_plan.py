@@ -49,7 +49,7 @@ from app.domain.onboarding_execution_plan import (
     policy_placement_problems,
 )
 from app.domain.target_submission import GoldTierProviderMode
-from app.domain.workflows import ONBOARDING_LOCKED_STAGES, ONBOARDING_WORKFLOW_ID
+from app.domain.workflows import ONBOARDING_LOCKED_STAGES
 from app.domain.zero_touch import AUTOMATION_STAGE_ORDER
 from app.main import create_app
 from app.services import clm_orchestration, zero_touch_orchestration
@@ -447,13 +447,15 @@ def test_reading_the_plan_is_strictly_read_only() -> None:
             )
         ) as client,
     ):
+        # ADR-017 3.5: the definition is provisioned once at startup, never on a read.
+        assert spy.writes == ["create"]
+        spy.writes.clear()
         hr = login(client.app, "hr-admin")
         first = hr.get(PLAN_URL)
         second = hr.get(PLAN_URL)
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert spy.writes == []
-    assert store.definitions.get(ONBOARDING_WORKFLOW_ID) is None  # no baseline created
     assert target.calls == []
 
 

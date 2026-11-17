@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import secrets
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -40,7 +41,11 @@ from app.domain.documents import (
 )
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome, SafeError
-from app.domain.target_submission import GoldTierExecutionLedgerState
+from app.domain.target_submission import (
+    WORKFLOW_DISPATCH_WRITE_OPERATIONS,
+    GoldTierExecutionLedgerState,
+    WorkflowDispatch,
+)
 from app.domain.zero_touch import (
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
@@ -54,9 +59,11 @@ from app.domain.zero_touch import (
 from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
+    PersistenceOutcomeAmbiguousError,
     PersistenceSchemaUnsupportedError,
     PersistenceUnavailableError,
 )
+from app.persistence.fence_store import MongoFenceLedger
 from app.persistence.models import (
     CASE_SNAPSHOT_SCHEMA_VERSION,
     DurableCaseSnapshot,
@@ -79,6 +86,7 @@ from app.persistence.models import (
     DurableCaseSnapshotV17,
     DurableCaseSnapshotV18,
     DurableCaseSnapshotV19,
+    DurableCaseSnapshotV20,
     _validate_case_bindings,
     reject_classification_legacy_fields,
     reject_document_digest_legacy_fields,
@@ -92,10 +100,15 @@ from app.persistence.models import (
     reject_session2_legacy_fields,
     reject_share_class_legacy_fields,
     reject_uen_route_legacy_fields,
+    reject_workflow_dispatch_legacy_fields,
 )
 
+# The MongoDB major version the ADR-017 fence behaviour was verified on (7.0.40, the
+# staging image digest). Another major refuses dispatch until re-verified.
+VERIFIED_MONGO_MAJOR = "7"
+
 _SUPPORTED_SCHEMA_VERSIONS = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
     CASE_SNAPSHOT_SCHEMA_VERSION,
 ]
 
@@ -192,7 +205,15 @@ class MongoCaseStore:
                 snapshot = self._decode(raw)
                 recovered = self._recover_interrupted(snapshot)
                 if recovered != snapshot:
-                    self.replace(recovered, expected_revision=snapshot.revision)
+                    self.replace(
+                        recovered,
+                        expected_revision=snapshot.revision,
+                        expected_nonce=snapshot.write_nonce,
+                    )
+                try:
+                    self._clear_unattempted_claims(snapshot.case_id)
+                except (PersistenceUnavailableError, PersistenceOutcomeAmbiguousError):
+                    self._claim_clearing_incomplete = True
         except (PersistenceDataInvalidError, PersistenceSchemaUnsupportedError):
             raise
         except PyMongoError:
@@ -207,7 +228,10 @@ class MongoCaseStore:
             yield
 
     def create(self, snapshot: DurableCaseSnapshot) -> DurableCaseSnapshot:
-        candidate = DurableCaseSnapshot.model_validate(snapshot)
+        # Insert-only; the first write already carries a fresh nonce (ADR-017 R4-4).
+        candidate = DurableCaseSnapshot.model_validate(snapshot).model_copy(
+            update={"write_nonce": new_write_nonce()}, deep=True
+        )
         raw = self._encode(candidate)
         try:
             self._collection.insert_one(raw)
@@ -528,10 +552,16 @@ class MongoCaseStore:
             has_more=len(decoded) > query.limit,
         )
 
-    def delete(self, case_id: UUID, *, expected_revision: int) -> None:
+    def delete(
+        self, case_id: UUID, *, expected_revision: int, expected_nonce: str | None
+    ) -> None:
         try:
             result = self._collection.delete_one(
-                {"_id": str(case_id), "revision": expected_revision}
+                {
+                    "_id": str(case_id),
+                    "revision": expected_revision,
+                    **write_nonce_filter(expected_nonce),
+                }
             )
         except PyMongoError:
             raise PersistenceUnavailableError from None
@@ -559,9 +589,23 @@ class MongoCaseStore:
         snapshot: DurableCaseSnapshot,
         *,
         expected_revision: int,
+        expected_nonce: str | None,
+        predicate: dict[str, Any] | None = None,
     ) -> DurableCaseSnapshot:
+        """Compare-and-set on the revision and nonce read; set a new nonce (ADR-017 3.2).
+
+        ``predicate`` adds the caller's identity-bearing ledger predicate to the same
+        filter, so it is evaluated on the very snapshot the write compare-and-sets.
+
+        The candidate keeps every schema-21 field it was read with (dispatch claims
+        included), so this writer never strips data it cannot interpret.
+        """
         candidate = DurableCaseSnapshot.model_validate(snapshot).model_copy(
-            update={"revision": expected_revision + 1, "updated_at": datetime.now(UTC)},
+            update={
+                "revision": expected_revision + 1,
+                "updated_at": datetime.now(UTC),
+                "write_nonce": new_write_nonce(),
+            },
             deep=True,
         )
         try:
@@ -569,7 +613,9 @@ class MongoCaseStore:
                 {
                     "_id": str(candidate.case_id),
                     "revision": expected_revision,
+                    **write_nonce_filter(expected_nonce),
                     "onboarding.created_by_actor_id": candidate.onboarding.created_by_actor_id,
+                    **(predicate or {}),
                 },
                 self._encode(candidate),
             )
@@ -578,6 +624,74 @@ class MongoCaseStore:
         if result.modified_count != 1:
             raise PersistenceConflictError
         return candidate.model_copy(deep=True)
+
+    def _clear_unattempted_claims(self, case_id: UUID) -> None:
+        """ADR-017 3.4 startup recovery (single process): clear every dispatch claim that
+        has no write attempt marker, each with a durable compare-and-set pipeline. A claim
+        with a marker is left for the existing provider-verified recovery."""
+
+        ledger = self.fence_ledger()
+        for _ in range(8):
+            current = self.get(case_id)
+            if current is None:
+                return
+            pending = [
+                entry.submission_input.submission_id
+                for entry in current.target_executions
+                if entry.workflow_dispatch is not None
+                and not any(
+                    item.value in WORKFLOW_DISPATCH_WRITE_OPERATIONS
+                    for item in entry.attempted_operations
+                )
+            ]
+            if not pending:
+                return
+            if not ledger.clear_unattempted_claim(
+                case_id=case_id,
+                revision=current.revision,
+                nonce=current.write_nonce,
+                submission_id=pending[0],
+            ):
+                raise PersistenceUnavailableError
+        # More claims than one case can hold (max 4 entries): never loop without bound.
+        raise PersistenceUnavailableError
+
+    def probe_durability(self) -> tuple[bool, str | None]:
+        """ADR-017 3.8 ``hello`` probe: a journaled standalone or a replica-set primary on
+        the pinned, verified major version (7). Anything else refuses every dispatch."""
+
+        if getattr(self, "_claim_clearing_incomplete", False):
+            return False, "STARTUP_CLAIM_CLEARING_INCOMPLETE"
+        try:
+            hello = self._client.admin.command("hello")
+            info = self._client.server_info()
+            status = self._client.admin.command("serverStatus", storageEngine=1)
+        except PyMongoError:
+            return False, "PROBE_FAILED"
+        if hello.get("msg") == "isdbgrid":
+            return False, "SHARDED_UNSUPPORTED"
+        if hello.get("setName") is not None and not hello.get("isWritablePrimary"):
+            return False, "NOT_PRIMARY"
+        if hello.get("setName") is None and hello.get("isWritablePrimary") is not True:
+            return False, "TOPOLOGY_UNIDENTIFIED"
+        version = str(info.get("version", ""))
+        if version.split(".")[0] != VERIFIED_MONGO_MAJOR:
+            return False, "SERVER_VERSION_UNVERIFIED"
+        engine = (status.get("storageEngine") or {}).get("name")
+        if engine != "wiredTiger":
+            # WiredTiger on MongoDB >= 6.1 always journals; nothing else is supported.
+            return False, "JOURNALING_UNVERIFIED"
+        return True, None
+
+    def fence_ledger(self) -> MongoFenceLedger:
+        """ADR-017 fence writes (D2, D4, D5, clearing) on this collection."""
+
+        return MongoFenceLedger(self._collection)
+
+    def decode_raw(self, raw: dict[str, Any]) -> DurableCaseSnapshot:
+        """Decode a fence post-image with the full strict codec."""
+
+        return self._decode(raw)
 
     def _encode(self, snapshot: DurableCaseSnapshot) -> dict[str, Any]:
         try:
@@ -590,6 +704,13 @@ class MongoCaseStore:
         if not isinstance(raw_value, dict):
             raise PersistenceDataInvalidError
         raw = raw_value
+        # Absent ADR-017 fields are omitted, never stored as null: a missing nonce is
+        # matched with $exists:false, and a missing claim means no claim (section 3.2).
+        if raw.get("write_nonce") is None:
+            raw.pop("write_nonce", None)
+        for entry in raw.get("target_executions", ()):
+            if isinstance(entry, dict) and entry.get("workflow_dispatch") is None:
+                entry.pop("workflow_dispatch", None)
         raw["_id"] = str(snapshot.case_id)
         return raw
 
@@ -606,6 +727,9 @@ class MongoCaseStore:
 
         value = dict(raw)
         value.pop("_id")
+        if "write_nonce" in value and value["write_nonce"] is None:
+            # P3-5: a stored null nonce could never be matched by any writer; reject it.
+            raise PersistenceDataInvalidError
         schema_version = value.get("schema_version")
         if type(schema_version) is not int:
             raise PersistenceDataInvalidError
@@ -613,7 +737,7 @@ class MongoCaseStore:
         if (
             schema_version
             in {
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                 CASE_SNAPSHOT_SCHEMA_VERSION,
             }
             and isinstance(automation_value, dict)
@@ -624,6 +748,10 @@ class MongoCaseStore:
                 "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
             }
         try:
+            if schema_version in {
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            }:
+                reject_workflow_dispatch_legacy_fields(value)
             if schema_version in {
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
             }:
@@ -730,6 +858,10 @@ class MongoCaseStore:
                 legacy_v19 = DurableCaseSnapshotV19.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v19)
                 snapshot = legacy_v19.to_current()
+            elif schema_version == 20:
+                legacy_v20 = DurableCaseSnapshotV20.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v20)
+                snapshot = legacy_v20.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -1078,9 +1210,32 @@ class MongoCaseStore:
         )
 
 
+def new_write_nonce() -> str:
+    """A per-write random value; a reused revision can never match another history."""
+
+    return secrets.token_hex(16)
+
+
+def write_nonce_filter(expected_nonce: str | None) -> dict[str, Any]:
+    """Match the nonce read; a document no P2-0 writer has written has none yet."""
+
+    if expected_nonce is None:
+        return {"write_nonce": {"$exists": False}}
+    return {"write_nonce": expected_nonce}
+
+
 def _persistence_value(value: object) -> Any:
     """Serialize every declared model field, including backend-only excluded fields."""
 
+    if isinstance(value, WorkflowDispatch):
+        # Lease times are server-assigned BSON dates compared with $$NOW; keep them dates.
+        return {
+            name: (
+                item.astimezone(UTC) if isinstance(item, datetime) else _persistence_value(item)
+            )
+            for name in type(value).model_fields
+            for item in (getattr(value, name),)
+        }
     if isinstance(value, BaseModel):
         return {name: _persistence_value(getattr(value, name)) for name in type(value).model_fields}
     if isinstance(value, dict):

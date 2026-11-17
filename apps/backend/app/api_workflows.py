@@ -37,6 +37,7 @@ from app.services.workflow_management import (
     WorkflowForbiddenError,
     WorkflowManagementService,
     WorkflowNotFoundError,
+    WorkflowPublicationFrozenError,
     WorkflowValidationError,
     stage_blocks_send,
 )
@@ -612,6 +613,12 @@ def _call[ResponseT](call: Callable[[], ResponseT]) -> ResponseT:
             status.HTTP_409_CONFLICT,
             "WORKFLOW_CONFLICT",
             "This changed elsewhere. Reload and try again.",
+        ) from None
+    except WorkflowPublicationFrozenError:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "WORKFLOW_PUBLICATION_FROZEN",
+            "Publishing a workflow version is frozen until governed approval is available.",
         ) from None
     except WorkflowValidationError as error:
         raise _error(422, error.code, error.public_message) from None

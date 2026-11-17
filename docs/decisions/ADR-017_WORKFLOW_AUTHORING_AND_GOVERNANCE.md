@@ -249,13 +249,18 @@ at 30 s). This covers:
 - the first-write attempt marker
 - lease takeover and clearing
 - publication and decisions
-- `active_version` backfill and provisioning
+- `active_version` and `latest_version` backfill, and provisioning
 - cold-archive inserts and outbox removal
 - notice acknowledgement
 
 **A step counts as done only when its own write, or a confirming write, is durably
 acknowledged.** A confirming write is a conditional modifying update whose filter asserts the
-expected state; it is acknowledged with `w: "majority", j: true` and `modified_count == 1`.
+expected state, own token and the step's original receipt, under `w: "majority", j: true`
+(R4-1). For a fence step (D2, D4, D5) a confirming write counts **only** when that same write
+is durably acknowledged **and** returns a post-image showing the expected element with own
+token and the original receipt (§3.2). A modified-document count never authorises a fence step.
+For the archiver's confirming `$inc` (§5), which authorises no dispatch, durable
+acknowledgement of a write whose filter asserts `_id` and the content hash is required.
 
 **Ambiguous outcomes** (timeout, `wtimeout`, network error, unknown commit state) are treated as
 **not done**:
@@ -368,8 +373,9 @@ cannot contain `$expr`, and it cannot compute a server-time lease.
   succeeds only when that **same write** both:
   - is durably acknowledged; and
   - returns a post-image whose targeted ledger element shows the expected result carrying the
-    worker's own token and a fresh **per-attempt receipt** (a random value written by this
-    update). For D5, that result is the write attempt marker for the operation.
+    worker's own token and the step's **per-attempt receipt**: a random value written by the
+    step's original update and asserted (never rewritten) by any confirming write for that
+    step (R4-1). For D5, that result is the write attempt marker for the operation.
 
   The returned post-image belongs to this one atomic write. It is not a separate read.
 - **Fail closed.** If the pinned image cannot provide both of these, the fence refuses every
@@ -396,6 +402,16 @@ versions and unknown fields, the bump is shipped in **two releases** to keep a c
    document whose new fields it cannot preserve. So a rollback to it never strips data. Rolling
    back from it to the pre-P2-0 code is a plain revert, provided no document has yet been written
    in the new schema.
+
+   **Implementation consequence of R4-4 (P2-0, to be accepted at the reader-release QG).**
+   Because the reader release sets a new `write_nonce` on every write, every case document it
+   writes is a schema-21 document (the new schema number is 21), and every definition document
+   it writes carries a top-level nonce. A plain revert below the reader release is therefore
+   possible only **before** the reader release has written anything. After that, rolling back
+   below it needs the reverse migration below, which drops the nonces. The reader release never
+   creates a `workflow_dispatch` claim, an attempt-marker record, `active_version` or
+   `latest_version`; once `latest_version` exists, it refuses any definition write whose versions
+   exceed it.
 2. **Writer release.** It writes the new schema. A rollback from it goes back only to the reader
    release, which can read every document written. Rolling back further needs a reviewed,
    idempotent, dry-run-first reverse migration.
@@ -417,6 +433,25 @@ In the reverse migration:
   - `active_version: 0` (deactivation) cannot be expressed in the legacy shape, so a deactivated
     workflow blocks the reverse migration until the owner decides.
 
+**Roll-forward after a reverse migration (R4-3, P2-0 part).** Rolling forward again
+(re-deploying the reader, then the writer release) re-runs the P2-0 backfill only for documents
+that never held P2-1 content. Once P2-1 exists, every post-P2-0 correction and every roll-forward
+after a reverse migration must restore `required_baseline` from the cold archive, or refuse; the
+P2-0 tools refuse any document carrying P2-1 content (`P2_1_CONTENT_PRESENT`), so they can never
+empty a baseline.
+
+**P2-0 implementation notes (writer release, local candidate 2026-11-16).**
+- A dispatch with no active version records `version: 0` (D-136 E2: holds nothing), and D3
+  still guards it (`active_version: 0, latest_version: 0`, no version 1).
+- Fallback mode is used: **no confirming write** anywhere (CT-16's ordering inference is not
+  claimed), so an ambiguous D2, D4 or D5 stops before D6.
+- The lease condition is in the filter (`$expr` with `$$NOW`), demonstrated on the pinned image
+  (7.0.40, the staging digest), where an expired lease changes nothing. The pinned major version
+  is checked by the startup probe; another major refuses dispatch until re-verified.
+- Definition writers that do not change the payload (D3, the backfill) keep `revision`, because
+  legacy code compares the top-level revision with the payload revision. The backfill rotates
+  the nonce; D3 changes only `dispatch_authorisation_seq`.
+
 Both steps are reviewed under the persistence-schema change class. In both, a missing
 `write_nonce` is treated as a fresh nonce by the first writer, and a missing `workflow_dispatch`
 means no claim.
@@ -435,12 +470,19 @@ The case ledger entry gains `workflow_dispatch`:
 | State | Meaning |
 |---|---|
 | none | No claim |
-| `TENTATIVE {token, version, lease_until}` | A claim. **Not** permission to write |
-| `AUTHORISED {token, version, d3_at, lease_until}` | Permission **for the holder of `token`, until `lease_until`,** to record the first write attempt marker. It is the case-level dispatch evidence |
+| `TENTATIVE {token, version, lease_until, receipt}` | A claim. **Not** permission to write |
+| `AUTHORISED {token, version, d3_at, lease_until, receipt}` | Permission **for the holder of `token`, until `lease_until`,** to record the first write attempt marker. It is the case-level dispatch evidence |
+
+**Version 0 (P2-0, QG R1 N-1).** A claim may carry `version: 0` when the onboarding workflow
+has no active version. That still holds nothing (D-136 E2), and it is fenced exactly like any
+other version: D3 asserts `active_version: 0`, `latest_version: 0` and no stored version 1, so a
+first publication between D1 and D3 makes D3 match nothing and the dispatch is re-evaluated.
 
 **Leases (N-3):**
 - `lease_until` is at most **60 seconds** from the step that set it, measured in server time.
-  The compare-and-set filter uses `$expr` with `$$NOW`, so client clocks are never trusted.
+  The lease condition uses `$$NOW`: in the compare-and-set filter (`$expr`) when CT-18
+  demonstrates it, otherwise in the update pipeline's single `$cond` (§3.2 fallback). Client
+  clocks are never trusted (R4-1).
 - **Stale tokens.** Every step's predicate requires the worker's own token. A worker whose token
   was replaced fails its compare-and-set and stops.
 - **Expiry before a write.** An expired `TENTATIVE` or `AUTHORISED` claim without any write
@@ -457,7 +499,7 @@ The case ledger entry gains `workflow_dispatch`:
 | D1 | Read the active version `V` and evaluate the send hold under `V`. If held, refuse (`WORKFLOW_STAGE_INCOMPLETE`). Advisory: a stale read only causes a retry at D3 |
 | D2 | Compare-and-set the case document: from no claim, or an expired claim with no write attempt marker (Search-only entries qualify), to `TENTATIVE {new token, V, lease}`. A conflict, or a live claim held by another token, means stop |
 | **D3** | **Linearisation point.** `update_one({_id: workflow_id, active_version: V, latest_version: V, "payload.versions.version": {$ne: V + 1}}, {$inc: {dispatch_authorisation_seq: 1}}, w: "majority", j: true, wtimeout)`. It asserts the authoritative active version, the monotonic high-water mark, and that no newer version has been appended outside the governed path (for example by a rolled-back legacy activation). It never counts retained versions, so archival cannot break it (R2-2), and a desynchronised document fails closed (R1-6). For a deactivated non-onboarding workflow this guard is not used, because no dispatch applies. It succeeds only when acknowledged **and** `modified_count == 1` (N-6). `$inc` always modifies the document, so the write is ordered against any publication on the same document (a no-op `$set` would not be). `matched == 0` means the version changed: back to D1, at most 3 times, then refuse with `WORKFLOW_STAGE_CHECK_UNAVAILABLE`. An ambiguous outcome counts as not authorised: repeat D3 within the lease, or stop. The counter is an **anonymous ordering aid, not case-level dispatch evidence** |
-| D4 | Compare-and-set the case document: `TENTATIVE {own token, V}`, lease unexpired, to `AUTHORISED {own token, V, d3_at, new lease}`. If ambiguous, issue a confirming write asserting `AUTHORISED` with own token; if it is not acknowledged, stop |
+| D4 | Compare-and-set the case document: `TENTATIVE {own token, V}`, lease unexpired, to `AUTHORISED {own token, V, d3_at, new lease}` with a fresh receipt. It succeeds only with a durably acknowledged post-image showing `AUTHORISED`, own token and that receipt (§3.2). If ambiguous, issue a confirming write asserting `AUTHORISED` with own token and that receipt; it counts only with the same durably acknowledged post-image (§3.1, R4-1). Otherwise stop |
 | D5 | Compare-and-set the case document, requiring all of: `AUTHORISED` with own token, lease unexpired, no prior attempt of this operation. It records the write attempt marker with the dispatch `version` and a fresh receipt. **Only a durably acknowledged post-image that shows the marker with own token and this receipt authorises D6** (§3.2). A modified count alone never does. If ambiguous, issue a confirming write asserting the marker with own token and receipt. Acknowledged with that post-image: go to D6. Not matched and still `AUTHORISED` within the lease: retry D5. Anything else: stop before D6, and recovery follows the existing provider-verified path |
 | D6 | The provider call, unchanged. Made **once**, by the worker whose D5 (or confirming write) returned a durably acknowledged post-image with its own marker and receipt |
 
@@ -577,6 +619,16 @@ This is a deliberate fail-closed narrowing of D-136 E2, recorded in D-135.
   `DISPATCH_RECONFIRMATION_REQUIRED`.
 - After the new stage is confirmed, the operator re-confirms through the existing zero-touch
   confirmation route. Until then dispatch returns `409 WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED`.
+
+**Refusals on the zero-touch send (P2-0 implementation).** A fence refusal never ends
+automation:
+- `WORKFLOW_STAGE_CHECK_UNAVAILABLE` pauses the send (`RECOVERY_PENDING`), and the same
+  submission continues on explicit resume.
+- `WORKFLOW_STAGE_INCOMPLETE` and `WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED` return the case to
+  the target confirmation step at readiness, where it is re-confirmed through the zero-touch
+  route once the stage is confirmed.
+- Only `WORKFLOW_STAGE_INCOMPLETE` (a newly applicable requirement) supersedes a confirmation.
+  An unreadable check never does.
 
 **"Sent":**
 - A case is sent when it has a SHELL, POLICY or AMEND write attempt marker, a retained target

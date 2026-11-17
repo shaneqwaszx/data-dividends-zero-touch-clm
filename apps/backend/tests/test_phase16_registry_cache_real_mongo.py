@@ -13,6 +13,7 @@ from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
 )
+from workflow_publication_seed import bind_test_fence
 
 from app.composition import build_onboarding_service
 from app.config import Settings
@@ -256,6 +257,7 @@ def test_case_deletion_leaves_cache_and_restart_hits_without_provider(
         target_execution_repository=first_persistence.target_executions,
         registry_snapshot_repository=first_persistence.registry_snapshots,
     )
+    bind_test_fence(first_service)
     created = first_service.create_staged_case(VALID_UEN)
     binding = created.registry_evidence_binding
     assert binding is not None
@@ -276,6 +278,7 @@ def test_case_deletion_leaves_cache_and_restart_hits_without_provider(
             target_execution_repository=second_persistence.target_executions,
             registry_snapshot_repository=second_persistence.registry_snapshots,
         )
+        bind_test_fence(second_service)
         hit = second_service.create_staged_case(VALID_UEN)
         assert hit.registry_evidence_binding is not None
         assert hit.registry_evidence_binding.disposition == (
@@ -346,6 +349,7 @@ def test_physical_exact_target_reuse_retains_current_cache_evidence_after_reposi
             ),
             clock=clock,
         )
+        bind_test_fence(owner)
         return client, store, owner
 
     first_client, first_store, first_owner = open_owner()
