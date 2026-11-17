@@ -205,14 +205,10 @@ class World:
             EmergencyFallbackRequest(expected_workflow_revision=self.revision(workflow_id), **body),
         )
 
-    def force_deactivated(self, workflow_id: str) -> None:
-        """Test double for the pending persistence change: ``active_version = 0`` with
-        ``latest_version`` and the baseline kept (ADR-017 4)."""
+    def deactivate(self, workflow_id: str) -> Any:
+        """The governed path: HR proposes DEACTIVATE, one Director approves (ADR-017 4)."""
 
-        stored = self.repository._items[workflow_id]  # noqa: SLF001
-        self.repository._items[workflow_id] = stored.model_copy(  # noqa: SLF001
-            update={"stored_active_version": 0}
-        )
+        return self.decide(self.submit(self.create(workflow_id, kind=ProposalKind.DEACTIVATE)))
 
 
 def code(error: pytest.ExceptionInfo[WorkflowGovernanceError]) -> str:
@@ -333,17 +329,24 @@ def test_deactivation_is_refused_while_a_confirmation_is_in_progress():
     with gate.confirming(workflow_id), pytest.raises(WorkflowGovernanceError) as busy:
         world.decide(pending)
     assert code(busy) == "WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS" and busy.value.status == 409
-    # Without a confirmation in progress the approval is still refused before any write:
-    # the frozen contract cannot yet record it (approved => published version; no
-    # active_version 0 without a publication). Nothing changed.
-    revision = world.revision(workflow_id)
-    with pytest.raises(WorkflowGovernanceError) as blocked:
-        world.decide(pending)
-    assert code(blocked) == "WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE"
-    assert world.revision(workflow_id) == revision
-    assert world.state(workflow_id).definition.stored_active_version == 1
-    rejected = world.decide(pending, outcome=DecisionOutcome.REJECT)
-    assert rejected.proposal.state == ProposalState.REJECTED
+    # Refused before any write: nothing changed.
+    governed = world.state(workflow_id)
+    assert governed.definition.stored_active_version == 1
+    assert governed.governance.open_proposal.state == ProposalState.PENDING_APPROVAL
+    decision = world.decide(pending)
+    assert decision.proposal.state == ProposalState.APPROVED
+    assert decision.published_version is None and decision.provenance is None
+    assert decision.active_version == 0 and decision.publication_report is None
+    governed = world.state(workflow_id)
+    assert governed.definition.stored_active_version == 0
+    assert governed.definition.latest_version == 1
+    assert governed.governance.required_baseline.stages[0].stage_id == "details"
+    kinds = [item.kind for item in governed.governance.governance_events[-2:]]
+    assert kinds == [GovernanceEventKind.PROPOSAL_APPROVED, GovernanceEventKind.DEACTIVATED]
+    assert governed.governance.outbox == ()  # drained after commit
+    assert world.repository.verify_governance_state() == []
+    assert world.repository.verify_dispatch_state() == []
+    assert not world.repository.authorise_dispatch(workflow_id, 1)
 
 
 def test_a_confirmation_counts_itself_and_waits_for_a_held_gate():
@@ -406,8 +409,10 @@ def test_a_deactivated_workflow_starts_no_run_but_existing_runs_complete_and_it_
         jurisdiction=None,
         priority=None,
     )
-    world.force_deactivated(workflow_id)
-    world.force_deactivated(existing_id)
+    runs_before = world.runs.list_for_workflow(workflow_id)
+    world.deactivate(workflow_id)
+    world.deactivate(existing_id)
+    assert world.runs.list_for_workflow(workflow_id) == runs_before  # no run modified
     with pytest.raises(WorkflowValidationError):
         world.workflows.create_workflow_case(
             lambda: RM,
@@ -465,6 +470,7 @@ def test_a_deactivated_workflow_starts_no_run_but_existing_runs_complete_and_it_
     assert decision.published_version == 2 and decision.active_version == 2
     kinds = [item.kind for item in world.state(existing_id).governance.governance_events]
     assert GovernanceEventKind.REACTIVATED in kinds
+    assert world.repository.verify_governance_state() == []
     started = world.workflows.start_run(lambda: RM, existing_id, case_id=world.cases.case.case_id)
     assert started.workflow_version == 2
 

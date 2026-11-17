@@ -133,9 +133,6 @@ COMPUTED_KINDS = frozenset(
 )
 RECOVERY_KINDS = frozenset({ProposalKind.RESTORE_VERSION, ProposalKind.RESET_TO_DEFAULT})
 LIFECYCLE_KINDS = frozenset({ProposalKind.DEACTIVATE, ProposalKind.REACTIVATE})
-DEACTIVATION_APPROVAL_PENDING = (
-    "Approving a deactivation needs a reviewed contract and persistence change first."
-)
 
 _MESSAGES: dict[GovernanceErrorCode, str] = {
     GovernanceErrorCode.PROPOSAL_OPEN: "This workflow already has an open proposal.",
@@ -250,6 +247,8 @@ class _Write:
     definition: WorkflowDefinition
     governance: WorkflowGovernanceState
     publish_version: int | None = None
+    # A non-publication deactivation: active_version 0, latest and baseline kept (CC-5).
+    deactivate: bool = False
 
 
 def _has(actor: AuthenticatedActor, capability: Capability) -> bool:
@@ -628,21 +627,15 @@ class WorkflowGovernanceService:
                     GovernanceErrorCode.PROPOSAL_INVALID,
                     "A rejection acknowledges no permanent obligations.",
                 )
-            if approve and current.kind == ProposalKind.DEACTIVATE:
-                # Inside the held confirmation gate (ADR-017 4, R1-9 and R2-5).
-                if self._gate.in_progress(workflow_id):
-                    raise WorkflowGovernanceError(
-                        GovernanceErrorCode.RUN_CONFIRMATION_IN_PROGRESS
-                    )
-                # Blocked on the frozen contract: an APPROVED proposal must name a
-                # published version, and a governance write cannot set active_version 0
-                # without a publication. Refused before anything is written.
-                raise WorkflowGovernanceError(
-                    GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
-                    DEACTIVATION_APPROVAL_PENDING,
-                )
+            deactivating = approve and current.kind == ProposalKind.DEACTIVATE
+            # Inside the held confirmation gate (ADR-017 4, R1-9 and R2-5).
+            if deactivating and self._gate.in_progress(workflow_id):
+                raise WorkflowGovernanceError(GovernanceErrorCode.RUN_CONFIRMATION_IN_PROGRESS)
             definition = governed.definition
-            published = (definition.latest_version or 0) + 1 if approve else None
+            # An approved DEACTIVATE publishes no version (CC-5).
+            published = (
+                (definition.latest_version or 0) + 1 if approve and not deactivating else None
+            )
             decided = _proposal(
                 {
                     **_fields(current),
@@ -659,6 +652,19 @@ class WorkflowGovernanceService:
                     "last_activity_at": now,
                 }
             )
+            if deactivating:
+                # Never modifies a run; the gate stays held until this CAS completes.
+                return (decided, None, None), self._write(
+                    governed,
+                    now,
+                    open_proposal=None,
+                    decided=decided,
+                    deactivate=True,
+                    events=(
+                        (GovernanceEventKind.PROPOSAL_APPROVED, actor, decided, None),
+                        (GovernanceEventKind.DEACTIVATED, actor, decided, None),
+                    ),
+                )
             if published is None:
                 return (decided, None, None), self._write(
                     governed,
@@ -1071,6 +1077,7 @@ class WorkflowGovernanceService:
                         expected_revision=governed.definition.revision,
                         active_version=write.publish_version,
                         latest_version=write.publish_version,
+                        deactivate=write.deactivate,
                     )
                 break
             except WorkflowConflictError:
@@ -1103,6 +1110,7 @@ class WorkflowGovernanceService:
         events: Sequence[EventSpec],
         decided: WorkflowProposal | None = None,
         version: WorkflowVersion | None = None,
+        deactivate: bool = False,
         **changes: Any,
     ) -> _Write:
         definition, state = governed.definition, governed.governance
@@ -1150,6 +1158,7 @@ class WorkflowGovernanceService:
             definition=definition.model_copy(update=payload),
             governance=governance,
             publish_version=None if version is None else version.version,
+            deactivate=deactivate,
         )
 
     def _publication_report(
@@ -1597,6 +1606,7 @@ _EVENT_SUMMARIES: dict[GovernanceEventKind, str] = {
     GovernanceEventKind.NOTICE_RAISED: "Governance notice raised",
     GovernanceEventKind.NOTICE_ACKNOWLEDGED: "Governance notice acknowledged",
     GovernanceEventKind.REACTIVATED: "Workflow reactivated",
+    GovernanceEventKind.DEACTIVATED: "Workflow deactivated for new runs",
 }
 
 
