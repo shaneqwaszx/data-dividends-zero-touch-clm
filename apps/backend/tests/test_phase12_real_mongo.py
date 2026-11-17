@@ -20,6 +20,7 @@ from scripts.mongo_test_safety import (
     generate_ephemeral_mongo_database,
 )
 from test_slice_a_legacy_compatibility import rich_v7_snapshot
+from workflow_publication_seed import bind_test_fence
 
 import app.composition as composition
 from app.composition import (
@@ -178,6 +179,7 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
                 repository=MongoOnboardingCaseRepository(store),
                 target_execution_repository=MongoTargetExecutionRepository(store),
             )
+            bind_test_fence(onboarding)
             services.append(
                 build_document_processing_service(
                     onboarding,
@@ -269,6 +271,7 @@ def test_real_mongo_restart_rejects_policy_unbound_intelligence(
             bound_at=datetime(2026, 9, 23, tzinfo=UTC),
         ),
     )
+    bind_test_fence(onboarding)
     case = onboarding.create_staged_case("202400001A")
     now = datetime.now(UTC)
     record = OnboardingIntelligenceRecord(
@@ -707,6 +710,7 @@ def _build_mongo_reconciliation_service(
         repository=MongoOnboardingCaseRepository(store),
         target_execution_repository=MongoTargetExecutionRepository(store),
     )
+    bind_test_fence(onboarding)
     documents = build_document_processing_service(
         onboarding,
         settings,
@@ -1728,6 +1732,8 @@ def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_repla
         raw = store._encode(snapshot)  # noqa: SLF001
         raw["schema_version"] = 7
         raw.pop("write_nonce", None)
+        for entry in raw.get("target_executions", ()):
+            entry.pop("workflow_dispatch", None)  # schema 21 only
         omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}
@@ -1807,6 +1813,8 @@ def test_real_mongo_actual_v7_uncertain_target_recovery_never_replays(
         raw = store._encode(interrupted)  # noqa: SLF001
         raw["schema_version"] = 7
         raw.pop("write_nonce", None)
+        for entry in raw.get("target_executions", ()):
+            entry.pop("workflow_dispatch", None)  # schema 21 only
         omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}

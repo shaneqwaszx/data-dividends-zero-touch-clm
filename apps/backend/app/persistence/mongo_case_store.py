@@ -41,7 +41,11 @@ from app.domain.documents import (
 )
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome, SafeError
-from app.domain.target_submission import GoldTierExecutionLedgerState, WorkflowDispatch
+from app.domain.target_submission import (
+    WORKFLOW_DISPATCH_WRITE_OPERATIONS,
+    GoldTierExecutionLedgerState,
+    WorkflowDispatch,
+)
 from app.domain.zero_touch import (
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
@@ -55,9 +59,11 @@ from app.domain.zero_touch import (
 from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
+    PersistenceOutcomeAmbiguousError,
     PersistenceSchemaUnsupportedError,
     PersistenceUnavailableError,
 )
+from app.persistence.fence_store import MongoFenceLedger
 from app.persistence.models import (
     CASE_SNAPSHOT_SCHEMA_VERSION,
     DurableCaseSnapshot,
@@ -96,6 +102,10 @@ from app.persistence.models import (
     reject_uen_route_legacy_fields,
     reject_workflow_dispatch_legacy_fields,
 )
+
+# The MongoDB major version the ADR-017 fence behaviour was verified on (7.0.40, the
+# staging image digest). Another major refuses dispatch until re-verified.
+VERIFIED_MONGO_MAJOR = "7"
 
 _SUPPORTED_SCHEMA_VERSIONS = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
@@ -200,6 +210,10 @@ class MongoCaseStore:
                         expected_revision=snapshot.revision,
                         expected_nonce=snapshot.write_nonce,
                     )
+                try:
+                    self._clear_unattempted_claims(snapshot.case_id)
+                except (PersistenceUnavailableError, PersistenceOutcomeAmbiguousError):
+                    self._claim_clearing_incomplete = True
         except (PersistenceDataInvalidError, PersistenceSchemaUnsupportedError):
             raise
         except PyMongoError:
@@ -576,8 +590,12 @@ class MongoCaseStore:
         *,
         expected_revision: int,
         expected_nonce: str | None,
+        predicate: dict[str, Any] | None = None,
     ) -> DurableCaseSnapshot:
         """Compare-and-set on the revision and nonce read; set a new nonce (ADR-017 3.2).
+
+        ``predicate`` adds the caller's identity-bearing ledger predicate to the same
+        filter, so it is evaluated on the very snapshot the write compare-and-sets.
 
         The candidate keeps every schema-21 field it was read with (dispatch claims
         included), so this writer never strips data it cannot interpret.
@@ -597,6 +615,7 @@ class MongoCaseStore:
                     "revision": expected_revision,
                     **write_nonce_filter(expected_nonce),
                     "onboarding.created_by_actor_id": candidate.onboarding.created_by_actor_id,
+                    **(predicate or {}),
                 },
                 self._encode(candidate),
             )
@@ -605,6 +624,74 @@ class MongoCaseStore:
         if result.modified_count != 1:
             raise PersistenceConflictError
         return candidate.model_copy(deep=True)
+
+    def _clear_unattempted_claims(self, case_id: UUID) -> None:
+        """ADR-017 3.4 startup recovery (single process): clear every dispatch claim that
+        has no write attempt marker, each with a durable compare-and-set pipeline. A claim
+        with a marker is left for the existing provider-verified recovery."""
+
+        ledger = self.fence_ledger()
+        for _ in range(8):
+            current = self.get(case_id)
+            if current is None:
+                return
+            pending = [
+                entry.submission_input.submission_id
+                for entry in current.target_executions
+                if entry.workflow_dispatch is not None
+                and not any(
+                    item.value in WORKFLOW_DISPATCH_WRITE_OPERATIONS
+                    for item in entry.attempted_operations
+                )
+            ]
+            if not pending:
+                return
+            if not ledger.clear_unattempted_claim(
+                case_id=case_id,
+                revision=current.revision,
+                nonce=current.write_nonce,
+                submission_id=pending[0],
+            ):
+                raise PersistenceUnavailableError
+        # More claims than one case can hold (max 4 entries): never loop without bound.
+        raise PersistenceUnavailableError
+
+    def probe_durability(self) -> tuple[bool, str | None]:
+        """ADR-017 3.8 ``hello`` probe: a journaled standalone or a replica-set primary on
+        the pinned, verified major version (7). Anything else refuses every dispatch."""
+
+        if getattr(self, "_claim_clearing_incomplete", False):
+            return False, "STARTUP_CLAIM_CLEARING_INCOMPLETE"
+        try:
+            hello = self._client.admin.command("hello")
+            info = self._client.server_info()
+            status = self._client.admin.command("serverStatus", storageEngine=1)
+        except PyMongoError:
+            return False, "PROBE_FAILED"
+        if hello.get("msg") == "isdbgrid":
+            return False, "SHARDED_UNSUPPORTED"
+        if hello.get("setName") is not None and not hello.get("isWritablePrimary"):
+            return False, "NOT_PRIMARY"
+        if hello.get("setName") is None and hello.get("isWritablePrimary") is not True:
+            return False, "TOPOLOGY_UNIDENTIFIED"
+        version = str(info.get("version", ""))
+        if version.split(".")[0] != VERIFIED_MONGO_MAJOR:
+            return False, "SERVER_VERSION_UNVERIFIED"
+        engine = (status.get("storageEngine") or {}).get("name")
+        if engine != "wiredTiger":
+            # WiredTiger on MongoDB >= 6.1 always journals; nothing else is supported.
+            return False, "JOURNALING_UNVERIFIED"
+        return True, None
+
+    def fence_ledger(self) -> MongoFenceLedger:
+        """ADR-017 fence writes (D2, D4, D5, clearing) on this collection."""
+
+        return MongoFenceLedger(self._collection)
+
+    def decode_raw(self, raw: dict[str, Any]) -> DurableCaseSnapshot:
+        """Decode a fence post-image with the full strict codec."""
+
+        return self._decode(raw)
 
     def _encode(self, snapshot: DurableCaseSnapshot) -> dict[str, Any]:
         try:

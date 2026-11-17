@@ -76,6 +76,10 @@ def assert_retained_legacy_content(
     source_raw = codec._encode(source)  # noqa: SLF001
     omit_session2_fields(actual_raw)
     omit_session2_fields(source_raw)
+    for raw in (actual_raw, source_raw):
+        # A schema-21 dispatch claim cannot exist in any historical schema (ADR-017).
+        for entry in raw.get("target_executions", ()):
+            entry.pop("workflow_dispatch", None)
     assert actual_raw == source_raw
     assert actual.onboarding.created_by_actor_id is None
     assert all(document.document_version is None for document in actual.documents)

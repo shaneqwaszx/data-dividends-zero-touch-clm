@@ -76,6 +76,7 @@ from app.services.document_processing import (
     document_semantic_assessment,
 )
 from app.services.errors import (
+    DispatchFenceRefusedError,
     OnboardingInfrastructureError,
     TargetProviderContextMismatchError,
     TargetRegistryProvenanceError,
@@ -616,8 +617,14 @@ class ClmOrchestrationService:
         case_id: UUID,
         single_checkpoint: bool = False,
         reauthorize: Callable[[], None] | None = None,
+        recovery_only: bool = False,
     ) -> ClmOrchestrationRecord:
-        """Advance durable target checkpoints; callers may stop after one mutation."""
+        """Advance durable target checkpoints; callers may stop after one mutation.
+
+        ``recovery_only`` (ADR-017 3.7, the legacy Submit route): after every existing
+        check, in its order, refuse unless the full D-136 E3 predicate holds for the frozen
+        submission (a write attempt marker, or a retained outcome or receipt).
+        """
 
         with self._lock_for(case_id):
             if reauthorize is not None:
@@ -698,6 +705,14 @@ class ClmOrchestrationService:
                         "target mutation was attempted."
                     ),
                 )
+            if recovery_only and not _target_write_started(entry):
+                raise ClmRequestError(
+                    code="CLM_SUBMIT_RECOVERY_ONLY",
+                    message=(
+                        "This route only continues a send that already started; use the "
+                        "zero-touch send. No GoldTier target mutation was attempted."
+                    ),
+                )
 
             receipt = record.execution_receipt
             if receipt is None:
@@ -766,6 +781,12 @@ class ClmOrchestrationService:
                     except TargetWritesDisabledError as exc:
                         raise ClmRequestError(
                             code="CLM_TARGET_WRITES_DISABLED",
+                            message=exc.public_message,
+                        ) from None
+                    except DispatchFenceRefusedError as exc:
+                        # ADR-017: refused before the first write marker; nothing was sent.
+                        raise ClmRequestError(
+                            code=exc.code,
                             message=exc.public_message,
                         ) from None
                     except TargetRegistryProvenanceError as exc:

@@ -6,6 +6,7 @@ cannot be recreated by a stale writer.
 
 from __future__ import annotations
 
+import builtins
 import re
 import secrets
 from typing import Any
@@ -15,13 +16,19 @@ from pydantic import ValidationError
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
+from pymongo.write_concern import WriteConcern
 
 from app.domain.workflows import WorkflowDefinition, WorkflowRun
+from app.persistence.adr017_backfill import verify_definition_document
 from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
+    PersistenceOutcomeAmbiguousError,
     PersistenceUnavailableError,
 )
+
+# ADR-017 section 3.1: creation/provisioning and D3 use the durable write rule.
+DURABLE_WRITE_CONCERN = WriteConcern(w="majority", j=True, wtimeout=5_000)
 
 
 class MongoWorkflowStore:
@@ -67,7 +74,14 @@ def _decode_definition(raw: dict[str, Any]) -> WorkflowDefinition:
         definition = WorkflowDefinition.model_validate(raw["payload"])
     except (KeyError, ValidationError):
         raise PersistenceDataInvalidError from None
-    return definition.model_copy(update={"write_nonce": nonce})
+    stored: dict[str, Any] = {"write_nonce": nonce}
+    for field, name in (("active_version", "stored_active_version"),
+                        ("latest_version", "latest_version")):
+        value = raw.get(field)
+        if value is not None and (type(value) is not int or value < 0):
+            raise PersistenceDataInvalidError
+        stored[name] = value
+    return definition.model_copy(update=stored)
 
 
 def _nonce_filter(expected_nonce: str | None) -> dict[str, Any]:
@@ -90,6 +104,7 @@ def _decode_run(raw: dict[str, Any]) -> WorkflowRun:
 class MongoWorkflowDefinitionRepository:
     def __init__(self, store: MongoWorkflowStore) -> None:
         self._collection = store.definitions
+        self._durable = store.definitions.with_options(write_concern=DURABLE_WRITE_CONCERN)
 
     def list(self) -> list[WorkflowDefinition]:
         try:
@@ -106,13 +121,19 @@ class MongoWorkflowDefinitionRepository:
         return None if raw is None else _decode_definition(raw)
 
     def create(self, definition: WorkflowDefinition) -> WorkflowDefinition:
+        """Insert-only, durable, and always with the authoritative version fields."""
+
         nonce = secrets.token_hex(16)
+        highest = _highest_version(definition)
         try:
-            self._collection.insert_one(
+            self._durable.insert_one(
                 {
                     "_id": definition.workflow_id,
                     "revision": definition.revision,
                     "write_nonce": nonce,
+                    "active_version": highest,
+                    "latest_version": highest,
+                    "dispatch_authorisation_seq": 0,
                     "payload": definition.model_dump(mode="json"),
                 }
             )
@@ -120,7 +141,13 @@ class MongoWorkflowDefinitionRepository:
             raise PersistenceConflictError from None
         except PyMongoError:
             raise PersistenceUnavailableError from None
-        return definition.model_copy(update={"write_nonce": nonce})
+        return definition.model_copy(
+            update={
+                "write_nonce": nonce,
+                "stored_active_version": highest,
+                "latest_version": highest,
+            }
+        )
 
     def update(
         self, definition: WorkflowDefinition, *, expected_revision: int
@@ -156,6 +183,44 @@ class MongoWorkflowDefinitionRepository:
         if result.matched_count != 1:
             raise PersistenceConflictError
         return definition.model_copy(update={"write_nonce": nonce})
+
+    def dispatch_active_version(self, workflow_id: str) -> int | None:
+        """D1 (advisory): a stale read only causes a D3 retry."""
+
+        try:
+            raw = self._collection.find_one({"_id": workflow_id}, {"active_version": 1})
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        value = None if raw is None else raw.get("active_version")
+        return value if type(value) is int and value >= 0 else None
+
+    def authorise_dispatch(self, workflow_id: str, version: int) -> bool:
+        """D3, the linearisation point. Modifies only ``dispatch_authorisation_seq``."""
+
+        try:
+            result = self._durable.update_one(
+                {
+                    "_id": workflow_id,
+                    "active_version": version,
+                    "latest_version": version,
+                    "payload.versions.version": {"$ne": version + 1},
+                },
+                {"$inc": {"dispatch_authorisation_seq": 1}},
+            )
+        except PyMongoError:
+            raise PersistenceOutcomeAmbiguousError from None
+        return result.acknowledged and result.modified_count == 1
+
+    def verify_dispatch_state(self) -> builtins.list[tuple[str, str]]:
+        try:
+            raws = list(self._collection.find({}))
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        return [
+            (str(raw.get("_id")), reason)
+            for raw in raws
+            if (reason := verify_definition_document(raw)) is not None
+        ]
 
 
 class MongoWorkflowRunRepository:

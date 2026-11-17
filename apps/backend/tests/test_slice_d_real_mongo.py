@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from test_phase12_real_mongo import _open_store, isolated_mongo_settings
 from test_slice_d_mock_goldtier import NAME, UEN, advance, prepared
+from workflow_publication_seed import bind_test_fence
 
 from app.config import Settings
 from app.connectors.errors import MutationOutcomeUncertainError
@@ -26,12 +27,13 @@ __all__ = ["isolated_mongo_settings"]
 
 
 def owner(store, connector):
-    return OnboardingService(
+    service = OnboardingService(
         acra=MockAcraConnector(),
         goldtier=connector,
         repository=MongoOnboardingCaseRepository(store),
         target_execution_repository=MongoTargetExecutionRepository(store),
     )
+    return bind_test_fence(service)
 
 
 class RecordingMock(MockGoldTierConnector):
@@ -173,6 +175,7 @@ def test_physical_inconsistent_retained_proof_after_restart_cannot_reuse(
         MongoTargetExecutionRepository(first_store).replace(
             inconsistent_prior_entry(entry, contradiction),
             expected_state="FINALIZED",
+            expected_attempted=entry.attempted_operations,
         )
     finally:
         first_store.close()

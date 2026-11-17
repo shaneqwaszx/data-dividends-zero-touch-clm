@@ -269,6 +269,8 @@ def test_actual_v7_preserves_populated_hidden_evidence_and_confirmation(scenario
     raw = codec._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = 7
     omit_session2_fields(raw)
+    for entry in raw.get("target_executions", ()):
+        entry.pop("workflow_dispatch", None)  # ADR-017 schema 21 only
     original = deepcopy(raw)
     legacy = DurableCaseSnapshotV7.model_validate(
         {key: value for key, value in raw.items() if key != "_id"}
@@ -396,6 +398,8 @@ def test_actual_v7_preserves_identity_corrections_search_and_pending_confirmatio
     raw = codec._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = 7
     omit_session2_fields(raw)
+    for entry in raw.get("target_executions", ()):
+        entry.pop("workflow_dispatch", None)  # ADR-017 schema 21 only
     original = deepcopy(raw)
     current = codec._decode(raw)  # noqa: SLF001
     assert_retained_legacy_content(current, snapshot)

@@ -102,6 +102,7 @@ from app.domain.target_classification import (
 from app.domain.target_identity_evidence import TargetIdentityEvidencePolicy
 from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
+    WORKFLOW_DISPATCH_WRITE_OPERATIONS,
     GoldTierExecutionClassification,
     GoldTierExecutionError,
     GoldTierExecutionLedgerEntry,
@@ -124,7 +125,9 @@ from app.domain.target_submission import (
 from app.domain.uen_route import UenRoute, UenRouteDecision, route_change_message, route_uen
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.services.canonical_validation import validate_entity
+from app.services.dispatch_fence import DispatchFence, default_memory_fence
 from app.services.errors import (
+    DispatchFenceRefusedError,
     OnboardingInfrastructureError,
     TargetProviderContextMismatchError,
     TargetRegistryProvenanceError,
@@ -143,6 +146,7 @@ from app.services.target_execution_repository import (
     InMemoryTargetExecutionRepository,
     TargetExecutionRepository,
     TargetExecutionRepositoryConflictError,
+    has_write_marker,
 )
 from app.services.target_response_validation import (
     InvalidTargetResponseError,
@@ -458,6 +462,8 @@ class OnboardingService:
         self._execution_ledger_guard = RLock()
         self._active_target_submissions: set[UUID] = set()
         self._target_executions = target_execution_repository or InMemoryTargetExecutionRepository()
+        # ADR-017: the dispatch fence is the only path to a first GoldTier write.
+        self._dispatch_fence: DispatchFence | None = None
         self._policy_snapshot_provider = policy_snapshot_provider or legacy_phase13_policy_snapshot
 
     def case_lock(self, case_id: UUID) -> RLock:
@@ -3051,7 +3057,9 @@ class OnboardingService:
                 readback_status=readback_status,
             )
             self._target_executions.replace(
-                candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
+                candidate,
+                expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                expected_attempted=entry.attempted_operations,
             )
             return candidate.model_copy(deep=True)
 
@@ -3260,7 +3268,9 @@ class OnboardingService:
                     }
                 )
                 self._target_executions.replace(
-                    skipped, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
+                    skipped,
+                    expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                    expected_attempted=current.attempted_operations,
                 )
             self._record(
                 case,
@@ -3852,6 +3862,88 @@ class OnboardingService:
             except TargetExecutionRepositoryConflictError:
                 raise RuntimeError("GoldTier target submission identity already exists") from None
 
+    # ADR-017 section 3.7: re-confirmation and the "sent" predicate.
+
+    RECONFIRMATION_EVENT = "DISPATCH_RECONFIRMATION_REQUIRED"
+
+    @property
+    def target_execution_repository(self) -> TargetExecutionRepository:
+        return self._target_executions
+
+    def case_is_sent(self, case_id: UUID) -> bool:
+        """Sent = a Shell/Policy/Amend write attempt marker, or a retained target outcome or
+        receipt. Never a confirmation, a TENTATIVE/AUTHORISED claim or a frozen snapshot.
+        (Automation COMPLETE is the caller's third condition.)"""
+
+        return any(
+            has_write_marker(entry) or entry.target_outcome is not None
+            or entry.receipt is not None
+            for entry in self._target_executions.list_for_case(case_id)
+        )
+
+    def supersede_dispatch_confirmation(self, case_id: UUID) -> bool:
+        """RD-3: a newly applicable requirement supersedes an existing confirmation.
+
+        Under the case lock, and only while no write was started: the confirmation is
+        removed (the frozen submission is kept) and the audit event records which
+        confirmation was SUPERSEDED_BY_WORKFLOW_CHANGE. Returns whether it changed anything.
+        """
+
+        with self.case_lock(case_id):
+            case = self.get_case(case_id)
+            if case is None or case.target_dispatch_confirmation is None:
+                return False
+            if self.case_is_sent(case_id):
+                return False
+            superseded = case.target_dispatch_confirmation.confirmation_id
+            updated = case.model_copy(deep=True)
+            updated.target_dispatch_confirmation = None
+            now = self._clock()
+            updated.updated_at = now
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=now,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code=self.RECONFIRMATION_EVENT,
+                    message=(
+                        f"Confirmation {superseded} SUPERSEDED_BY_WORKFLOW_CHANGE; confirm the "
+                        "new workflow stage, then confirm the send again."
+                    ),
+                )
+            )
+            self._repository.save(OnboardingCase.model_validate(updated.model_dump()))
+            return True
+
+    def reconfirmation_required(self, case_id: UUID) -> bool:
+        """True while the latest confirmation-related event is a supersession."""
+
+        case = self.get_case(case_id)
+        if case is None or case.target_dispatch_confirmation is not None:
+            return False
+        for event in reversed(case.events):
+            if event.code == self.RECONFIRMATION_EVENT:
+                return True
+            if event.code == "TARGET_DISPATCH_CONFIRMED":
+                return False
+        return False
+
+    def bind_dispatch_fence(self, fence: DispatchFence) -> None:
+        """Bind the application's fence (its workflow store, send hold and health)."""
+
+        self._dispatch_fence = fence
+
+    def _fence(self) -> DispatchFence:
+        if self._dispatch_fence is None:
+            if not isinstance(self._target_executions, InMemoryTargetExecutionRepository):
+                # A durable ledger without the application's fence is never dispatched.
+                raise DispatchFenceRefusedError("WORKFLOW_STAGE_CHECK_UNAVAILABLE")
+            self._dispatch_fence = default_memory_fence(self._target_executions, self._clock)
+        return self._dispatch_fence
+
     def _mark_operation_attempted(
         self,
         submission_input: GoldTierSubmissionInput,
@@ -3867,6 +3959,18 @@ class OnboardingService:
                 raise ValueError("Target operation does not match an active submission")
             if operation in entry.attempted_operations:
                 raise ValueError("Target operation was attempted more than once")
+            if operation.value in WORKFLOW_DISPATCH_WRITE_OPERATIONS and not has_write_marker(
+                entry
+            ):
+                # The first write attempt marker is recorded only by the fence (D1-D5).
+                # A refusal raises before any provider call (D6 is the caller's next line).
+                self._active_target_submissions.add(submission_input.submission_id)
+                self._fence().authorise_first_write(
+                    case_id=submission_input.case_id,
+                    submission_id=submission_input.submission_id,
+                    operation=operation,
+                )
+                return
             attempted = (*entry.attempted_operations, operation)
             self._active_target_submissions.add(submission_input.submission_id)
             candidate = GoldTierExecutionLedgerEntry(
@@ -3889,7 +3993,9 @@ class OnboardingService:
                 readback_status=entry.readback_status,
             )
             self._target_executions.replace(
-                candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
+                candidate,
+                expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                expected_attempted=entry.attempted_operations,
             )
 
     def _ensure_execution_owner_exit(self, submission_input: GoldTierSubmissionInput) -> None:
@@ -4057,7 +4163,9 @@ class OnboardingService:
                 target_outcome=outcome,
             )
             self._target_executions.replace(
-                candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
+                candidate,
+                expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                expected_attempted=entry.attempted_operations,
             )
         return outcome.model_copy(deep=True)
 
@@ -4099,6 +4207,7 @@ class OnboardingService:
             self._target_executions.replace(
                 candidate,
                 expected_state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED.value,
+                expected_attempted=entry.attempted_operations,
             )
         return receipt.model_copy(deep=True)
 
@@ -4255,6 +4364,7 @@ class OnboardingService:
                         self._target_executions.replace(
                             candidate,
                             expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                            expected_attempted=stored.attempted_operations,
                         )
                 except TargetExecutionRepositoryConflictError:
                     latest = self._target_executions.get(submission_input.submission_id)
@@ -4481,6 +4591,7 @@ class OnboardingService:
                     self._target_executions.replace(
                         candidate,
                         expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                        expected_attempted=stored.attempted_operations,
                     )
                 except TargetExecutionRepositoryConflictError:
                     latest = self._target_executions.get(submission_input.submission_id)
@@ -4584,6 +4695,7 @@ class OnboardingService:
                     self._target_executions.replace(
                         candidate,
                         expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                        expected_attempted=stored.attempted_operations,
                     )
                 except TargetExecutionRepositoryConflictError:
                     latest = self._target_executions.get(submission_input.submission_id)

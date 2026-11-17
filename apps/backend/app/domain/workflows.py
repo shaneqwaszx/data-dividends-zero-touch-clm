@@ -132,6 +132,11 @@ class WorkflowDefinition(BaseModel):
     write_nonce: str | None = Field(
         default=None, pattern=WORKFLOW_WRITE_NONCE_PATTERN, exclude=True
     )
+    # ADR-017 section 3.5 (writer release): the stored top-level authoritative active version
+    # (0 = none) and the monotonic high-water mark. Backend-only; set only by provisioning,
+    # the one-time P2-0 backfill and (from P2-1) governed publication. None = not backfilled.
+    stored_active_version: int | None = Field(default=None, ge=0, exclude=True)
+    latest_version: int | None = Field(default=None, ge=0, exclude=True)
 
     @property
     def is_onboarding(self) -> bool:

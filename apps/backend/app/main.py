@@ -1,6 +1,7 @@
 """FastAPI application and Phase 07 application-facing endpoints."""
 
 import json
+import logging
 import os
 import re
 import time
@@ -117,6 +118,7 @@ from app.domain.target_submission import (
     GoldTierSearchResolution,
     GoldTierTargetOutcome,
 )
+from app.domain.workflows import ONBOARDING_WORKFLOW_ID
 from app.domain.zero_touch import (
     AutomationStage,
     AutomationStatus,
@@ -126,6 +128,7 @@ from app.domain.zero_touch import (
 )
 from app.persistence.composition import (
     PersistenceBundle,
+    WorkflowPersistence,
     build_goldtier_read_budget,
     build_persistence_bundle,
     build_workflow_persistence,
@@ -162,6 +165,11 @@ from app.services.case_query import (
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.dashboard import DashboardService
+from app.services.dispatch_fence import (
+    RECONFIRMATION_REQUIRED,
+    DispatchFence,
+    FenceHealth,
+)
 from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
@@ -608,11 +616,76 @@ def _automation_is_complete(record: ZeroTouchAutomationRecord | None) -> bool:
     return record is not None and record.status == AutomationStatus.COMPLETED
 
 
-def _automation_is_sent(record: ZeroTouchAutomationRecord | None) -> bool:
-    return record is not None and record.current_stage in {
-        AutomationStage.MOCK_GOLDTIER,
-        AutomationStage.COMPLETE,
-    }
+def _case_is_sent(service: OnboardingService, record: ZeroTouchAutomationRecord | None,
+                  case_id: UUID) -> bool:
+    """ADR-017 3.7 "sent": a write attempt marker, a retained outcome or receipt, or
+    automation COMPLETE. Never a confirmation, a claim, a frozen snapshot or MOCK_GOLDTIER
+    alone (this replaces the D-123 stage-based predicate)."""
+
+    if record is not None and record.current_stage == AutomationStage.COMPLETE:
+        return True
+    return service.case_is_sent(case_id)
+
+
+def _build_dispatch_fence(
+    service: OnboardingService,
+    workflows: WorkflowManagementService,
+    persistence: WorkflowPersistence,
+) -> DispatchFence:
+    """Startup (ADR-017 3.4, 3.5, 3.8): provision, probe and verify, then enable.
+
+    Any failure leaves the fence bound but unavailable, so every first write is refused
+    (WORKFLOW_STAGE_CHECK_UNAVAILABLE); reads and case work continue.
+    """
+
+    reason: str | None = None
+    try:
+        workflows.provision_onboarding()
+    except Exception:  # noqa: BLE001 - a provisioning gap is unavailability (3.6)
+        reason = "ONBOARDING_PROVISIONING_FAILED"
+    probe = getattr(service.target_execution_repository, "probe_durability", None)
+    if reason is None:
+        durable, probe_reason = probe() if probe is not None else (False, "PROBE_UNSUPPORTED")
+        if not durable:
+            reason = probe_reason or "DURABILITY_UNAVAILABLE"
+    if reason is None:
+        try:
+            findings = persistence.definitions.verify_dispatch_state()
+        except Exception:  # noqa: BLE001
+            findings = [("*", "VERIFICATION_FAILED")]
+        if findings:
+            reason = findings[0][1]
+    startup_reason = reason
+
+    def health() -> FenceHealth:
+        if startup_reason is not None:
+            return FenceHealth(available=False, reason=startup_reason)
+        if probe is None:
+            return FenceHealth(available=False, reason="PROBE_UNSUPPORTED")
+        durable, live_reason = probe()
+        return FenceHealth(available=durable, reason=live_reason)
+
+    if reason is not None:
+        logging.getLogger(__name__).warning(
+            "dispatch fence unavailable at startup", extra={"reason": reason}
+        )
+
+    def supersede(case_id: UUID, _code: str) -> None:
+        service.supersede_dispatch_confirmation(case_id)
+
+    def hold(case_id: UUID) -> str | None:
+        if service.reconfirmation_required(case_id):
+            return RECONFIRMATION_REQUIRED
+        return workflows.send_hold_code(case_id)
+
+    return DispatchFence(
+        ledger=service.target_execution_repository,
+        definitions=persistence.definitions,
+        workflow_id=ONBOARDING_WORKFLOW_ID,
+        hold=hold,
+        health=health,
+        on_hold=supersede,
+    )
 
 
 def create_app(
@@ -700,8 +773,8 @@ def create_app(
         definitions=workflow_persistence.definitions,
         runs=workflow_persistence.runs,
         cases=service,
-        case_is_sent=lambda case_id: _automation_is_sent(
-            persistence.automation.get_for_case(case_id)
+        case_is_sent=lambda case_id: _case_is_sent(
+            service, persistence.automation.get_for_case(case_id), case_id
         ),
         case_is_onboarded=lambda case_id: _automation_is_complete(
             persistence.automation.get_for_case(case_id)
@@ -712,6 +785,10 @@ def create_app(
     workflows: WorkflowManagementService | None = (
         workflow_enforcement if active_settings.workflow_manager_enabled else None
     )
+    if isinstance(service, OnboardingService):
+        service.bind_dispatch_fence(
+            _build_dispatch_fence(service, workflow_enforcement, workflow_persistence)
+        )
     active_acra_diagnostics = acra_diagnostic_service or (
         build_acra_diagnostic_service(active_acra_connector, active_settings)
         if active_acra_connector is not None
@@ -1671,38 +1748,6 @@ def create_app(
             raise _clm_http_error(exc) from None
 
     @application.post(
-        "/api/clm/cases/{case_id}/target-confirmation",
-        response_model=ClmCaseSummaryResponse,
-        tags=["clm"],
-    )
-    def confirm_clm_target_dispatch(
-        case_id: UUID,
-        confirmation: TargetDispatchConfirmationRequest,
-        request: Request,
-        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
-        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
-        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
-    ) -> ClmCaseSummaryResponse:
-        try:
-            return clm_response(
-                active_clm.confirm_target_dispatch(
-                    case_id=case_id,
-                    actor_id=actor.profile.user_id,
-                    expected_clm_version=confirmation.expected_clm_version,
-                    expected_case_event_count=confirmation.expected_case_event_count,
-                    reauthorize=_refusing_unsendable_case(
-                        build_case_reauthorizer(
-                            request, authentication, access_policy, service, case_id
-                        ),
-                        active_zero_touch,
-                        case_id,
-                    ),
-                )
-            )
-        except ClmRequestError as exc:
-            raise _clm_http_error(exc) from None
-
-    @application.post(
         "/api/clm/cases/{case_id}/submit",
         response_model=ClmCaseSummaryResponse,
         tags=["clm"],
@@ -1726,7 +1771,10 @@ def create_app(
                         target_write_started=lambda: active_clm.target_write_started(
                             case_id=case_id
                         ),
+                        onboarding=service if isinstance(service, OnboardingService) else None,
                     ),
+                    # ADR-017 3.7: legacy Submit is recovery-only (checked after all others).
+                    recovery_only=True,
                 )
             )
         except ClmRequestError as exc:
@@ -3736,6 +3784,7 @@ def _refusing_unsendable_case(
     case_id: UUID,
     *,
     target_write_started: Callable[[], bool] | None = None,
+    onboarding: OnboardingService | None = None,
 ) -> Callable[[], None]:
     """The direct CLM target routes never pass a hold that blocks sending.
 
@@ -3755,10 +3804,28 @@ def _refusing_unsendable_case(
                 message="Continue onboarding first; no GoldTier target mutation was attempted.",
             )
         hold_code = zero_touch.workflow_send_hold(case_id)
+
+        def write_started() -> bool:
+            # The ledger is read only when a hold or a supersession needs the answer.
+            return target_write_started is not None and target_write_started()
+
         if hold_code is None:
+            if (
+                onboarding is not None
+                and onboarding.reconfirmation_required(case_id)
+                and not write_started()
+            ):
+                raise ClmRequestError(
+                    code=RECONFIRMATION_REQUIRED,
+                    message=(
+                        "The workflow changed after this send was confirmed; confirm the send "
+                        "again. No GoldTier target mutation was attempted."
+                    ),
+                )
             return
-        if target_write_started is not None and target_write_started():
+        if write_started():
             return
+        # Nothing is written here (QG R0 P3-2): supersession happens only in the fence.
         raise ClmRequestError(
             code=hold_code,
             message=(

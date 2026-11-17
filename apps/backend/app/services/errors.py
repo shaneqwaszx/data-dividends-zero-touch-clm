@@ -27,6 +27,19 @@ class TargetWritesDisabledError(RuntimeError):
     public_message = "GoldTier Sandbox writes are disabled; no target mutation was attempted."
 
 
+class DispatchFenceRefusedError(RuntimeError):
+    """ADR-017 fence refusal: no first write attempt was recorded and no call was made."""
+
+    public_message = (
+        "The workflow check could not authorise this send; no GoldTier target mutation was "
+        "attempted."
+    )
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class TargetRegistryProvenanceError(RuntimeError):
     """The identity has no evidence from a source this target accepts."""
 
