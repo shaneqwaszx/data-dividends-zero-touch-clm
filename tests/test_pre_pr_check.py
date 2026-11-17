@@ -1107,6 +1107,72 @@ class PrePrCheckTests(unittest.TestCase):
             [call.args for call in governance.call_args_list],
         )
 
+    def _vocabulary_report(self, stdout: str, returncode: int = 0):
+        self._write("scripts/check_boundary_vocabulary.py", "# stand-in\n")
+        completed = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+        report = PRE_PR_CHECK.Report()
+        with patch.object(PRE_PR_CHECK.subprocess, "run", return_value=completed) as run:
+            PRE_PR_CHECK._run_vocabulary_check(self.repo, report)
+        self.assertIn("--base", run.call_args.args[0])
+        return report
+
+    def test_vocabulary_current_passes(self) -> None:
+        report = self._vocabulary_report('{"status": "CURRENT"}\n')
+        self.assertEqual(report.failures, [])
+        self.assertEqual(report.warnings, [])
+        self.assertIn(
+            "check_boundary_vocabulary.py: PASS (boundary vocabulary current)", report.details
+        )
+
+    def test_vocabulary_review_required_warns_with_the_word_delta(self) -> None:
+        report = self._vocabulary_report(
+            '{"status": "REVIEW_REQUIRED", "file_word_delta": '
+            '{"code_vocabulary": {"added": 3, "removed": 1}}}\n'
+        )
+        self.assertEqual(report.failures, [])
+        self.assertIn("independent vocabulary review", report.warnings[0])
+        self.assertIn('"added": 3', report.warnings[0])
+
+    def test_vocabulary_pre_existing_drift_warns(self) -> None:
+        report = self._vocabulary_report('{"status": "PRE_EXISTING_DRIFT"}\n')
+        self.assertEqual(report.failures, [])
+        self.assertIn("already stale on origin/main", report.warnings[0])
+
+    def test_vocabulary_failures_and_missing_verdicts_fail_closed(self) -> None:
+        for stdout, returncode in (
+            ('{"status": "FAIL_NEW_DRIFT"}\n', 1),
+            ('{"status": "FAIL_CHANGED_NOT_CURRENT"}\n', 1),
+            ('{"status": "FAIL_UNVERIFIABLE"}\n', 1),
+            ("", 1),
+            ("not json\n", 0),
+        ):
+            with self.subTest(stdout=stdout):
+                report = self._vocabulary_report(stdout, returncode)
+                self.assertEqual(len(report.failures), 1)
+                self.assertIn("check_boundary_vocabulary.py", report.failures[0])
+
+    def test_a_missing_vocabulary_checker_is_skipped_only_before_it_exists(self) -> None:
+        report = PRE_PR_CHECK.Report()
+        PRE_PR_CHECK._run_vocabulary_check(self.repo, report)
+        self.assertEqual(report.failures, [])
+
+        self._write("scripts/check_boundary_vocabulary.py", "# checker\n")
+        self._git("add", "scripts/check_boundary_vocabulary.py")
+        self._git("commit", "-m", "add the checker")
+        self._set_origin_main()
+        self._git("rm", "-q", "scripts/check_boundary_vocabulary.py")
+        report = PRE_PR_CHECK.Report()
+        PRE_PR_CHECK._run_vocabulary_check(self.repo, report)
+        self.assertEqual(len(report.failures), 1)
+        self.assertIn("cannot be removed in a PR", report.failures[0])
+
+    def test_audit_runs_the_vocabulary_check(self) -> None:
+        with patch.object(PRE_PR_CHECK, "_run_governance_check"), patch.object(
+            PRE_PR_CHECK, "_run_vocabulary_check"
+        ) as vocabulary:
+            PRE_PR_CHECK.audit_repository(self.repo)
+        vocabulary.assert_called_once_with(self.repo, ANY)
+
 
 if __name__ == "__main__":
     unittest.main()
