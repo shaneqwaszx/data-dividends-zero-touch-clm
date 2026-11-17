@@ -15,8 +15,9 @@ from test_final_review_editing_real_mongo import prepare_final
 from test_synthetic_company_pack import settings
 from test_synthetic_company_pack_real_mongo import MONGO_URI, pytestmark  # noqa: F401
 from test_synthetic_company_pack_real_mongo import database as disposable_database
-from test_workflow_manager import activate_onboarding, login
+from test_workflow_manager import STAGE, login
 from test_zero_touch_orchestration import RecordingMockGoldTier
+from workflow_publication_seed import publish_stored_draft_mongo
 
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID
 from app.main import create_app
@@ -35,6 +36,31 @@ def physical(database, *, enabled):
     )
 
 
+def activate_onboarding_physical(director, configured):
+    """Save the draft through the API, then publish it on the Mongo path (F-6).
+
+    Activation is frozen by ADR-017 P2-0, and the shared ``activate_onboarding`` helper publishes
+    into a memory store only. This physical test needs the version in its disposable database.
+    """
+
+    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
+    saved = director.put(
+        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
+        json={"expected_revision": baseline["revision"], "stages": [STAGE]},
+    )
+    assert saved.status_code == 200, saved.json()
+    publish_stored_draft_mongo(
+        MONGO_URI,
+        configured.mongo_database,
+        configured.mongo_workflow_definitions_collection,
+        ONBOARDING_WORKFLOW_ID,
+        actor_id="olivia-koh",
+    )
+    active = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
+    assert active.status_code == 200, active.json()
+    assert active.json()["active_version"] is not None, active.json()
+
+
 def legacy_body(client, case_id):
     summary = client.get(f"/api/clm/cases/{case_id}").json()
     return {
@@ -50,14 +76,15 @@ def assert_every_send_route_held(client, case_id, current, code):
     )
     assert zero_touch.status_code >= 400, zero_touch.text
     assert zero_touch.json()["detail"]["code"] == code
-    for response in (
-        client.post(
-            f"/api/clm/cases/{case_id}/target-confirmation", json=legacy_body(client, case_id)
-        ),
-        client.post(f"/api/clm/cases/{case_id}/submit"),
-    ):
-        assert response.status_code == 409, response.text
-        assert response.json()["detail"]["code"] == code
+    # ADR-017 3.7 (P2-0 writer): the legacy target confirmation is retired (404), and legacy
+    # submit is still held by the same code, exactly as the memory twin asserts.
+    retired = client.post(
+        f"/api/clm/cases/{case_id}/target-confirmation", json=legacy_body(client, case_id)
+    )
+    assert retired.status_code == 404, retired.text
+    submitted = client.post(f"/api/clm/cases/{case_id}/submit")
+    assert submitted.status_code == 409, submitted.text
+    assert submitted.json()["detail"]["code"] == code
 
 
 def test_physical_switched_off_manager_enforces_a_stored_stage_and_fails_closed(database):
@@ -66,7 +93,7 @@ def test_physical_switched_off_manager_enforces_a_stored_stage_and_fails_closed(
         patch("app.composition.MockGoldTierConnector", lambda **_: RecordingMockGoldTier()),
         TestClient(create_app(enabled)) as client,
     ):
-        activate_onboarding(login(client.app, "olivia-koh"))
+        activate_onboarding_physical(login(client.app, "olivia-koh"), enabled)
 
     disabled = physical(database, enabled=False)
     target = RecordingMockGoldTier()
