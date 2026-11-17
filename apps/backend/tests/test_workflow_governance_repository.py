@@ -417,3 +417,32 @@ def test_memory_and_mongo_reach_the_same_governance_state() -> None:
         return dumped
 
     assert comparable(memory) == comparable(mongo)
+
+
+def test_housekeeping_keeps_the_client_revision_but_refuses_the_old_nonce(
+    harness: Harness,
+) -> None:
+    created = harness.repository.create_governed(payload(), born())
+    first = publish(harness, created, 1)
+    held = first  # a writer's snapshot taken before the drain
+    assert harness.repository.drain_outbox(WID, now=NOW) == 5
+    # A writer still holding the pre-housekeeping nonce is refused...
+    stale, governance = approve(held, 2)
+    with pytest.raises(PersistenceConflictError):
+        harness.repository.write_governance(
+            stale, governance, expected_revision=2, active_version=2, latest_version=2
+        )
+    # ...while a client request carrying the pre-housekeeping revision still succeeds,
+    # because the service re-reads (fresh nonce) and the revision did not move.
+    client_revision = held.definition.revision
+    fresh = harness.repository.get_governed(WID)
+    assert fresh.definition.revision == client_revision
+    definition, governance = approve(fresh, 2)
+    written = harness.repository.write_governance(
+        definition,
+        governance,
+        expected_revision=client_revision,
+        active_version=2,
+        latest_version=2,
+    )
+    assert written.definition.latest_version == 2

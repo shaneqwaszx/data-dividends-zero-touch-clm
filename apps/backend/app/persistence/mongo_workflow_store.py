@@ -433,6 +433,15 @@ class MongoWorkflowDefinitionRepository:
         definition: WorkflowDefinition,
         governance: WorkflowGovernanceState,
     ) -> None:
+        """Drain/compaction commit: rotates the nonce, keeps the revision.
+
+        Safe because the two tokens guard different things. The revision is the client's
+        optimistic token (``expected_workflow_revision``); housekeeping changes no
+        governance meaning (only archived flags, outbox removal and acknowledged items
+        leaving the hot document), so it must not stale a client's request. The nonce is
+        the same-snapshot CAS token (ADR-017 3.2): rotating it makes every writer still
+        holding the pre-housekeeping snapshot fail its filter, re-read and re-evaluate.
+        """
         active = current.definition.stored_active_version
         latest = current.definition.latest_version
         if active is None or latest is None:

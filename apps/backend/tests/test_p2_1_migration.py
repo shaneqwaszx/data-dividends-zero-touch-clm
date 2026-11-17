@@ -246,7 +246,8 @@ def test_plan_builds_honest_legacy_provenance_draft_and_baseline() -> None:
     record = entry.record
     assert record.state == ProposalState.WITHDRAWN
     assert record.origin == ProposalOrigin.PRE_GOVERNANCE_DRAFT
-    assert record.author_id is None and record.legacy_editor == "hr-latest"
+    # ADR-017 1.4: the active version's D-123 activator, not the latest draft saver.
+    assert record.author_id is None and record.legacy_editor == "director-2"
     assert record.stages == stages("Draft") and record.base_version == 2
     (event,) = state.governance_events
     assert event.kind == GovernanceEventKind.MIGRATED and event.actor_id is None
@@ -256,11 +257,25 @@ def test_plan_builds_honest_legacy_provenance_draft_and_baseline() -> None:
     assert state.governance_sequence == 1 and state.open_proposal is None
 
 
-def test_draft_without_a_draft_saved_event_has_no_legacy_editor() -> None:
-    raw = p2_0_raw(audit_events=(audit("director-2", "ACTIVATED", 2),))
+def _legacy_editor(raw: dict[str, Any]) -> str | None:
     (planned,) = plan(collection(raw)).migrations
     record = planned.governance.decided_proposals[0].record
-    assert record is not None and record.legacy_editor is None
+    assert record is not None and record.author_id is None
+    return record.legacy_editor
+
+
+def test_legacy_editor_falls_back_to_the_latest_draft_saver_without_a_version() -> None:
+    assert _legacy_editor(p2_0_raw(versions=())) == "hr-latest"
+
+
+def test_legacy_editor_is_none_without_a_version_or_a_draft_saved_event() -> None:
+    raw = p2_0_raw(versions=(), audit_events=(audit("director-2", "ACTIVATED", 2),))
+    assert _legacy_editor(raw) is None
+
+
+def test_legacy_editor_prefers_the_activator_even_without_a_draft_saved_event() -> None:
+    raw = p2_0_raw(audit_events=(audit("someone", "ACTIVATED", 2),))
+    assert _legacy_editor(raw) == "director-2"
 
 
 def test_no_active_version_seeds_an_empty_baseline() -> None:

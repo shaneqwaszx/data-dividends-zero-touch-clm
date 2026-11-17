@@ -386,7 +386,10 @@ class InMemoryWorkflowDefinitionRepository:
                     active_version=active,
                     latest_version=latest,
                 )
-                # Housekeeping rotates the nonce and keeps the revision (Mongo parity).
+                # Housekeeping rotates the nonce and keeps the revision (Mongo parity): the
+                # revision is the client's optimistic token and housekeeping changes no
+                # governance meaning; the new nonce refuses any writer holding the old
+                # snapshot, which must re-read (ADR-017 3.2).
                 stored = compacted.model_copy(update={"write_nonce": secrets.token_hex(16)})
                 check_document_size(
                     governed_document(

@@ -1,19 +1,25 @@
 """ADR-017 P2-1 governance persistence on a physical MongoDB (opt-in; integrator-run).
 
-Runs only when ``PHASE12_MONGO_URI`` is set. Each test uses a newly generated allowlisted
-disposable database (``generate_ephemeral_mongo_database``), asserted again with
-``require_ephemeral_mongo_database`` before any write, and dropped afterwards. The URI is
-never printed. Never point it at ``clm_poc`` or any deployed database.
+Owner decision D-11: every test runs as an authenticated **readWrite-only** user created
+on a newly generated, allowlisted disposable database (never ``clm_poc``), with the same
+server and transport options as ``PHASE12_MONGO_URI``; the user is dropped and the
+database removed afterwards. Runs only when ``PHASE12_MONGO_URI`` is set. The URI and
+the generated credentials are never printed.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
+import secrets
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from pymongo import MongoClient
+from pymongo.errors import OperationFailure
+from pymongo.uri_parser import parse_uri
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
@@ -33,29 +39,68 @@ from app.persistence.mongo_workflow_store import (
     MongoWorkflowStore,
 )
 from app.persistence.p2_1_migration import apply_p2_1_migration, plan_p2_1_migration
-from app.persistence.workflow_governance_store import archive_record, dict_hash
+from app.persistence.workflow_governance_store import (
+    ColdDuplicateKeyError,
+    ColdHistoryIntegrityError,
+    archive_record,
+    dict_hash,
+)
 
 MONGO_URI = os.environ.get("PHASE12_MONGO_URI")
 pytestmark = pytest.mark.skipif(not MONGO_URI, reason="PHASE12_MONGO_URI is not configured")
 NOW = datetime(2031, 3, 1, 9, 0, tzinfo=UTC)
+_CREDENTIAL_OPTIONS = {"authsource", "authmechanism", "authmechanismproperties"}
+
+
+def _client_as(user: str, password: str, database: str) -> MongoClient[dict[str, Any]]:
+    """The same server and transport options as ``PHASE12_MONGO_URI``, authenticated as
+    ``user`` (credentials replaced)."""
+
+    assert MONGO_URI is not None
+    parsed = parse_uri(MONGO_URI)
+    options = {
+        key: value
+        for key, value in parsed["options"].items()
+        if key.lower() not in _CREDENTIAL_OPTIONS
+    }
+    return MongoClient(
+        [f"{host}:{port}" for host, port in parsed["nodelist"]],
+        username=user,
+        password=password,
+        authSource=database,
+        serverSelectionTimeoutMS=5000,
+        tz_aware=True,
+        **options,
+    )
 
 
 @pytest.fixture
 def store() -> Iterator[MongoWorkflowStore]:
-    database = require_ephemeral_mongo_database(generate_ephemeral_mongo_database("p12"))
-    client: MongoClient = MongoClient(MONGO_URI, tz_aware=True)
-    instance = MongoWorkflowStore(
-        client,
-        database=database,
-        definitions_collection="clm_workflow_definitions",
-        runs_collection="clm_workflow_runs",
-    )
+    name = require_ephemeral_mongo_database(generate_ephemeral_mongo_database("p12"))
+    admin: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    user, password = f"wfg_{secrets.token_hex(6)}", secrets.token_urlsafe(24)
+    client = None
     try:
-        instance.initialize()
+        admin[name].command(
+            "createUser", user, pwd=password, roles=[{"role": "readWrite", "db": name}]
+        )
+        client = _client_as(user, password, name)
+        instance = MongoWorkflowStore(
+            client,
+            database=name,
+            definitions_collection="clm_workflow_definitions",
+            runs_collection="clm_workflow_runs",
+        )
+        instance.initialize()  # as readWrite: includes the cold indexes
         yield instance
     finally:
-        cleanup_ephemeral_mongo_database(client, database)
-        client.close()
+        if client is not None:
+            client.close()
+        with contextlib.suppress(OperationFailure):
+            admin[name].command("dropUser", user)
+        cleanup_ephemeral_mongo_database(admin, name)
+        assert name not in admin.list_database_names()
+        admin.close()
 
 
 def test_cold_indexes_are_created_idempotently(store: MongoWorkflowStore) -> None:
@@ -115,6 +160,18 @@ def test_fallback_mode_fresh_suffix_on_a_physical_duplicate(store: MongoWorkflow
     )
     assert archive_record(store.cold, **kwargs) == 0  # type: ignore[arg-type]
     assert archive_record(store.cold, **kwargs) == 1  # type: ignore[arg-type]
+    (first,) = [item for item in store.cold.find(OutboxCollection.EVENTS, f"{WID}:1")][:1]
+    with pytest.raises(ColdDuplicateKeyError):  # insert-only: an existing _id never changes
+        store.cold.insert(OutboxCollection.EVENTS, first)
+    with pytest.raises(ColdHistoryIntegrityError):  # same logical id, different content
+        archive_record(
+            store.cold,
+            **{
+                **kwargs,
+                "record": {"synthetic": 2},  # type: ignore[arg-type]
+                "content_hash": dict_hash({"synthetic": 2}),
+            },
+        )
     ids = sorted(
         raw["_id"] for raw in store.definitions.database["workflow_governance_events"].find({})
     )
@@ -136,3 +193,5 @@ def test_migration_apply_then_mixed_version_checks(store: MongoWorkflowStore) ->
         store.definitions.find({}), seed_baseline=Seeder(), now=NOW, cold=store.cold
     )
     assert again.migrations == [] and again.already_migrated == ["refresh"]
+    assert apply_p2_1_migration(again, store.definitions, store.cold, now=NOW) == 0
+    assert store.definitions.find_one({"_id": "refresh"}) == stored

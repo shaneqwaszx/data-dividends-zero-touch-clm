@@ -39,7 +39,7 @@ APPLY_REFUSAL = (
 )
 # Built by the service workstream with the signature Callable[[WorkflowVersion], RequiredBaseline].
 SEEDER_MODULE = "app.services.workflow_ratchet"
-SEEDER_NAME = "seed_required_baseline"
+SEEDER_NAME = "seed_baseline"
 
 
 def _print(report: dict[str, object]) -> None:

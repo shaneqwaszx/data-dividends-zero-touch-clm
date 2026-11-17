@@ -7,8 +7,8 @@ Per workflow definition document (payload never changed):
   ``approved_by`` None, the fixed ``LEGACY_VERSION_NOTE``. Legacy versions are never
   shown or counted as approved;
 * a non-empty legacy ``draft_stages`` becomes a ``WITHDRAWN`` proposal with origin
-  ``PRE_GOVERNANCE_DRAFT``, ``author_id`` None and ``legacy_editor`` = the actor of the
-  latest ``DRAFT_SAVED`` audit event (None if absent), kept as a decided entry with its
+  ``PRE_GOVERNANCE_DRAFT``, ``author_id`` None and ``legacy_editor`` per ADR-017 1.4 (see
+  ``legacy_draft_proposal``), kept as a decided entry with its
   full record. Its id and timestamps are derived from the stored document only, so a
   re-run produces byte-identical cold content;
 * ``required_baseline`` is seeded from the **currently active** version only, by the
@@ -137,14 +137,27 @@ class P21MigrationPlan:
 
 
 def legacy_draft_proposal(
-    definition: WorkflowDefinition, *, base_version: int
+    definition: WorkflowDefinition,
+    *,
+    base_version: int,
+    active_version: WorkflowVersion | None,
 ) -> WorkflowProposal | None:
-    """The authorless WITHDRAWN proposal for a non-empty legacy ``draft_stages``."""
+    """The authorless WITHDRAWN proposal for a non-empty legacy ``draft_stages``.
+
+    ``legacy_editor`` precedence (ADR-017 1.4 outranks the programme brief):
+    1. the ``activated_by`` of the version active at migration (the D-123 Director editor);
+    2. with no active version, the actor of the latest ``DRAFT_SAVED`` audit event;
+    3. otherwise None. Authorship is never inferred: ``author_id`` stays None.
+    """
 
     if not definition.draft_stages:
         return None
     saved = [item for item in definition.audit if item.action == DRAFT_SAVED_ACTION]
     latest = saved[-1] if saved else None
+    if active_version is not None:
+        editor: str | None = active_version.activated_by
+    else:
+        editor = None if latest is None else latest.actor_id
     at = latest.occurred_at if latest is not None else definition.updated_at
     content = proposal_content_hash(ProposalKind.CHANGE, definition.draft_stages)
     proposal_id = uuid.uuid5(LEGACY_DRAFT_NAMESPACE, f"{definition.workflow_id}:{content}")
@@ -157,7 +170,7 @@ def legacy_draft_proposal(
         base_version=base_version,
         stages=definition.draft_stages,
         author_id=None,
-        legacy_editor=None if latest is None else latest.actor_id,
+        legacy_editor=editor,
         created_at=at,
         updated_at=at,
         last_activity_at=at,
@@ -223,7 +236,9 @@ def plan_definition_migration(
     if encoded_size({"v": baseline.model_dump(mode="json")}) > MAX_BASELINE_BYTES:
         return refuse("BASELINE_TOO_LARGE")
     try:
-        draft = legacy_draft_proposal(definition, base_version=active)
+        draft = legacy_draft_proposal(
+            definition, base_version=active, active_version=active_version
+        )
     except Exception:  # noqa: BLE001
         return refuse("LEGACY_DRAFT_INVALID")
 
