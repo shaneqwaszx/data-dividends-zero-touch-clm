@@ -806,7 +806,9 @@ def test_junk_workflow_ids_never_grow_the_confirmation_gate():
     assert gate.tracked() == 0
 
 
-def test_a_fallback_that_adds_permanent_obligations_says_so(caplog):
+def legacy_world(*versions: tuple[WorkflowStage, ...]) -> World:
+    """A migrated legacy store: the baseline is seeded from the active (last) version only."""
+
     repository = InMemoryWorkflowDefinitionRepository()
     moment = datetime(2026, 1, 1, tzinfo=UTC)
     repository.create(
@@ -815,32 +817,131 @@ def test_a_fallback_that_adds_permanent_obligations_says_so(caplog):
             name="Corporate onboarding",
             use_case=ONBOARDING_USE_CASE,
             country="Singapore",
-            versions=(
+            versions=tuple(
                 WorkflowVersion(
-                    version=1, stages=(CONTROLLER,), activated_at=moment, activated_by="olivia-koh"
-                ),
-                WorkflowVersion(
-                    version=2, stages=(SIGNATORY,), activated_at=moment, activated_by="olivia-koh"
-                ),
+                    version=number, stages=stages, activated_at=moment, activated_by="olivia-koh"
+                )
+                for number, stages in enumerate(versions, start=1)
             ),
             created_at=moment,
             updated_at=moment,
         )
     )
-    # The baseline is seeded from the active legacy version (v2) only.
     repository.migrate_to_governance(seed_baseline, now=moment)
-    world = World(repository)
-    with caplog.at_level("WARNING", logger=workflow_governance.LOGGER.name):
-        result = world.fallback(target="VERSION", target_version=1)
+    return World(repository)
+
+
+def snapshot(world: World) -> tuple[Any, ...]:
+    governed = world.state()
+    return (
+        governed.definition.revision,
+        governed.definition.versions,
+        governed.definition.stored_active_version,
+        governed.governance.required_baseline.model_dump_json(),
+        governed.governance.notices,
+        # The pre-write drain may archive history (housekeeping); no event is added.
+        tuple((item.sequence, item.kind) for item in governed.governance.governance_events),
+    )
+
+
+FALLBACK_REFUSAL = (
+    "This would add a permanent obligation; propose it through normal approval instead."
+)
+
+
+def test_a_fallback_that_would_add_a_permanent_obligation_is_refused_and_writes_nothing():
+    world = legacy_world((CONTROLLER,), (SIGNATORY,))
+    before = snapshot(world)
+    with pytest.raises(WorkflowGovernanceError) as refused:
+        world.fallback(target="VERSION", target_version=1)
+    assert code(refused) == "WORKFLOW_PROPOSAL_INVALID" and refused.value.status == 422
+    body = refused.value.body()
+    assert {(item.stage_id, item.field_id) for item in body.issues} == {
+        ("controller", None),
+        ("controller", "controller-name"),
+    }
+    assert {item.message for item in body.issues} == {FALLBACK_REFUSAL}
+    assert snapshot(world) == before
+
+
+def test_a_fallback_to_the_default_keeps_every_obligation_and_the_baseline_identical():
+    world = World()
+    world.publish((SIGNATORY,))
+    world.publish((SIGNATORY, CONTROLLER))
+    baseline = world.state().governance.required_baseline.model_dump_json()
+    result = world.fallback()
     assert result.published_version == 3
+    governed = world.state()
+    assert governed.governance.required_baseline.model_dump_json() == baseline
+    published = governed.definition.versions[-1]
+    required = {
+        (item.stage_id, field.field_id)
+        for item in published.stages
+        for field in item.fields
+        if field.required
+    }
+    assert required == {("signatory", "full-name"), ("controller", "controller-name")}
     event = next(
         item
-        for item in world.state().governance.governance_events
+        for item in governed.governance.governance_events
         if item.kind == GovernanceEventKind.EMERGENCY_FALLBACK
     )
-    assert event.summary == ("Emergency fallback to v1 (version 3); 2 new permanent obligations")
-    (record,) = [item for item in caplog.records if "permanent obligations" in item.message]
-    assert record.obligations == ["controller/-", "controller/controller-name"]
+    assert event.summary == "Emergency fallback to the default (version 3)"
+
+
+def test_a_fallback_to_a_version_within_the_baseline_keeps_the_baseline():
+    world = World()
+    world.publish((SIGNATORY,))
+    world.publish((SIGNATORY, CONTROLLER))
+    baseline = world.state().governance.required_baseline.model_dump_json()
+    assert world.fallback(target="VERSION", target_version=1).published_version == 3
+    assert world.state().governance.required_baseline.model_dump_json() == baseline
+
+
+CHOICE = WorkflowStage.model_validate(
+    {
+        "stage_id": "risk",
+        "name": "Risk rating",
+        "after_node_id": "DOCUMENT_IDP",
+        "fields": [
+            {
+                "field_id": "rating",
+                "label": "Rating",
+                "kind": "CHOICE",
+                "required": True,
+                "options": ["Low", "High"],
+            },
+        ],
+    }
+)
+
+
+def test_a_fallback_that_would_narrow_a_choice_is_refused(monkeypatch):
+    # The safe target uses the baseline representatives, so narrowing cannot arise from
+    # stored data today; the guard is exercised with a narrowed target directly.
+    world = World()
+    world.publish((CHOICE,))
+    narrowed = CHOICE.model_copy(
+        update={"fields": (CHOICE.fields[0].model_copy(update={"options": ("Low",)}),)}
+    )
+    monkeypatch.setattr(workflow_governance, "safe_target", lambda *_args: (narrowed,))
+    before = snapshot(world)
+    with pytest.raises(WorkflowGovernanceError) as refused:
+        world.fallback()
+    assert code(refused) == "WORKFLOW_PROPOSAL_INVALID"
+    assert {(item.stage_id, item.field_id) for item in refused.value.issues} == {("risk", "rating")}
+    assert snapshot(world) == before
+
+
+def test_the_same_obligation_is_added_through_a_proposal_and_approval():
+    world = legacy_world((CONTROLLER,), (SIGNATORY,))
+    decision = world.publish((SIGNATORY, CONTROLLER))  # HR proposes, a Director approves
+    assert decision.published_version == 3
+    stage_ids = {item.stage_id for item in world.state().governance.required_baseline.stages}
+    assert stage_ids == {"signatory", "controller"}
+    baseline = world.state().governance.required_baseline.model_dump_json()
+    assert world.fallback(target="VERSION", target_version=1).published_version == 4
+    assert world.state().governance.required_baseline.model_dump_json() == baseline
 
 
 def test_cc6_fields_appear_in_route_responses():
