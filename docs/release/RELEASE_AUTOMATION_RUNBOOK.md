@@ -127,6 +127,13 @@ Exit code 0: `DEPLOYED_AWAITING_ACCEPTANCE` (or `DRY_RUN_OK`). Exit code 2: stop
 before any host contact; for `rollback` it can follow read-only host checks. Any other exit
 code, or a Python traceback: the run was interrupted; go to section 7.
 
+**Backend from `main` `50fac7c7` or later (ADR-017 P2-0 writer).** Before such a backend first
+starts against a store, the one-time P2-0 backfill must have been run against that store. Each
+step needs its own owner approval: the read-only inventory, then the dry run, then the apply in an
+approved window (`scripts/adr017_backfill.py`, ADR-017 section 3.5). If the dispatch fence is
+unavailable, every first GoldTier write is refused and affected cases pause: go to section 7,
+"When the dispatch fence is unavailable".
+
 ## 5. Browser acceptance (owner)
 
 The run writes `BROWSER_ACCEPTANCE_RUNSHEET.md` in the release's state folder and stops. The
@@ -321,6 +328,102 @@ that the operator and the owner must keep:
 Names you may meet: `accept` refuses with `ACCEPTANCE_ALREADY_FAILED` for a record whose
 acceptance failed; a run that changed nothing while a release was live carries
 `standing_record_kept` in its numbered result and leaves `result.json` as it was.
+
+### When the dispatch fence is unavailable (ADR-017 P2-0)
+
+Applies to a backend from `main` `50fac7c7` or later. The fence guards every first GoldTier write.
+When it is unavailable, that write is refused (`WORKFLOW_STAGE_CHECK_UNAVAILABLE`) and a
+zero-touch case pauses in `RECOVERY_PENDING`. Reads and case work continue, nothing is written to
+GoldTier, and no case fails because of this.
+
+**Two kinds of unavailability.**
+
+| Kind | How to tell | Clears |
+|---|---|---|
+| **At startup** | The backend log has the warning `dispatch fence unavailable at startup` | **Only at the next backend start**, after the cause is fixed. It stays unavailable even after the cause is gone |
+| **At run time** | Sends are refused, but no startup warning is logged | Without a restart: the fence re-probes the store on each use and recovers once MongoDB is a journaled standalone or replica-set primary again. Fix the store or connectivity |
+
+**The log does not show the reason.** The startup warning carries its reason only as a structured
+field that the default backend logging does not print. **Do not guess the cause, and do not run
+any write to find out.**
+
+**Steps.**
+
+1. **Stop and tell the owner.** Record the time of the warning and the release and attempt
+   identifiers. Run no release command, backfill or correction until the owner decides.
+2. **Diagnose with owner approval only.**
+   - **Definitions** (backfill, re-verification, P2-1 content): the read-only **dry run** of
+     `scripts/adr017_backfill.py` changes nothing and prints:
+     - the workflows still to backfill (`to_backfill`, the `NOT_BACKFILLED` case)
+     - each refused workflow with its re-verification reason, where a P2-1-migrated document shows
+       as `P2_1_MIGRATED`
+
+     Running it against a deployed database needs a separate owner approval and the read-only
+     inventory first (the script's own header).
+   - **Store** (topology, journaling, version, primary): the host operator checks MongoDB read-only
+     and reports.
+   - Reasons the dry run cannot show: `ONBOARDING_PROVISIONING_FAILED` and
+     `STARTUP_CLAIM_CLEARING_INCOMPLETE`. They show up as a store that cannot be written durably.
+3. **Fix the cause the owner approves** (table below). A fix that writes data, such as the backfill
+   or a reviewed correction, needs its own owner approval and window.
+4. **Startup kind only: restart the backend process. The host operator (AWS lane) performs this,
+   only with the owner's dated written authorisation given directly to that operator.**
+
+   The host decides how the backend is created, so never pick a Compose wrapper from this runbook.
+   On the staging host, the ACRA lease controller creates the backend with its own overlays.
+   A `dc`, `dcg` or `dcgw` `up` would recreate it without them. Follow the operator's host
+   procedure, in this order:
+
+   1. Check the preconditions: no D-137 write window is open, no release is running, and it is not
+      the ACRA lease renewal window.
+   2. Record the backend container id, the lease state and the start time.
+   3. **Close the ACRA lease** through the lease controller. Never stop the backend while the
+      lease is open: the lease watcher treats that as a fault and closes the lease on its own.
+      The close recreates the backend without the ACRA overlay, so the container id changes.
+      That is already a new backend process: run the Confirm step below against its start
+      time.
+   4. **Only if the fence is still unavailable** after the cause is fixed, stop and then start that
+      same container in place. Never use `up`, a recreate, `dc`, `dcg` or `dcgw`. On an unchanged
+      service, `up -d` alone does not restart the process.
+   5. **Reopen the lease** through the lease controller's own procedure, if the owner wants it
+      open. It recreates the backend with the ACRA overlay, and the container id changes again.
+      Repeat the Confirm step below.
+   6. After the final backend change (the reopen, or step 3 or 4 if the lease stays closed), the
+      operator runs the host's post-checks: the R3 firewall verifier, the GoldTier egress pin
+      with Sandbox mode and writes disabled, and the assistant egress checks.
+
+   **Never stop, start or recreate the AI Assistant for this.** It has no restart policy. It starts
+   only through its systemd gate, and stopping it drops the in-memory provider session keys, which
+   HR must then enter again. A backend restart resets process-local sessions and the login
+   limiter, so users sign in again.
+5. **Confirm.** The restarted backend logs no `dispatch fence unavailable at startup` warning. Count
+   the lines; never print the log. If it does log one, close the lease again if it was reopened,
+   and go back to step 1.
+6. **Explicitly resume each paused case** (`RECOVERY_PENDING`) from its case page, one at a time.
+   Nothing resumes on its own. Each case continues the same submission and never replays a write
+   that was already attempted.
+
+**Startup reasons, as the code defines them, and what each needs.**
+
+| `reason` | Cause | Fix |
+|---|---|---|
+| `NOT_BACKFILLED` | A definition has no `active_version` or `latest_version` | The P2-0 backfill: dry run, then apply, in an owner-approved window |
+| `ACTIVE_NOT_ZERO_OR_LATEST`, `LAST_VERSION_NOT_LATEST`, `VERSIONS_NOT_STRICTLY_INCREASING`, `VERSION_ABOVE_LATEST`, `ONBOARDING_NOT_ACTIVE`, `DEFINITION_INVALID` | A definition fails startup re-verification | The owner decides on a separately reviewed correction (ADR-017 section 3.5), **never** a backfill re-run |
+| `P2_1_CONTENT_NOT_SUPPORTED_BY_P2_0` | A P2-0 backend was started against a store already migrated by P2-1, for example after a rollback | The owner decides. Never strip P2-1 content, and never run the P2-0 backfill or reverse migration on it (both refuse) |
+| `VERIFICATION_FAILED` | The definitions could not be read for verification | Fix store availability, then restart |
+| `ONBOARDING_PROVISIONING_FAILED` | The onboarding definition could not be provisioned | Fix store availability or write access, then restart |
+| `JOURNALING_UNVERIFIED`, `NOT_PRIMARY`, `TOPOLOGY_UNIDENTIFIED`, `SHARDED_UNSUPPORTED`, `SERVER_VERSION_UNVERIFIED`, `PROBE_FAILED`, `PROBE_UNSUPPORTED`, `DURABILITY_UNAVAILABLE` | The store is not a journaled standalone or replica-set primary on the verified major version, or could not be probed | Fix the MongoDB topology or connectivity, then restart. Do not change the probe |
+| `STARTUP_CLAIM_CLEARING_INCOMPLETE` | Startup could not clear every dispatch claim that has no write attempt marker | Fix store availability, then restart. Clearing runs again at startup |
+
+**Never:**
+
+- run the P2-0 backfill after P2-1 has been deployed
+- edit case ledgers, claims or workflow definitions by hand
+- run more than one backend process against a store
+- bypass or disable the fence to clear a queue
+
+**Known gap.** The reason is not visible in the default log. Making it visible is a separate
+backend follow-up, not part of this runbook change.
 
 ## 8. Never
 

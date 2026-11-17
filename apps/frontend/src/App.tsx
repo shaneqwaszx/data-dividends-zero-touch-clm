@@ -23,7 +23,6 @@ import {
   replaceZeroTouchDocument,
   resumeZeroTouchCase,
   retryZeroTouchIntakeDocument,
-  submitClmCase,
   uploadDocument,
   createZeroTouchCase,
   deleteZeroTouchCase,
@@ -925,18 +924,12 @@ export function ClmJourney({
         >
           {isBusy ? "Checking authoritative evidence..." : "Evaluate current readiness"}
         </button>
-        <button
-          type="button"
-          disabled={isBusy || summary.status !== "READY_FOR_MOCK_SUBMISSION"}
-          onClick={() =>
-            void run(() => submitClmCase(summary.case.case_id), true)
-          }
-        >
-          {summary.status === "MOCK_GOLDTIER_SUBMITTED"
-            ? `${targetLabel} submitted`
-            : `Submit to ${targetLabel}`}
-        </button>
       </div>
+      {/* ADR-017 P2-0: the legacy submit route is recovery-only, so this panel never sends. */}
+      <p className="clm-legacy-send-note" role="note">
+        Sending to {targetLabel} happens only from the zero-touch case view. This panel shows
+        readiness and history.
+      </p>
 
       {clmError && <div className="request-error" role="alert">{clmError}</div>}
       {summary.submission && (

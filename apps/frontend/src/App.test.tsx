@@ -945,10 +945,12 @@ describe("Phase 05 unified CLM journey", () => {
     expect(markup).toContain("Mock GoldTier");
     expect(markup).toContain("DOCUMENT_REQUIRED");
     expect(markup).toContain("REAL_GOLDTIER_NOT_CONFIGURED");
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier<\/button>/);
+    // F-3 (ADR-017 P2-0): the legacy panel never sends; the zero-touch case view does.
+    expect(markup).not.toContain("Submit to Mock GoldTier");
+    expect(markup).toContain("Sending to Mock GoldTier happens only from the zero-touch case view.");
   });
 
-  it("enables submission only for backend-ready status and shows the safe plan", () => {
+  it("shows the safe plan at backend-ready status without a legacy submit action", () => {
     const markup = renderToStaticMarkup(
       <ClmJourney summary={makeClm("READY_FOR_MOCK_SUBMISSION")} />,
     );
@@ -956,7 +958,9 @@ describe("Phase 05 unified CLM journey", () => {
     expect(markup).toContain("createShellCustomer if NO_MATCH");
     expect(markup).toContain("PENDING_SPONSOR_CONFIRMATION");
     expect(markup).toContain("Real approval transition");
-    expect(markup).toMatch(/<button type="button">Submit to Mock GoldTier<\/button>/);
+    expect(markup).not.toMatch(/<button[^>]*>Submit to /);
+    expect(markup).toContain('role="note"');
+    expect(markup).toContain("Evaluate current readiness");
   });
 
   it("derives Sandbox journey and submission labels from the backend plan", () => {
@@ -972,7 +976,7 @@ describe("Phase 05 unified CLM journey", () => {
     const markup = renderToStaticMarkup(<ClmJourney summary={sandbox} />);
 
     expect(markup).toContain("GoldTier Sandbox");
-    expect(markup).toContain("Submit to GoldTier Sandbox");
+    expect(markup).toContain("Sending to GoldTier Sandbox happens only from the zero-touch case view.");
     expect(markup).not.toContain("Submit to Mock GoldTier");
   });
 
@@ -1027,7 +1031,7 @@ describe("Phase 05 unified CLM journey", () => {
     expect(refreshed).toBe(true);
     const blocked = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
     expect(blocked).toContain("DOCUMENT_REQUIRED");
-    expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+    expect(blocked).not.toMatch(/<button[^>]*>Submit to /);
   });
 
   it("invalidates ready display immediately during an ownership mutation", async () => {
@@ -1053,7 +1057,7 @@ describe("Phase 05 unified CLM journey", () => {
     expect(refreshed).toBe(true);
     const blocked = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
     expect(blocked).toContain("OWNERSHIP_REQUIRED");
-    expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+    expect(blocked).not.toMatch(/<button[^>]*>Submit to /);
   });
 });
 

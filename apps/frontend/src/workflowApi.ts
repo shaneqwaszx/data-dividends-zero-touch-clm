@@ -112,13 +112,6 @@ export async function saveWorkflowDraft(workflow: WorkflowDetail, stages: Workfl
   ));
 }
 
-export async function activateWorkflow(workflow: WorkflowDetail): Promise<WorkflowDetail> {
-  return parseResponse(await authenticatedFetch(
-    `${API_BASE_URL}/api/workflows/${workflow.workflow_id}/activate`,
-    jsonRequest("POST", { expected_revision: workflow.revision }),
-  ));
-}
-
 export async function fetchStartableWorkflows(signal?: AbortSignal): Promise<StartableWorkflow[]> {
   const response = await authenticatedFetch(`${API_BASE_URL}/api/workflows/startable`, { signal });
   if (response.status === 404) return [];
@@ -184,8 +177,14 @@ export async function confirmStage(caseId: string | null, run: WorkflowRun, stag
   ));
 }
 
+const WORKFLOW_ERROR_MESSAGES: Record<string, string> = {
+  WORKFLOW_PUBLICATION_FROZEN:
+    "Publishing is paused while approval governance is introduced. Your draft is kept.",
+};
+
 export function workflowErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "That did not work. Please try again.";
+  if (!(error instanceof ApiError)) return "That did not work. Please try again.";
+  return (error.code && WORKFLOW_ERROR_MESSAGES[error.code]) || error.message;
 }
 
 export const workflowQueryKeys = {
