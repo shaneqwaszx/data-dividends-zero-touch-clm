@@ -568,3 +568,134 @@ def test_safe_target_restores_a_dropped_required_field() -> None:
     assert [f.field_id for f in target[0].fields] == ["outcome", "screened-by"]
     assert ratchet_issues(target, active=None, baseline=BASE1, is_onboarding=True) == ()
     assert safe_target((), EMPTY) == ()
+
+
+# --- QG remediation (P2-1, P2-2, P3-1, P3-2, P3-3) ---
+
+
+def test_dropping_a_case_data_key_is_a_tightened_permanent_obligation() -> None:
+    keyed = text("name", "Legal name", case_data_key="LEGAL_NAME")
+    v1 = version(1, stage("a", "Alpha", keyed))
+    base = seed_baseline(v1)
+    dropped = (stage("a", "Alpha", text("name", "Legal name")),)
+    found = permanent_obligations(dropped, active=v1, baseline=base)
+    assert [(o.key.field_id, o.change) for o in found] == [
+        ("name", PermanentObligationChange.TIGHTENED)
+    ]
+    assert "the case data key can never be added back" in found[0].detail
+    # Kept key: no obligation. After publication, re-adding the key is refused (RR-7).
+    assert permanent_obligations(v1.stages, active=v1, baseline=base) == ()
+    base2 = advance_baseline(base, version(2, *dropped))
+    assert rules(check(*v1.stages, active=version(2, *dropped), baseline=base2)) == {
+        RatchetRule.RR_7
+    }
+
+
+def test_narrowed_options_and_dropped_key_on_one_field_give_one_obligation() -> None:
+    field = WorkflowField(
+        field_id="c",
+        label="Kind",
+        kind=WorkflowFieldKind.CHOICE,
+        options=("A", "B"),
+        case_data_key="ENTITY_TYPE",
+    )
+    v1 = version(1, stage("s", "S", field))
+    narrowed = field.model_copy(update={"options": ("A",), "case_data_key": None})
+    found = permanent_obligations(
+        (stage("s", "S", narrowed),), active=v1, baseline=seed_baseline(v1)
+    )
+    assert len(found) == 1 and found[0].change == PermanentObligationChange.TIGHTENED
+    assert "fewer options" in found[0].detail and "never be added back" in found[0].detail
+    assert len(found[0].detail) <= 240
+
+
+def test_structure_reports_count_limits_that_model_copy_skips() -> None:
+    many_fields = tuple(text(f"f{i}", f"Field {i}") for i in range(33))
+    wide = SANCTIONS.model_copy(update={"fields": many_fields})
+    issues = structure_issues((wide,), is_onboarding=True)
+    assert [(i.code, i.stage_id, i.field_id) for i in issues] == [
+        ("WORKFLOW_PROPOSAL_INVALID", "sanctions", None)
+    ]
+    options = tuple(f"Option {i}" for i in range(33))
+    crowded = choice("c", "C", "x").model_copy(update={"options": options})
+    issues = structure_issues((with_fields(SANCTIONS, crowded),), is_onboarding=True)
+    assert [(i.code, i.field_id) for i in issues] == [("WORKFLOW_PROPOSAL_INVALID", "c")]
+    stages = tuple(stage(f"s{i}", f"Stage {i}", SCREENED) for i in range(33))
+    issues = structure_issues(stages, is_onboarding=True)
+    assert [(i.code, i.stage_id) for i in issues] == [("WORKFLOW_PROPOSAL_INVALID", None)]
+    report = validate_candidate(
+        (wide,), active=None, baseline=EMPTY, is_onboarding=True, base_version=0, active_version=0
+    )
+    assert not report.valid
+
+
+def test_safe_target_fails_closed_when_a_stage_would_exceed_32_fields() -> None:
+    required = tuple(text(f"r{i}", f"Required {i}") for i in range(20))
+    base = seed_baseline(version(1, stage("s", "S", *required)))
+    others = tuple(text(f"o{i}", f"Other {i}", required=False) for i in range(20))
+    with pytest.raises(ratchet.SafeTargetError) as caught:
+        safe_target((stage("s", "S", *others),), base)
+    assert caught.value.code == "WORKFLOW_PROPOSAL_INVALID"
+
+
+def test_safe_target_fails_closed_when_it_would_exceed_32_stages() -> None:
+    required = tuple(stage(f"r{i}", f"Required {i}", SCREENED) for i in range(20))
+    base = seed_baseline(version(1, *required))
+    others = tuple(stage(f"o{i}", f"Other {i}", SCREENED) for i in range(20))
+    with pytest.raises(ratchet.SafeTargetError):
+        safe_target(others, base)
+    within = safe_target(others[:12], base)
+    assert len(within) == 32
+    assert all(isinstance(item, WorkflowStage) for item in within)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Final-review & send", "Final review and send", "final_review_send", "Ownership and UBO"],
+)
+def test_rr9_impersonation_treats_punctuation_as_spaces_and_amp_as_and(name: str) -> None:
+    found = ratchet_issues(
+        (stage("my-step", name, SCREENED),), active=None, baseline=EMPTY, is_onboarding=True
+    )
+    assert rules(found) == {RatchetRule.RR_9}
+
+
+def test_rr9_lookalike_names_that_are_not_locked_stages_are_allowed() -> None:
+    found = ratchet_issues(
+        (stage("my-step", "Final review of sanctions", SCREENED),),
+        active=None,
+        baseline=EMPTY,
+        is_onboarding=True,
+    )
+    assert found == ()
+
+
+def test_distinct_violations_of_one_rule_on_one_stage_are_all_reported() -> None:
+    bad = stage("case-start", "Final review & send", SCREENED, after="FINAL_REVIEW_SEND")
+    found = ratchet_issues((bad,), active=None, baseline=EMPTY, is_onboarding=True)
+    assert [i.rule for i in found] == [RatchetRule.RR_9, RatchetRule.RR_9]
+    assert len({i.message for i in found}) == 2
+
+
+def test_same_violation_against_active_and_baseline_is_reported_once() -> None:
+    cosmetic_v2 = version(2, SANCTIONS.model_copy(update={"name": "SANCTIONS attestation"}))
+    base2 = advance_baseline(BASE1, cosmetic_v2)
+    found = check(OPTIONAL, active=V1, baseline=base2)
+    assert [(i.rule, i.stage_id) for i in found] == [(RatchetRule.RR_1, "sanctions")]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        with_fields(
+            SANCTIONS, SCREENED.model_copy(update={"kind": WorkflowFieldKind.DATE}), OUTCOME
+        ),
+        with_fields(SANCTIONS, SCREENED.model_copy(update={"label": "Checked by"}), OUTCOME),
+        SANCTIONS.model_copy(update={"name": "Renamed stage"}),
+    ],
+)
+def test_advance_baseline_fails_closed_on_input_that_did_not_pass_the_ratchet(
+    changed: WorkflowStage,
+) -> None:
+    with pytest.raises(ratchet.BaselineIntegrityError):
+        advance_baseline(BASE1, version(2, changed))

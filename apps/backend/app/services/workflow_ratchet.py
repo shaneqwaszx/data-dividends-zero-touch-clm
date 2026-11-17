@@ -14,11 +14,14 @@ baseline. An identical violation found against both is reported once.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 import bson
+from pydantic import ValidationError
 
 from app.api_workflow_governance_models import (
     ChangeCounts,
@@ -55,6 +58,11 @@ from app.services.workflow_management import stage_blocks_send
 
 MAX_MESSAGE = 240
 MAX_NORMALISED = 80  # FieldSignature.normalised_label / BaselineStage.normalised_name
+# Count limits of the stage models (``WorkflowVersion.stages``, ``WorkflowStage.fields``,
+# ``WorkflowField.options``). ``model_copy`` skips them, so they are checked explicitly.
+MAX_STAGES = 32
+MAX_FIELDS_PER_STAGE = 32
+MAX_OPTIONS_PER_FIELD = 32
 
 # Existing structure codes (``WorkflowManagementService._validate_structure`` /
 # ``_validate_activation``), reported as issues instead of raised.
@@ -68,12 +76,43 @@ _ANCHOR_IDS = frozenset(node_id for node_id, _ in ONBOARDING_ANCHOR_STAGES)
 _FINAL_NODE_ID = ONBOARDING_LOCKED_STAGES[-1][0]
 _FINAL_LABEL = ONBOARDING_LOCKED_STAGES[-1][1]
 _LOCKED_IDS = frozenset(node_id for node_id, _ in ONBOARDING_LOCKED_STAGES)
-# A locked stage is impersonated by its label or its node id read as words.
+_NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def _identity_key(value: str) -> str:
+    """RR-9 only: punctuation read as spaces, and "&" read explicitly as "and"."""
+
+    text = unicodedata.normalize("NFKC", value).casefold().replace("&", " and ")
+    return _NON_WORD.sub(" ", text).strip()
+
+
+# A locked stage is impersonated by its label or its node id read as words, compared both
+# with the ratchet normalisation (punctuation removed) and with ``_identity_key``
+# (punctuation as spaces, "&" equivalent to "and").
 _LOCKED_NAMES = frozenset(
     name
     for node_id, label in ONBOARDING_LOCKED_STAGES
     for name in (normalise_label(label), normalise_label(node_id.replace("_", " ")))
 )
+_LOCKED_IDENTITY_KEYS = frozenset(
+    key
+    for node_id, label in ONBOARDING_LOCKED_STAGES
+    for key in (_identity_key(label), _identity_key(node_id))
+)
+
+
+class BaselineIntegrityError(ValueError):
+    """A version that did not pass the ratchet was offered to ``advance_baseline``."""
+
+
+class SafeTargetError(ValueError):
+    """``base ∪ baseline`` cannot be built within the model limits; fail closed."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.code = GovernanceErrorCode.PROPOSAL_INVALID.value
+        self.public_message = message
+
 
 # Placeholders for the parts of a would-be version the service fills at publication.
 # Worst case: an int64 version number and a maximum-length actor id.
@@ -113,8 +152,9 @@ def _representative(field: WorkflowField, signature: FieldSignature) -> Workflow
     if signature.choice_options is not None:
         allowed = frozenset(signature.choice_options)
         options = tuple(option for option in field.options if normalise_label(option) in allowed)
-    return field.model_copy(
-        update={
+    return WorkflowField.model_validate(
+        {
+            **field.model_dump(),
             "required": True,
             "options": options,
             "case_data_key": field.case_data_key if signature.has_case_data_key else None,
@@ -146,6 +186,8 @@ def _new_baseline_field(field: WorkflowField) -> BaselineField:
 
 
 def _advanced_stage(existing: BaselineStage, stage: WorkflowStage, version: int) -> BaselineStage:
+    if normalise_label(stage.name) != existing.normalised_name:
+        raise BaselineIntegrityError("a published version cannot rename a required stage")
     by_id = {field.field_id: field for field in stage.fields if field.required}
     fields: list[BaselineField] = []
     for item in existing.fields:
@@ -153,6 +195,13 @@ def _advanced_stage(existing: BaselineStage, stage: WorkflowStage, version: int)
         if published is None:
             fields.append(item)  # not published as required here: unchanged (never weaker)
             continue
+        if (
+            published.kind != item.signature.kind
+            or normalise_label(published.label) != item.signature.normalised_label
+        ):
+            raise BaselineIntegrityError(
+                "a published version cannot change a required field's kind or label"
+            )
         signature = _stricter_signature(item.signature, published)
         fields.append(
             BaselineField(
@@ -238,8 +287,20 @@ def structure_issues(
             GovernanceErrorCode.PROPOSAL_EMPTY.value,
             "Add at least one stage. An empty workflow stays unpublished and inactive.",
         )
+    if len(stages) > MAX_STAGES:
+        add(
+            GovernanceErrorCode.PROPOSAL_INVALID.value,
+            f"A workflow can have at most {MAX_STAGES} stages; this one has {len(stages)}.",
+        )
     seen_stages: set[str] = set()
     for stage in stages:
+        if len(stage.fields) > MAX_FIELDS_PER_STAGE:
+            add(
+                GovernanceErrorCode.PROPOSAL_INVALID.value,
+                f"A stage can have at most {MAX_FIELDS_PER_STAGE} fields; this one has "
+                f"{len(stage.fields)}.",
+                stage_id=stage.stage_id,
+            )
         if stage.stage_id in seen_stages:
             add(
                 CODE_DUPLICATE_ID,
@@ -281,6 +342,14 @@ def structure_issues(
                     field_id=field.field_id,
                 )
             seen_fields.add(field.field_id)
+            if len(field.options) > MAX_OPTIONS_PER_FIELD:
+                add(
+                    GovernanceErrorCode.PROPOSAL_INVALID.value,
+                    f"A dropdown field can have at most {MAX_OPTIONS_PER_FIELD} options; this "
+                    f"one has {len(field.options)}.",
+                    stage_id=stage.stage_id,
+                    field_id=field.field_id,
+                )
             if field.kind == WorkflowFieldKind.CHOICE and not field.options:
                 add(
                     CODE_OPTIONS_REQUIRED,
@@ -406,6 +475,32 @@ def _baseline_obligations(baseline: RequiredBaseline) -> tuple[_StageObligation,
         )
         for stage in baseline.stages
     )
+
+
+def _with_display_names(
+    obligations: tuple[_StageObligation, ...], preferred: tuple[_StageObligation, ...]
+) -> tuple[_StageObligation, ...]:
+    """Display only: show baseline obligations with the active version's names, so the same
+    violation found against both sources produces the same message."""
+
+    names = {item.stage_id: item for item in preferred}
+    result: list[_StageObligation] = []
+    for item in obligations:
+        shown = names.get(item.stage_id)
+        if shown is None:
+            result.append(item)
+            continue
+        labels = {f.field_id: f.label for f in shown.fields}
+        result.append(
+            replace(
+                item,
+                name=shown.name,
+                fields=tuple(
+                    replace(f, label=labels.get(f.field_id, f.label)) for f in item.fields
+                ),
+            )
+        )
+    return tuple(result)
 
 
 def _issue(
@@ -553,6 +648,7 @@ def _engine_order_issues(
         impersonates = (
             sid.upper().replace("-", "_") in _LOCKED_IDS
             or normalise_label(stage.name) in _LOCKED_NAMES
+            or _identity_key(stage.name) in _LOCKED_IDENTITY_KEYS
         )
         if impersonates:
             issues.append(
@@ -594,15 +690,25 @@ def ratchet_issues(
     by_id: dict[str, WorkflowStage] = {}
     for stage in candidate:
         by_id.setdefault(stage.stage_id, stage)
+    from_active = _active_obligations(active)
+    from_baseline = _with_display_names(_baseline_obligations(baseline), from_active)
     found = [
-        *_obligation_issues(_active_obligations(active), by_id),
-        *_obligation_issues(_baseline_obligations(baseline), by_id),
+        *_obligation_issues(from_active, by_id),
+        *_obligation_issues(from_baseline, by_id),
         *applicability_issues(candidate, baseline),
         *_engine_order_issues(candidate, is_onboarding=is_onboarding),
     ]
-    unique: dict[tuple[str | None, str | None, str | None], ValidationIssue] = {}
+    # The same violation found against both sources has the same text and is kept once;
+    # distinct violations of one rule on one stage or field are all kept.
+    unique: dict[tuple[str, str | None, str | None, str | None, str], ValidationIssue] = {}
     for issue in found:
-        key = (issue.rule.value if issue.rule else None, issue.stage_id, issue.field_id)
+        key = (
+            issue.code,
+            issue.rule.value if issue.rule else None,
+            issue.stage_id,
+            issue.field_id,
+            issue.message,
+        )
         unique.setdefault(key, issue)
     return tuple(unique.values())
 
@@ -689,18 +795,25 @@ def permanent_obligations(
                         field,
                     )
                 continue
+            reasons: list[str] = []
             allowed = item.signature.choice_options
             if (
                 allowed is not None
                 and field.kind == WorkflowFieldKind.CHOICE
                 and not frozenset(allowed) <= _options(field)
             ):
+                reasons.append("offers fewer options; removed options can never return")
+            if item.signature.has_case_data_key and field.case_data_key is None:
+                # ADR-017 §2: case_data_key is absent once absent (RR-7 refuses it later).
+                reasons.append(
+                    "no longer starts from case data; the case data key can never be added back"
+                )
+            if reasons:
                 add(
                     key,
                     PermanentObligationChange.TIGHTENED,
                     stage,
-                    f"The field '{field.label}' offers fewer options; removed options can "
-                    "never return.",
+                    f"The field '{field.label}' " + "; it ".join(reasons) + ".",
                     field,
                 )
     return tuple(result)
@@ -830,14 +943,19 @@ def change_counts(diffs: tuple[StageDiff, ...]) -> ChangeCounts:
 def safe_target(
     base_stages: tuple[WorkflowStage, ...], baseline: RequiredBaseline
 ) -> tuple[WorkflowStage, ...]:
-    """``base ∪ required_baseline``: baseline obligations use their representative content."""
+    """``base ∪ required_baseline``: baseline obligations use their representative content.
+
+    Every stage is built through the validated model constructor. Raises ``SafeTargetError``
+    (fail closed) when the union would exceed a model limit, instead of returning it.
+    """
 
     recorded = {stage.stage_id: stage for stage in baseline.stages}
-    result: list[WorkflowStage] = []
+    present_stages = {stage.stage_id for stage in base_stages}
+    planned: list[tuple[str, str, str | None, tuple[WorkflowField, ...]]] = []
     for stage in base_stages:
         item = recorded.get(stage.stage_id)
         if item is None:
-            result.append(stage)
+            planned.append((stage.stage_id, stage.name, stage.after_node_id, stage.fields))
             continue
         representatives = {field.field_id: field.representative for field in item.fields}
         present = {field.field_id for field in stage.fields}
@@ -845,18 +963,43 @@ def safe_target(
         fields.extend(
             field.representative for field in item.fields if field.field_id not in present
         )
-        result.append(
-            stage.model_copy(update={"name": item.representative_name, "fields": tuple(fields)})
+        planned.append(
+            (stage.stage_id, item.representative_name, stage.after_node_id, tuple(fields))
         )
-    present_stages = {stage.stage_id for stage in base_stages}
-    result.extend(
-        WorkflowStage(
-            stage_id=item.stage_id,
-            name=item.representative_name,
-            after_node_id=item.representative_after_node_id,
-            fields=tuple(field.representative for field in item.fields),
+    planned.extend(
+        (
+            item.stage_id,
+            item.representative_name,
+            item.representative_after_node_id,
+            tuple(field.representative for field in item.fields),
         )
         for item in baseline.stages
         if item.stage_id not in present_stages
     )
+    if len(planned) > MAX_STAGES:
+        raise SafeTargetError(
+            f"The safe target would have {len(planned)} stages; the limit is {MAX_STAGES}."
+        )
+    result: list[WorkflowStage] = []
+    for stage_id, name, after_node_id, stage_fields in planned:
+        if len(stage_fields) > MAX_FIELDS_PER_STAGE:
+            raise SafeTargetError(
+                f"The safe target stage '{stage_id}' would have {len(stage_fields)} fields; the "
+                f"limit is {MAX_FIELDS_PER_STAGE}."
+            )
+        try:
+            result.append(
+                WorkflowStage.model_validate(
+                    {
+                        "stage_id": stage_id,
+                        "name": name,
+                        "after_node_id": after_node_id,
+                        "fields": [field.model_dump() for field in stage_fields],
+                    }
+                )
+            )
+        except ValidationError as error:
+            raise SafeTargetError(
+                f"The safe target stage '{stage_id}' is not a valid stage."
+            ) from error
     return tuple(result)
