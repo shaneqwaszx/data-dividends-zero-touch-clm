@@ -408,6 +408,8 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .ds-stage-copy { padding-bottom: 14px; font-size: 12.5px; }
 .ds-stage-copy .text-muted { font-size: 11px; }
 .ds-stage-node.attention { border-color: #8c3a2e; color: #8c3a2e; background: #f9efec; border-width: 1.5px; }
+/* D-141: complete for readiness, advisory review still open. Reuses the dashboard amber (.tag-amber, .ai-dot--warning). */
+.ds-stage-node.advised { border-color: #8a5a00; color: #8a5a00; background: #fdf0d8; border-width: 1.5px; }
 .state-composition { margin: 0 0 var(--space-6); }
 .state-composition__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }
 .state-composition__header h2 { margin-bottom: 5px; }
@@ -992,6 +994,7 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .ds-root .stage-disclosure[data-tone="attention"] { --tone: #b5523f; --tone-tint: #fbf1ee; --tone-ink: #8c3a2e; }
 .ds-root .stage-disclosure[data-tone="current"] { --tone: var(--color-accent-600); --tone-tint: var(--color-accent-100); --tone-ink: var(--color-accent-800); }
 .ds-root .stage-disclosure[data-tone="done"] { --tone: #4f8a68; --tone-tint: #f1f7f3; --tone-ink: #1d5a3c; }
+.ds-root .stage-disclosure[data-tone="advised"] { --tone: #d49a2b; --tone-tint: #fdf0d8; --tone-ink: #8a5a00; }
 .ds-root .stage-disclosure > h2 > button { padding: 16px 20px; border-radius: 0; background: var(--tone-tint); font-family: var(--font-heading); font-size: 22px; font-weight: 600; }
 .ds-root .stage-disclosure > h2 > button:hover:not(:disabled), .ds-root .stage-disclosure > h2 > button:focus-visible { background: color-mix(in srgb, var(--tone-tint) 70%, var(--tone) 12%); }
 .ds-root .stage-disclosure > h2 > button > span:first-child { flex: 1; }
@@ -1046,6 +1049,7 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .ds-root .stage-disclosure[data-tone="attention"] { --band: #8c3a2e; }
 .ds-root .stage-disclosure[data-tone="current"] { --band: #7d5411; }
 .ds-root .stage-disclosure[data-tone="done"] { --band: #2f6b4a; }
+.ds-root .stage-disclosure[data-tone="advised"] { --band: #8a5a00; }
 .ds-root .stage-disclosure > h2,
 .ds-root .stage-disclosure > h2 > button,
 .ds-root .stage-disclosure__summary { background: var(--band); color: #fff; }
@@ -1110,6 +1114,7 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .ds-root .onboarding-progress__stages > li[data-status] { border-top-color: var(--tile); }
 /* A stage only waiting for earlier steps keeps the default (not started) tile; data-status stays the backend value. */
 .ds-root .onboarding-progress__stages > li[data-status][data-display-state="waiting"] { --tile: var(--color-neutral-400); border-color: var(--color-divider); border-top-color: var(--tile); background: #fff; }
+.ds-root .onboarding-progress__stages > li[data-status][data-display-state="advised"] { --tile: #d49a2b; border-color: var(--color-divider); border-top-color: var(--tile); background: #fdf0d8; }
 
 /* Registry provenance rows match the registry boundary table (kv-row scale and weight). */
 .registry-provenance dl { margin: 0 0 4px; }
