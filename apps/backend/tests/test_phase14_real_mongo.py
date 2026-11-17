@@ -131,7 +131,7 @@ def _prove_stale_delete_conflict(
     stale_revision: int,
 ) -> None:
     with pytest.raises(PersistenceConflictError):
-        store.delete(case_id, expected_revision=stale_revision)
+        store.delete(case_id, expected_revision=stale_revision, expected_nonce=None)
 
 
 def test_real_mongo_projected_reads_and_completed_case_deletion_survive_restart(

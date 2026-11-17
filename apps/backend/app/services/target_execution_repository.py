@@ -65,6 +65,9 @@ class InMemoryTargetExecutionRepository:
             current = self._entries.get(submission_id)
             if current is None or current.state.value != expected_state:
                 raise TargetExecutionRepositoryConflictError
+            if current.workflow_dispatch != entry.workflow_dispatch:
+                # Reader release: a dispatch claim is preserved, never rewritten.
+                raise TargetExecutionRepositoryConflictError
             self._entries[submission_id] = entry.model_copy(deep=True)
 
     def delete_if_unattempted(self, submission_id: UUID) -> None:

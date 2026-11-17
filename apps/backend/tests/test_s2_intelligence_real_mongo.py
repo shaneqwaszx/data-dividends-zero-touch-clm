@@ -83,7 +83,7 @@ def test_duplicate_table_originals_survive_physical_restart_with_exact_bindings(
         "SYNTHETIC OWNER | NATURAL_PERSON | 250 | 300"
     )
     try:
-        first.create(original)
+        original = first.create(original)  # the stored copy carries its nonce
         service = DocumentProcessingService(
             cases=Cases(original.onboarding), idp=LocalPdfTextIdpProvider(),
             repository=MongoDocumentProcessingRepository(first),
@@ -122,9 +122,9 @@ def test_schema9_restarts_preserve_creator_pages_proposals_receipts_and_suppleme
     original = fixture()
     first = open_store(physical_database)
     try:
-        first.create(original)
+        original = first.create(original)  # the stored copy carries its nonce
         raw = first._collection.find_one({"_id": str(original.case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 20
+        assert raw is not None and raw["schema_version"] == 21
     finally:
         first.close()
     second = open_store(physical_database)
@@ -167,7 +167,7 @@ def test_optional_and_historical_notes_survive_physical_restart_without_read_rew
     })
     first = open_store(physical_database)
     try:
-        first.create(original)
+        original = first.create(original)  # the stored copy carries its nonce
         raw_before = first._collection.find_one({"_id": str(original.case_id)})
     finally:
         first.close()
@@ -201,7 +201,7 @@ def test_exact_v1_to_v8_physical_reads_keep_unknown_creator_without_rewrite(
     second = open_store(physical_database)
     try:
         decoded = second.get(case_id)
-        assert decoded.schema_version == 20
+        assert decoded.schema_version == 21
         assert decoded.onboarding.created_by_actor_id is None
         assert decoded.documents[0].document_version is None
         assert decoded.documents[0].fields[0].extraction_method == "UNKNOWN"
@@ -227,14 +227,15 @@ def test_physical_creator_identity_is_immutable_through_adapter_and_envelope_cas
     # would independently reject a forged creator during envelope validation.
     original = supplemental_snapshot()
     try:
-        store.create(original)
+        original = store.create(original)  # the stored copy carries its nonce
         changed_case = original.onboarding.model_copy(update={"created_by_actor_id": "olivia-koh"})
         with pytest.raises(PersistenceConflictError):
             if path == "repository":
                 MongoOnboardingCaseRepository(store).save(changed_case)
             else:
                 store.replace(original.model_copy(update={"onboarding": changed_case}),
-                              expected_revision=original.revision)
+                              expected_revision=original.revision,
+                              expected_nonce=original.write_nonce)
         assert store.get(original.case_id) == original
     finally:
         store.close()
@@ -244,7 +245,7 @@ def document_replacement(
     store: MongoCaseStore,
 ) -> tuple[DurableCaseSnapshot, OwnershipAnalysisRecord]:
     original = session2_snapshot()
-    store.create(original)
+    original = store.create(original)  # the stored copy carries its nonce
     document = original.documents[0]
     changed = document.model_copy(update={"events": [
         *document.events, document.events[-1].model_copy(update={"sequence": 2}),
@@ -353,7 +354,8 @@ def test_deleted_case_cannot_be_resurrected_by_new_creator_or_document_bound_ada
     try:
         original, replacement = document_replacement(store)
         retained = store.get(original.case_id)
-        store.delete(original.case_id, expected_revision=retained.revision)
+        store.delete(original.case_id, expected_revision=retained.revision,
+                     expected_nonce=retained.write_nonce)
         with pytest.raises(PersistenceConflictError):
             MongoOnboardingCaseRepository(other).save(original.onboarding)
         with pytest.raises(PersistenceConflictError):
@@ -363,7 +365,8 @@ def test_deleted_case_cannot_be_resurrected_by_new_creator_or_document_bound_ada
                 replacement, expected_version=original.ownership.version,
             )
         with pytest.raises(PersistenceConflictError):
-            other.replace(retained, expected_revision=retained.revision)
+            other.replace(retained, expected_revision=retained.revision,
+                          expected_nonce=retained.write_nonce)
         assert store.get(original.case_id) is None
         assert other.get(original.case_id) is None
         assert store._collection.count_documents({"_id": str(original.case_id)}) == 0  # noqa: SLF001
@@ -385,7 +388,7 @@ def test_physical_read_adapters_transfer_fresh_independent_models(
     first = open_store(physical_database)
     second = None
     try:
-        first.create(original)
+        original = first.create(original)  # the stored copy carries its nonce
         expected = first.get(original.case_id)
         assert expected is not None
         second = open_store(physical_database)
@@ -415,11 +418,12 @@ def test_deleted_case_cannot_be_recreated_from_caller_owned_read(
     original = populated_snapshot()
     store = open_store(physical_database)
     try:
-        store.create(original)
+        original = store.create(original)  # the stored copy carries its nonce
         repository = MongoOnboardingCaseRepository(store)
         caller = repository.get(original.case_id)
         assert caller is not None
-        store.delete(original.case_id, expected_revision=original.revision)
+        store.delete(original.case_id, expected_revision=original.revision,
+                     expected_nonce=original.write_nonce)
         with pytest.raises(PersistenceConflictError):
             repository.save(caller)
         assert store.get(original.case_id) is None

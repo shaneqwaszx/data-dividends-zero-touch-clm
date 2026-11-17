@@ -1,6 +1,6 @@
 """Immutable provider-neutral input and safe receipt for target submission."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
@@ -334,6 +334,89 @@ class GoldTierExecutionReceipt(BaseModel):
     infrastructure_failure: bool = False
 
 
+WORKFLOW_DISPATCH_WRITE_OPERATIONS = frozenset({"SHELL", "POLICY", "AMEND"})
+_DISPATCH_RANDOM_PATTERN = r"^[0-9a-f]{32}$"
+
+
+def _as_utc(value: object) -> object:
+    """BSON dates decode naive; dispatch lease times are always server UTC."""
+
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+class WorkflowDispatchState(StrEnum):
+    """ADR-017 section 3.3 dispatch claim states. Neither state means "sent"."""
+
+    TENTATIVE = "TENTATIVE"
+    AUTHORISED = "AUTHORISED"
+
+
+class WorkflowDispatchFirstWrite(BaseModel):
+    """The D5 record written in the same update as the first write attempt marker."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: GoldTierOperationMarker
+    # 0 = no active version (D-136 E2: holds nothing), still fenced by D3.
+    version: int = Field(ge=0, le=1_000_000)
+    token: str = Field(pattern=_DISPATCH_RANDOM_PATTERN)
+    receipt: str = Field(pattern=_DISPATCH_RANDOM_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_write_operation(self) -> "WorkflowDispatchFirstWrite":
+        if self.operation.value not in WORKFLOW_DISPATCH_WRITE_OPERATIONS:
+            raise ValueError("Only Shell, Policy or Amend is a write attempt marker")
+        return self
+
+
+class WorkflowDispatch(BaseModel):
+    """ADR-017 section 3.3 per-entry dispatch claim (case snapshot schema 21).
+
+    Lease times are server-assigned BSON dates (``$$NOW``); the backend never derives
+    or extends them from its own clock. Backend-only: never part of an API body.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    state: WorkflowDispatchState
+    token: str = Field(pattern=_DISPATCH_RANDOM_PATTERN)
+    # 0 = no active version (D-136 E2: holds nothing), still fenced by D3.
+    version: int = Field(ge=0, le=1_000_000)
+    lease_until: datetime
+    d3_at: datetime | None = None
+    receipt: str | None = Field(default=None, pattern=_DISPATCH_RANDOM_PATTERN)
+    first_write: WorkflowDispatchFirstWrite | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_server_times(cls, value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                **value,
+                **{key: _as_utc(value[key]) for key in ("lease_until", "d3_at") if key in value},
+            }
+        return value
+
+    @model_validator(mode="after")
+    def validate_claim_shape(self) -> "WorkflowDispatch":
+        for moment in (self.lease_until, self.d3_at):
+            if moment is not None and moment.utcoffset() != timedelta(0):
+                raise ValueError("Dispatch times must be UTC")
+        if self.state == WorkflowDispatchState.TENTATIVE:
+            if self.d3_at is not None or self.first_write is not None:
+                raise ValueError("A tentative claim carries no authorisation or write")
+        elif self.d3_at is None:
+            raise ValueError("An authorised claim requires its D3 time")
+        first_write = self.first_write
+        if first_write is not None and (
+            first_write.token != self.token or first_write.version != self.version
+        ):
+            raise ValueError("The first write must belong to the authorised claim")
+        return self
+
+
 class GoldTierExecutionLedgerEntry(BaseModel):
     """Defensive process-local state for one target execution identity."""
 
@@ -361,11 +444,24 @@ class GoldTierExecutionLedgerEntry(BaseModel):
     readback_status: SafeTargetStatus | None = None
     target_outcome: GoldTierTargetOutcome | None = None
     receipt: GoldTierExecutionReceipt | None = None
+    # ADR-017 dispatch claim; backend-only persistence state, excluded from API bodies.
+    workflow_dispatch: WorkflowDispatch | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_lifecycle_shape(self) -> "GoldTierExecutionLedgerEntry":
         if not _is_valid_operation_prefix(self.attempted_operations):
             raise ValueError("Attempted target operations must form an ordered prefix")
+        first_write = (
+            self.workflow_dispatch.first_write if self.workflow_dispatch is not None else None
+        )
+        if first_write is not None:
+            writes = tuple(
+                item
+                for item in self.attempted_operations
+                if item.value in WORKFLOW_DISPATCH_WRITE_OPERATIONS
+            )
+            if not writes or writes[0] != first_write.operation:
+                raise ValueError("The dispatch first write must be the first attempted write")
         completed = self.completed_operations
         if completed is not None and not _is_ordered_operation_subsequence(
             completed, self.attempted_operations

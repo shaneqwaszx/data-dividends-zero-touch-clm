@@ -31,7 +31,10 @@ class _RecordingStore:
     def __init__(self) -> None:
         self.call: tuple[object, int] | None = None
 
-    def delete(self, case_id: object, *, expected_revision: int) -> None:
+    def delete(
+        self, case_id: object, *, expected_revision: int, expected_nonce: str | None
+    ) -> None:
+        del expected_nonce
         self.call = (case_id, expected_revision)
         raise PersistenceConflictError
 

@@ -6,6 +6,8 @@ cannot be recreated by a stale writer.
 
 from __future__ import annotations
 
+import re
+import secrets
 from typing import Any
 from uuid import UUID
 
@@ -47,11 +49,35 @@ class MongoWorkflowStore:
         self._client.close()
 
 
+_NONCE = re.compile(r"[0-9a-f]{32}")
+
+
 def _decode_definition(raw: dict[str, Any]) -> WorkflowDefinition:
+    """Decode the payload; top-level ADR-017 fields stay in the stored document.
+
+    Only ``payload``, ``revision`` and ``write_nonce`` are ever ``$set`` by this
+    release, so ``active_version``, ``latest_version``, ``dispatch_authorisation_seq``
+    and any later top-level field are preserved unchanged on every write.
+    """
+    nonce = raw.get("write_nonce")
+    if "write_nonce" in raw and (not isinstance(nonce, str) or not _NONCE.fullmatch(nonce)):
+        # A stored null nonce (P3-5) is invalid, like any other malformed nonce.
+        raise PersistenceDataInvalidError
     try:
-        return WorkflowDefinition.model_validate(raw["payload"])
+        definition = WorkflowDefinition.model_validate(raw["payload"])
     except (KeyError, ValidationError):
         raise PersistenceDataInvalidError from None
+    return definition.model_copy(update={"write_nonce": nonce})
+
+
+def _nonce_filter(expected_nonce: str | None) -> dict[str, Any]:
+    if expected_nonce is None:
+        return {"write_nonce": {"$exists": False}}
+    return {"write_nonce": expected_nonce}
+
+
+def _highest_version(definition: WorkflowDefinition) -> int:
+    return max((item.version for item in definition.versions), default=0)
 
 
 def _decode_run(raw: dict[str, Any]) -> WorkflowRun:
@@ -80,11 +106,13 @@ class MongoWorkflowDefinitionRepository:
         return None if raw is None else _decode_definition(raw)
 
     def create(self, definition: WorkflowDefinition) -> WorkflowDefinition:
+        nonce = secrets.token_hex(16)
         try:
             self._collection.insert_one(
                 {
                     "_id": definition.workflow_id,
                     "revision": definition.revision,
+                    "write_nonce": nonce,
                     "payload": definition.model_dump(mode="json"),
                 }
             )
@@ -92,17 +120,33 @@ class MongoWorkflowDefinitionRepository:
             raise PersistenceConflictError from None
         except PyMongoError:
             raise PersistenceUnavailableError from None
-        return definition
+        return definition.model_copy(update={"write_nonce": nonce})
 
     def update(
         self, definition: WorkflowDefinition, *, expected_revision: int
     ) -> WorkflowDefinition:
+        """Compare-and-set on the revision and nonce read; set a new nonce.
+
+        Once ``latest_version`` exists (written by the P2-0 backfill or writer release),
+        this release refuses any payload whose versions exceed it: an ungoverned append
+        could not keep ``active_version`` and ``latest_version`` true (ADR-017 3.2, 3.5).
+        """
+        nonce = secrets.token_hex(16)
         try:
             result = self._collection.update_one(
-                {"_id": definition.workflow_id, "revision": expected_revision},
+                {
+                    "_id": definition.workflow_id,
+                    "revision": expected_revision,
+                    **_nonce_filter(definition.write_nonce),
+                    "$or": [
+                        {"latest_version": {"$exists": False}},
+                        {"latest_version": {"$gte": _highest_version(definition)}},
+                    ],
+                },
                 {
                     "$set": {
                         "revision": definition.revision,
+                        "write_nonce": nonce,
                         "payload": definition.model_dump(mode="json"),
                     }
                 },
@@ -111,7 +155,7 @@ class MongoWorkflowDefinitionRepository:
             raise PersistenceUnavailableError from None
         if result.matched_count != 1:
             raise PersistenceConflictError
-        return definition
+        return definition.model_copy(update={"write_nonce": nonce})
 
 
 class MongoWorkflowRunRepository:
