@@ -303,7 +303,7 @@ describe("HR proposal authoring (ADR-017 P2-2)", () => {
     await click(host, "Simulate");
     const panel = host.querySelector('[data-testid="simulation-panel"]')!;
     expect(panel.textContent).toContain("Synthetic simulation");
-    expect(panel.textContent).toContain("Private limited company, clear screening (synthetic)");
+    expect(panel.textContent).toContain("Company, clear screening (synthetic)");
     await click(host, "Run synthetic simulation");
     expect(server.mutations()).toEqual([{
       method: "POST", url: `/api/workflows/${WID}/proposals/${PID}/simulate`, body: { stages: DRAFT.stages, scenario_ids: [] },
