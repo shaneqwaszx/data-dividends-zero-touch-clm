@@ -157,4 +157,8 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
 
 ## 6. Contract-change notes
 
-(none)
+- **CC-1 (2026-11-17, integrator).** Fixtures only: the sample simulation scenario now uses a
+  real `RegistryLegalForm` value (`COMPANY`, id `company-clear`) instead of an invented label.
+  `SimulationScenario.legal_form` must always be a `RegistryLegalForm` value. The frontend reads
+  the fixtures through `apps/frontend/src/test-fixtures/workflowGovernance.ts` (static JSON
+  imports), so the browser tsconfig needs no Node types. No model or route changed.

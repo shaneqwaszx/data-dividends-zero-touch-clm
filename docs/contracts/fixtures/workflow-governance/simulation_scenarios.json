@@ -1,9 +1,9 @@
 [
   {
-    "description": "A synthetic Singapore private company limited by shares.",
-    "label": "Private limited company, clear screening",
-    "legal_form": "PRIVATE_COMPANY_LIMITED_BY_SHARES",
-    "scenario_id": "private-limited-clear",
+    "description": "A synthetic Singapore company with a clear screening outcome.",
+    "label": "Company, clear screening",
+    "legal_form": "COMPANY",
+    "scenario_id": "company-clear",
     "synthetic": true
   }
 ]

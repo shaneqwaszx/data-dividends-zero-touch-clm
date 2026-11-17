@@ -195,10 +195,10 @@ def fixtures() -> dict[str, object]:
         published_version=2,
     )
     scenario = SimulationScenario(
-        scenario_id="private-limited-clear",
-        label="Private limited company, clear screening",
-        description="A synthetic Singapore private company limited by shares.",
-        legal_form="PRIVATE_COMPANY_LIMITED_BY_SHARES",
+        scenario_id="company-clear",
+        label="Company, clear screening",
+        description="A synthetic Singapore company with a clear screening outcome.",
+        legal_form="COMPANY",  # a RegistryLegalForm value (contract-change note CC-1)
     )
     refused = ValidationReport(
         valid=False,
