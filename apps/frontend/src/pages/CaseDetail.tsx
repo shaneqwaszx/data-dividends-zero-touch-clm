@@ -186,10 +186,6 @@ export function PendingDocumentsBanner({ pending, onChooseDifferentFile }: {
         <h3 id="pending-documents-title">{count === 1 ? "Your document couldn't be uploaded" : `${count} documents couldn't be uploaded`}</h3>
         {rejection ? <>
           {rejection.lines.map(line => <p key={line} className="pending-documents__error">{line}</p>)}
-          <details className="evidence-details pending-documents__technical">
-            <summary>Technical details</summary>
-            <p className="control-help">{rejection.technical}</p>
-          </details>
         </> : <>
           <p>{pending.fileNames.join(", ")} — the upload was rejected. Fix the cause below, then try again.</p>
           <p className="control-help pending-documents__error">{pending.error}</p>
@@ -205,6 +201,11 @@ export function PendingDocumentsBanner({ pending, onChooseDifferentFile }: {
           : <button type="button" className="btn btn-primary" onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>}
         <button type="button" className="btn btn-ghost" onClick={pending.onDiscard}>Discard</button>
       </div>}
+      {/* After the actions, so keyboard users reach the actions first. */}
+      {!pending.busy && rejection && <details className="evidence-details pending-documents__technical">
+        <summary>Technical details</summary>
+        <p className="control-help">{rejection.technical}</p>
+      </details>}
     </section>
   );
 }
