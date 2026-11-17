@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canFillOnboardingStages, CaseWorkflowRuns, CaseWorkflowStages } from "./pages/CaseWorkflowPanel";
 import { availableCompanies, runProgress } from "./pages/WorkflowTab";
 import { ApiError } from "./api";
-import { copyStage, editorRows, reorderStages, reusableStages, WorkflowEditor, workflowStatusLabel } from "./pages/WorkflowManager";
+import { copyStage, editorRows, reorderStages, reusableStages, workflowStatusLabel } from "./pages/WorkflowManager";
 import type { ProcessingNode } from "./types";
 import { workflowErrorMessage, type WorkflowDetail, type WorkflowRun, type WorkflowRunStage, type WorkflowStage } from "./workflowApi";
 import { workflowManagerEnabled } from "./workflowFlags";
@@ -300,68 +300,9 @@ describe("case workflow sections", () => {
   });
 });
 
-// F-2 (ADR-017 P2-0): publication is frozen until P2-1, P2-2 and P3-1; the editor only saves drafts.
-describe("workflow editor while publication is frozen", () => {
-  let root: Root | null = null;
-  afterEach(() => { act(() => root?.unmount()); root = null; document.body.innerHTML = ""; vi.unstubAllGlobals(); });
-
-  const draftStage: WorkflowStage = {
-    stage_id: "refresh-review", name: "Refresh review", after_node_id: null,
-    fields: [{ field_id: "notes", label: "Notes", kind: "TEXT", required: true, options: [], autofill: false, document_label: null }],
-  } as WorkflowStage;
-  const workflow: WorkflowDetail = {
-    workflow_id: "wf-refresh", name: "Case refresh", use_case: "Case refresh", country: "Singapore",
-    case_source: "EXISTING_CASE", revision: 7, is_onboarding: false, status: "DRAFT", active_version: null,
-    draft_stages: [draftStage], audit: [], locked_stages: [],
-  };
-
-  function render(element: JSX.Element) {
-    const host = document.createElement("div");
-    document.body.append(host);
-    root = createRoot(host);
-    act(() => root!.render(<QueryClientProvider client={new QueryClient()}>{element}</QueryClientProvider>));
-    return host;
-  }
-  const buttons = (host: HTMLElement) => [...host.querySelectorAll("button")].map(item => item.textContent?.trim());
-
-  it("offers no activate action and explains that publishing is paused", () => {
-    const host = render(<WorkflowEditor workflow={workflow} workflows={[workflow]} onBack={() => {}} onSaved={() => {}} />);
-    expect(buttons(host)).not.toContain("Save and activate");
-    expect(host.textContent).not.toMatch(/activate/i);
-    const notice = host.querySelector('[data-testid="workflow-publication-paused"]');
-    expect(notice?.getAttribute("role")).toBe("note");
-    expect(notice?.textContent).toContain("Publishing is paused.");
-    expect(notice?.textContent).toContain("HR proposals and Director approval");
-    const save = [...host.querySelectorAll("button")].find(item => item.textContent === "Save draft");
-    expect(save?.disabled).toBe(true);
-  });
-
-  it("saves only the draft, with the same request body, and never calls the activation route", async () => {
-    const saved: WorkflowDetail = { ...workflow, revision: 8, draft_stages: [{ ...draftStage, name: "Refresh review 2" }] };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(saved), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const onSaved = vi.fn();
-    const host = render(<WorkflowEditor workflow={workflow} workflows={[workflow]} onBack={() => {}} onSaved={onSaved} />);
-    const nameInput = [...host.querySelectorAll("label")].find(item => item.textContent?.startsWith("Stage name"))!.querySelector("input")!;
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(nameInput, "Refresh review 2");
-      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    const save = [...host.querySelectorAll("button")].find(item => item.textContent === "Save draft")!;
-    expect(save.disabled).toBe(false);
-    await act(async () => { save.click(); });
-    await act(async () => { await Promise.resolve(); });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/workflows/wf-refresh/draft");
-    expect(init.method).toBe("PUT");
-    expect(JSON.parse(String(init.body))).toEqual({ expected_revision: 7, stages: [{ ...draftStage, name: "Refresh review 2" }] });
-    expect(fetchMock.mock.calls.some(call => String(call[0]).endsWith("/activate"))).toBe(false);
-    expect(onSaved).toHaveBeenCalledWith(saved);
-    expect(host.textContent).toContain("Draft saved. It is not published.");
-  });
-
+// P2-2 (ADR-017): "Save draft" (PUT …/draft) and its frozen-publication notice are retired; the editor
+// now authors governed proposals. Those flows are covered in WorkflowGovernanceEditor.test.tsx.
+describe("workflow error messages", () => {
   it("explains a frozen-publication refusal in plain words and passes other messages through", () => {
     expect(workflowErrorMessage(new ApiError("raw", 409, "WORKFLOW_PUBLICATION_FROZEN")))
       .toBe("Publishing is paused while approval governance is introduced. Your draft is kept.");

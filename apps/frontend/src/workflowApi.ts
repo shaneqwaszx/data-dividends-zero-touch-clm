@@ -1,4 +1,5 @@
 import { API_BASE_URL, ApiError, authenticatedFetch, parseResponse } from "./api";
+import type { WorkflowGovernanceView } from "./workflowGovernanceTypes";
 
 export type WorkflowCaseSource = "EXISTING_CASE" | "NEW_CASE";
 
@@ -33,8 +34,12 @@ export interface WorkflowDetail {
   status: "ACTIVE" | "DRAFT";
   active_version: number | null;
   draft_stages: WorkflowStage[];
+  /** Published versions (P2-0 response field); the active one is shown read-only. */
+  versions?: Array<{ version: number; stages: WorkflowStage[]; activated_at: string; activated_by: string }>;
   audit: Array<{ occurred_at: string; actor_id: string; action: string; summary: string }>;
   locked_stages: Array<{ node_id: string; label: string }>;
+  /** ADR-017: null (or absent) until the governance migration marker exists. */
+  governance?: WorkflowGovernanceView | null;
 }
 
 export interface WorkflowRunField {
@@ -105,11 +110,9 @@ export async function createWorkflow(body: { name: string; use_case: string; cou
   return parseResponse(await authenticatedFetch(`${API_BASE_URL}/api/workflows`, jsonRequest("POST", body)));
 }
 
-export async function saveWorkflowDraft(workflow: WorkflowDetail, stages: WorkflowStage[]): Promise<WorkflowDetail> {
-  return parseResponse(await authenticatedFetch(
-    `${API_BASE_URL}/api/workflows/${workflow.workflow_id}/draft`,
-    jsonRequest("PUT", { expected_revision: workflow.revision, stages }),
-  ));
+/** GET /workflows/{wid}: the workflow with its read-only governance view (ADR-017). */
+export async function fetchWorkflow(workflowId: string, signal?: AbortSignal): Promise<WorkflowDetail> {
+  return parseResponse(await authenticatedFetch(`${API_BASE_URL}/api/workflows/${encodeURIComponent(workflowId)}`, { signal }));
 }
 
 export async function fetchStartableWorkflows(signal?: AbortSignal): Promise<StartableWorkflow[]> {
@@ -189,6 +192,7 @@ export function workflowErrorMessage(error: unknown): string {
 
 export const workflowQueryKeys = {
   list: (userId: string) => ["auth", userId, "workflows"] as const,
+  detail: (userId: string, workflowId: string) => ["auth", userId, "workflows", "detail", workflowId] as const,
   startable: (userId: string) => ["auth", userId, "workflows", "startable"] as const,
   tabCases: (userId: string) => ["auth", userId, "workflows", "tab-cases"] as const,
   runs: (userId: string, workflowId: string) => ["auth", userId, "workflows", "runs", workflowId] as const,
