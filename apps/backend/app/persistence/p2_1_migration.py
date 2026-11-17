@@ -146,7 +146,8 @@ def legacy_draft_proposal(
 
     ``legacy_editor`` precedence (ADR-017 1.4 outranks the programme brief):
     1. the ``activated_by`` of the version active at migration (the D-123 Director editor);
-    2. with no active version, the actor of the latest ``DRAFT_SAVED`` audit event;
+    2. with no active version, the actor of the latest ``DRAFT_SAVED`` audit event
+       (project-defined fallback, not sponsor-confirmed; ADR-017 1.4 names only 1);
     3. otherwise None. Authorship is never inferred: ``author_id`` stays None.
     """
 

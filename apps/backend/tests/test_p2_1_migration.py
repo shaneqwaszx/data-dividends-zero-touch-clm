@@ -588,6 +588,7 @@ def test_accidental_old_writer_startup_fails_closed_without_writes() -> None:
         (["--database", DATABASE], "DRY_RUN_REQUIRED"),
         (["--database", DATABASE, "--dry-run", "--yes"], "UNKNOWN_ARGUMENT"),
         (["--database", "clm_poc", "--dry-run"], "FORBIDDEN_DATABASE"),
+        (["--database", "CLM_POC", "--dry-run"], "FORBIDDEN_DATABASE"),
     ],
 )
 def test_cli_refuses_anything_but_a_dry_run(

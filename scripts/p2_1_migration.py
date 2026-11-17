@@ -96,7 +96,7 @@ def main(
             }
         )
         return 2
-    if args.database in FORBIDDEN_DATABASES:
+    if args.database.strip().lower() in FORBIDDEN_DATABASES:
         _print({"status": "REFUSED", "reason": "FORBIDDEN_DATABASE"})
         return 2
     seeder = seed_baseline or _default_seeder()

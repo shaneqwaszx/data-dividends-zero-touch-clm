@@ -42,6 +42,8 @@ from app.persistence.p2_1_migration import apply_p2_1_migration, plan_p2_1_migra
 from app.persistence.workflow_governance_store import (
     ColdDuplicateKeyError,
     ColdHistoryIntegrityError,
+    GovernanceHistoryRewriteError,
+    GovernedDefinition,
     archive_record,
     dict_hash,
 )
@@ -195,3 +197,58 @@ def test_migration_apply_then_mixed_version_checks(store: MongoWorkflowStore) ->
     assert again.migrations == [] and again.already_migrated == ["refresh"]
     assert apply_p2_1_migration(again, store.definitions, store.cold, now=NOW) == 0
     assert store.definitions.find_one({"_id": "refresh"}) == stored
+
+
+def _two_published(repository: MongoWorkflowDefinitionRepository) -> Any:
+    current = repository.create_governed(payload(), born())
+    for number in (1, 2):
+        definition, governance = approve(current, number)
+        current = repository.write_governance(
+            definition,
+            governance,
+            expected_revision=current.definition.revision,
+            active_version=number,
+            latest_version=number,
+        )
+    return current
+
+
+@pytest.mark.parametrize("latest", [1, 2, 4])  # QG P1-1: decreasing, equal, skipping
+def test_physical_latest_version_only_rises_by_one(store: MongoWorkflowStore, latest: int) -> None:
+    repository = MongoWorkflowDefinitionRepository(store)
+    current = _two_published(repository)
+    forged = current.definition.model_copy(update={"stored_active_version": 0, "latest_version": 0})
+    definition, governance = approve(GovernedDefinition(forged, current.governance), 3)
+    extra = definition.versions[-1].model_copy(update={"version": latest})
+    definition = definition.model_copy(update={"versions": (*current.definition.versions, extra)})
+    with pytest.raises(ValueError):
+        repository.write_governance(
+            definition,
+            governance,
+            expected_revision=current.definition.revision,
+            active_version=latest,
+            latest_version=latest,
+        )
+    stored = store.definitions.find_one({"_id": WID})
+    assert stored is not None and stored["latest_version"] == 2
+
+
+def test_physical_write_never_drops_unarchived_history(store: MongoWorkflowStore) -> None:
+    """QG P1-2: dropping the outbox, unarchived events or the pinned latest version is
+    refused before any write; the latest version stays hot and dispatchable."""
+
+    repository = MongoWorkflowDefinitionRepository(store)
+    current = _two_published(repository)
+    bumped = current.definition.model_copy(update={"revision": current.definition.revision + 1})
+    attempts = [
+        (bumped, current.governance.model_copy(update={"outbox": ()})),
+        (bumped, current.governance.model_copy(update={"governance_events": ()})),
+        (bumped.model_copy(update={"versions": bumped.versions[:1]}), current.governance),
+    ]
+    for definition, governance in attempts:
+        with pytest.raises(GovernanceHistoryRewriteError):
+            repository.write_governance(
+                definition, governance, expected_revision=current.definition.revision
+            )
+    assert repository.get_governed(WID) == current
+    assert repository.get_version(WID, 2) is not None

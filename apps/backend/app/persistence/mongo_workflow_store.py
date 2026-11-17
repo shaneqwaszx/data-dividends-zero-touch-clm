@@ -200,6 +200,8 @@ class MongoWorkflowDefinitionRepository:
         Once ``latest_version`` exists (written by the P2-0 backfill or writer release),
         this release refuses any payload whose versions exceed it: an ungoverned append
         could not keep ``active_version`` and ``latest_version`` true (ADR-017 3.2, 3.5).
+        From P2-1 it also refuses a migrated document (marker present): after migration
+        every definition write goes through ``write_governance``.
         """
         nonce = secrets.token_hex(16)
         try:
@@ -208,6 +210,7 @@ class MongoWorkflowDefinitionRepository:
                     "_id": definition.workflow_id,
                     "revision": expected_revision,
                     **_nonce_filter(definition.write_nonce),
+                    FIELD_MIGRATION_MARKER: {"$exists": False},
                     "$or": [
                         {"latest_version": {"$exists": False}},
                         {"latest_version": {"$gte": _highest_version(definition)}},
@@ -331,18 +334,34 @@ class MongoWorkflowDefinitionRepository:
     ) -> GovernedDefinition:
         """The one governance compare-and-set (durable; revision and nonce as read).
 
-        ``definition`` is the payload to store, carrying the ``write_nonce``,
-        ``stored_active_version`` and ``latest_version`` it was read with. A publication
-        passes both ``active_version`` and ``latest_version``. Compaction runs first; the
+        ``definition`` is the payload to store, carrying the ``write_nonce`` it was read
+        with. Its ``stored_active_version``/``latest_version`` are never trusted: the
+        stored document is read, validated and history-guarded, and the CAS filter asserts
+        revision, nonce, ``active_version`` and ``latest_version`` as read. A publication
+        passes both ``active_version`` and ``latest_version``. Compaction runs last; the
         encoded document is then checked against the hard ceiling (never truncated).
         """
 
+        if not governance.migrated:
+            raise WorkflowGovernanceNotMigratedError
+        try:
+            raw = self._collection.find_one({"_id": definition.workflow_id})
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        if (
+            raw is None
+            or _stored_revision(raw) != expected_revision
+            or raw.get("write_nonce") != definition.write_nonce
+        ):
+            raise PersistenceConflictError
+        stored = _decode_governed(raw)
+        read_active = stored.definition.stored_active_version
+        read_latest = stored.definition.latest_version
         compacted, state, active, latest = prepare_governance_write(
+            stored,
             definition,
             governance,
             self._cold,
-            current_active=definition.stored_active_version,
-            current_latest=definition.latest_version,
             active_version=active_version,
             latest_version=latest_version,
         )
@@ -367,6 +386,8 @@ class MongoWorkflowDefinitionRepository:
                     "_id": compacted.workflow_id,
                     "revision": expected_revision,
                     **_nonce_filter(definition.write_nonce),
+                    "active_version": read_active,
+                    "latest_version": read_latest,
                     FIELD_MIGRATION_MARKER: {"$exists": True},
                 },
                 {"$set": updates},
@@ -375,14 +396,14 @@ class MongoWorkflowDefinitionRepository:
             raise PersistenceOutcomeAmbiguousError from None
         if not result.acknowledged or result.matched_count != 1:
             raise PersistenceConflictError
-        stored = compacted.model_copy(
+        written = compacted.model_copy(
             update={
                 "write_nonce": nonce,
                 "stored_active_version": active,
                 "latest_version": latest,
             }
         )
-        return GovernedDefinition(stored, state)
+        return GovernedDefinition(written, state)
 
     def drain_outbox(self, workflow_id: str, *, now: datetime | None = None) -> int:
         """Archive the outbox (startup, before every governance mutation, after each
@@ -461,6 +482,8 @@ class MongoWorkflowDefinitionRepository:
                     "_id": compacted.workflow_id,
                     "revision": expected_revision,
                     **_nonce_filter(current.definition.write_nonce),
+                    "active_version": active,
+                    "latest_version": latest,
                     FIELD_MIGRATION_MARKER: {"$exists": True},
                 },
                 {

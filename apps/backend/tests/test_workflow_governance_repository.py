@@ -16,6 +16,7 @@ from test_workflow_governance_cold_store import FakeClient
 from app.domain.workflow_governance import (
     COLD_VERSIONS,
     GOVERNANCE_TOP_LEVEL_FIELDS,
+    ColdRecord,
     GovernanceEvent,
     GovernanceEventKind,
     MigrationMarker,
@@ -40,6 +41,8 @@ from app.persistence.mongo_workflow_store import (
     MongoWorkflowStore,
 )
 from app.persistence.workflow_governance_store import (
+    ColdHistoryIntegrityError,
+    GovernanceHistoryRewriteError,
     GovernedDefinition,
     WorkflowGovernanceNotMigratedError,
     WorkflowHistoryUnavailableError,
@@ -320,24 +323,27 @@ def test_governance_write_to_an_unmigrated_document_is_refused(harness: Harness)
         )
 
 
-def test_p2_0_write_preserves_every_governance_field(harness: Harness) -> None:
+def test_p2_0_update_refuses_a_migrated_document_and_changes_nothing(harness: Harness) -> None:
     created = harness.repository.create_governed(payload(), born())
     first = publish(harness, created, 1)
-    before = (
-        {key: harness.definitions.documents[WID][key] for key in GOVERNANCE_TOP_LEVEL_FIELDS}
-        if harness.kind == "mongo"
-        else None
-    )
-    # The P2-0 draft-save path: only payload, revision and nonce change.
+    before = harness.definitions.documents[WID] if harness.kind == "mongo" else None
+    # The P2-0 draft-save path: after migration every write goes through write_governance.
     draft = first.definition.model_copy(update={"revision": 3, "draft_stages": stages("Draft")})
-    harness.repository.update(draft, expected_revision=2)
-    after = harness.repository.get_governed(WID)
-    assert after.governance == first.governance
-    assert after.definition.draft_stages == stages("Draft")
+    with pytest.raises(PersistenceConflictError):
+        harness.repository.update(draft, expected_revision=2)
+    assert harness.repository.get_governed(WID) == first
     if harness.kind == "mongo":
-        stored = harness.definitions.documents[WID]
-        assert {key: stored[key] for key in GOVERNANCE_TOP_LEVEL_FIELDS} == before
-        assert stored["active_version"] == stored["latest_version"] == 1
+        assert harness.definitions.documents[WID] == before
+        query = harness.definitions.log[-1][2][0]
+        assert query["p2_1_migration_marker"] == {"$exists": False}
+
+
+def test_p2_0_update_of_an_unmigrated_document_still_works(harness: Harness) -> None:
+    created = harness.repository.create(payload())
+    draft = created.model_copy(update={"revision": 2, "draft_stages": stages("Draft")})
+    written = harness.repository.update(draft, expected_revision=1)
+    assert written.draft_stages == stages("Draft")
+    assert not harness.repository.get_governed(WID).governance.migrated
 
 
 def test_byte_ceiling_refuses_and_never_truncates(
@@ -446,3 +452,171 @@ def test_housekeeping_keeps_the_client_revision_but_refuses_the_old_nonce(
         latest_version=2,
     )
     assert written.definition.latest_version == 2
+
+
+# --- QG R1: stored-value validation, history guard, integrity without drain -----------
+
+
+def _two_versions(harness: Harness) -> GovernedDefinition:
+    current = harness.repository.create_governed(payload(), born())
+    current = publish(harness, current, 1)
+    return publish(harness, current, 2)
+
+
+def version_numbered(number: int) -> WorkflowVersion:
+    return WorkflowVersion(
+        version=number, stages=stages("x"), activated_at=NOW, activated_by="director-one"
+    )
+
+
+@pytest.mark.parametrize("latest", [1, 2, 4])  # decreasing, equal, skipping
+def test_publication_must_raise_latest_by_exactly_one(harness: Harness, latest: int) -> None:
+    current = _two_versions(harness)
+    definition, governance = approve(current, 3)
+    definition = definition.model_copy(
+        update={"versions": (*current.definition.versions, version_numbered(latest))}
+    )
+    with pytest.raises(ValueError):
+        harness.repository.write_governance(
+            definition,
+            governance,
+            expected_revision=current.definition.revision,
+            active_version=latest,
+            latest_version=latest,
+        )
+    assert harness.repository.get_governed(WID) == current
+
+
+def test_caller_supplied_version_fields_are_never_trusted(harness: Harness) -> None:
+    current = _two_versions(harness)
+    forged = current.definition.model_copy(
+        update={
+            "versions": current.definition.versions[:1],
+            "latest_version": 0,
+            "stored_active_version": 0,
+            "revision": current.definition.revision + 1,
+        }
+    )
+    with pytest.raises((ValueError, GovernanceHistoryRewriteError)):
+        harness.repository.write_governance(
+            forged,
+            current.governance,
+            expected_revision=current.definition.revision,
+            active_version=1,
+            latest_version=1,
+        )
+    assert harness.repository.get_governed(WID).definition.latest_version == 2
+
+
+def test_mongo_filters_assert_active_and_latest_as_read() -> None:
+    harness = Harness("mongo")
+    current = _two_versions(harness)
+    query = harness.definitions.log[-1][2][0]
+    assert (query["active_version"], query["latest_version"]) == (1, 1)
+    harness.repository.drain_outbox(WID, now=NOW)
+    query = harness.definitions.log[-1][2][0]
+    assert (query["active_version"], query["latest_version"]) == (2, 2)
+    assert query["revision"] == current.definition.revision
+
+
+def _without(current: GovernedDefinition, kind: str) -> tuple[WorkflowDefinition, Any]:
+    definition = current.definition.model_copy(update={"revision": current.definition.revision + 1})
+    state = current.governance
+    if kind == "outbox":
+        return definition, state.model_copy(update={"outbox": state.outbox[1:]})
+    if kind == "decided":
+        return definition, state.model_copy(update={"decided_proposals": ()})
+    if kind == "event":
+        events = state.governance_events[:-1]
+        return definition, state.model_copy(update={"governance_events": events})
+    if kind == "latest_version":
+        return definition.model_copy(update={"versions": definition.versions[:1]}), state
+    if kind == "unarchived_version":
+        return definition.model_copy(update={"versions": definition.versions[1:]}), state
+    if kind == "provenance":
+        return definition, state.model_copy(update={"version_provenance": ()})
+    if kind == "archived_flag":
+        events = tuple(
+            item.model_copy(update={"archived": True}) for item in state.governance_events
+        )
+        return definition, state.model_copy(update={"governance_events": events})
+    raise AssertionError(kind)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "outbox",
+        "decided",
+        "event",
+        "latest_version",
+        "unarchived_version",
+        "provenance",
+        "archived_flag",
+    ],
+)
+def test_a_write_never_drops_or_rewrites_history(harness: Harness, kind: str) -> None:
+    current = _two_versions(harness)
+    definition, governance = _without(current, kind)
+    with pytest.raises(GovernanceHistoryRewriteError):
+        harness.repository.write_governance(
+            definition, governance, expected_revision=current.definition.revision
+        )
+    assert harness.repository.get_governed(WID) == current
+    assert harness.repository.authorise_dispatch(WID, 2)
+
+
+def test_new_history_must_be_referenced_by_the_outbox(harness: Harness) -> None:
+    current = _two_versions(harness)
+    extra = GovernanceEvent(
+        sequence=current.governance.governance_sequence + 1,
+        occurred_at=NOW,
+        actor_id="hr-author",
+        kind=GovernanceEventKind.PROPOSAL_EDITED,
+        summary="Edited",
+    )
+    governance = current.governance.model_copy(
+        update={
+            "governance_events": (*current.governance.governance_events, extra),
+            "governance_sequence": extra.sequence,
+        }
+    )
+    definition = current.definition.model_copy(update={"revision": current.definition.revision + 1})
+    with pytest.raises(GovernanceHistoryRewriteError):
+        harness.repository.write_governance(
+            definition, governance, expected_revision=current.definition.revision
+        )
+    governance = governance.model_copy(
+        update={"outbox": (*governance.outbox, outbox_for_event(WID, extra))}
+    )
+    written = harness.repository.write_governance(
+        definition, governance, expected_revision=current.definition.revision
+    )
+    assert written.governance.governance_events[-1] == extra
+
+
+def test_integrity_conflict_refuses_writes_even_without_a_drain(harness: Harness) -> None:
+    current = harness.repository.create_governed(payload(), born())
+    current = publish(harness, current, 1)
+    entry = current.governance.outbox[0]
+    harness.repository._cold.insert(  # noqa: SLF001 - plant a conflicting cold copy
+        entry.collection,
+        ColdRecord(
+            logical_id=entry.logical_id,
+            attempt=0,
+            content_hash="ab" * 32,
+            workflow_id=WID,
+            archived_at=NOW,
+            record={"x": 1},
+        ),
+    )
+    definition, governance = approve(current, 2)
+    with pytest.raises(ColdHistoryIntegrityError):
+        harness.repository.write_governance(
+            definition,
+            governance,
+            expected_revision=current.definition.revision,
+            active_version=2,
+            latest_version=2,
+        )
+    assert harness.repository.get_governed(WID) == current

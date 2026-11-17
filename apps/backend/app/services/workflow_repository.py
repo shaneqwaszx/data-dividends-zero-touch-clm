@@ -200,6 +200,10 @@ class InMemoryWorkflowDefinitionRepository:
                 or current.write_nonce != definition.write_nonce
             ):
                 raise PersistenceConflictError
+            if self._state(definition.workflow_id).migrated:
+                # P2-1: a migrated definition is written only by ``write_governance``
+                # (parity with the Mongo filter ``p2_1_migration_marker: {$exists: false}``).
+                raise PersistenceConflictError
             latest = current.latest_version
             if latest is not None and _highest(definition) > latest:
                 # No ungoverned append may pass the high-water mark (activation is frozen).
@@ -334,11 +338,10 @@ class InMemoryWorkflowDefinitionRepository:
                 # Parity with the Mongo filter on the marker.
                 raise PersistenceConflictError
             compacted, state, active, latest = prepare_governance_write(
+                GovernedDefinition(current, self._state(definition.workflow_id)),
                 definition,
                 governance,
                 self._cold,
-                current_active=current.stored_active_version,
-                current_latest=current.latest_version,
                 active_version=active_version,
                 latest_version=latest_version,
             )
