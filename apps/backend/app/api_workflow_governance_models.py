@@ -51,7 +51,7 @@ class _Contract(BaseModel):
 
 
 class CreateProposalRequest(_Contract):
-    kind: ProposalKind = ProposalKind.CHANGE  # M1 accepts CHANGE only (else 422 KIND)
+    kind: ProposalKind = ProposalKind.CHANGE  # CHANGE, or an M2 recovery kind (CC-4)
     expected_workflow_revision: int = Field(ge=1)
     # Omitted: start from the active version's stages (or empty when nothing is active).
     stages: tuple[WorkflowStage, ...] | None = Field(default=None, max_length=32)
