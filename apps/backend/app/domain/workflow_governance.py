@@ -393,7 +393,9 @@ class WorkflowProposal(_Frozen):
             raise ValueError("only decided proposals carry a decider")
         if decided and (self.decided_at is None or self.decision_reason is None):
             raise ValueError("a decision carries its time and reason")
-        if (self.state == ProposalState.APPROVED) != (self.published_version is not None):
+        # An approved DEACTIVATE publishes nothing (ADR-017 §4; CC-5); every other approval does.
+        publishes = self.state == ProposalState.APPROVED and self.kind != ProposalKind.DEACTIVATE
+        if publishes != (self.published_version is not None):
             raise ValueError("only an approved proposal publishes a version")
         if self.state == ProposalState.STALE and self.stale_by_version is None:
             raise ValueError("a stale proposal names the publication that superseded it")

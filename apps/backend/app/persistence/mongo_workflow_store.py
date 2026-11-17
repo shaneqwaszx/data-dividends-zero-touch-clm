@@ -331,6 +331,7 @@ class MongoWorkflowDefinitionRepository:
         expected_revision: int,
         active_version: int | None = None,
         latest_version: int | None = None,
+        deactivate: bool = False,
     ) -> GovernedDefinition:
         """The one governance compare-and-set (durable; revision and nonce as read).
 
@@ -364,6 +365,7 @@ class MongoWorkflowDefinitionRepository:
             self._cold,
             active_version=active_version,
             latest_version=latest_version,
+            deactivate=deactivate,
         )
         nonce = secrets.token_hex(16)
         check_document_size(
@@ -376,7 +378,7 @@ class MongoWorkflowDefinitionRepository:
             "write_nonce": nonce,
             "payload": compacted.model_dump(mode="json"),
         }
-        if latest_version is not None:
+        if latest_version is not None or deactivate:
             updates["active_version"] = active
             updates["latest_version"] = latest
         updates.update(encode_governance_fields(state))

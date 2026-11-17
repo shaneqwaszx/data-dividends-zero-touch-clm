@@ -107,6 +107,8 @@ def main() -> int:
     }
     os.environ.clear()
     os.environ.update(system_environment)
+    # Pin child workers (the local document worker) to this checkout's backend.
+    os.environ["PYTHONPATH"] = str(BACKEND_ROOT)
     os.environ.update(
         {
             "APP_ENV": "test",

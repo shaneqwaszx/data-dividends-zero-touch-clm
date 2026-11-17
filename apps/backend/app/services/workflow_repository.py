@@ -96,6 +96,7 @@ class WorkflowGovernanceRepository(Protocol):
         expected_revision: int,
         active_version: int | None = None,
         latest_version: int | None = None,
+        deactivate: bool = False,
     ) -> GovernedDefinition: ...
 
     def drain_outbox(self, workflow_id: str, *, now: datetime | None = None) -> int: ...
@@ -323,6 +324,7 @@ class InMemoryWorkflowDefinitionRepository:
         expected_revision: int,
         active_version: int | None = None,
         latest_version: int | None = None,
+        deactivate: bool = False,
     ) -> GovernedDefinition:
         if not governance.migrated:
             raise WorkflowGovernanceNotMigratedError
@@ -344,6 +346,7 @@ class InMemoryWorkflowDefinitionRepository:
                 self._cold,
                 active_version=active_version,
                 latest_version=latest_version,
+                deactivate=deactivate,
             )
             stored = compacted.model_copy(
                 update={

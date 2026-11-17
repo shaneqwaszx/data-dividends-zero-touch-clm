@@ -209,3 +209,10 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
   - **Versions.** `GET /workflows/{wid}/versions/{n}` reads hot, then cold. Legacy versions are
     never shown as approved.
   - **Simulation** stays synthetic only.
+- **CC-5 (2026-11-18, integrator).** Domain rule for an approved `DEACTIVATE`, per ADR-017 §4.
+  - The proposal is `APPROVED` with `published_version = null`; every other approval still
+    publishes exactly one version.
+  - The repository records a deactivation as a non-publication write: `active_version` becomes
+    0, and `latest_version` and the baseline are kept.
+  - It applies to non-onboarding workflows only, and only while a version is active
+    (`active_version == latest_version > 0`).

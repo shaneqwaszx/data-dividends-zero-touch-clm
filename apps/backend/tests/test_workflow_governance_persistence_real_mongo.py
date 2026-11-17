@@ -270,3 +270,46 @@ def test_physical_write_never_drops_unarchived_history(store: MongoWorkflowStore
             )
     assert repository.get_governed(WID) == current
     assert repository.get_version(WID, 2) is not None
+
+
+def test_physical_deactivation_then_reactivation(store: MongoWorkflowStore) -> None:
+    """M2 (ADR-017 4, CC-5): deactivation sets active 0 and keeps latest, versions and
+    baseline; dispatch is refused; reactivation publishes latest + 1; verification stays
+    clean throughout."""
+
+    from types import SimpleNamespace
+
+    from test_workflow_governance_repository import _deactivation, _submit_deactivation
+
+    repository = MongoWorkflowDefinitionRepository(store)
+    holder: Any = SimpleNamespace(repository=repository)
+    current = _two_published(repository)
+    current = _submit_deactivation(holder, current)
+    definition, governance = _deactivation(current)
+    deactivated = repository.write_governance(
+        definition,
+        governance,
+        expected_revision=current.definition.revision,
+        active_version=0,
+        deactivate=True,
+    )
+    stored = store.definitions.find_one({"_id": WID})
+    assert stored is not None
+    assert (stored["active_version"], stored["latest_version"]) == (0, 2)
+    assert deactivated.governance.required_baseline == current.governance.required_baseline
+    assert not repository.authorise_dispatch(WID, 2)
+    repository.drain_outbox(WID, now=NOW)
+    assert repository.verify_dispatch_state() == []
+    assert repository.verify_governance_state() == []
+    current = _submit(repository, repository.get_governed(WID), 3)
+    definition, governance = approve(current, 3)
+    repository.write_governance(
+        definition,
+        governance,
+        expected_revision=current.definition.revision,
+        active_version=3,
+        latest_version=3,
+    )
+    assert repository.authorise_dispatch(WID, 3)
+    repository.drain_outbox(WID, now=NOW)
+    assert repository.verify_governance_state() == []
