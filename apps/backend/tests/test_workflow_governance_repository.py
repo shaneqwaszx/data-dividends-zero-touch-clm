@@ -831,3 +831,91 @@ def test_baseline_only_tightens_and_only_on_a_publication(harness: Harness) -> N
         assert harness.repository.get_governed(WID) == current
     written = _publish_with_baseline(harness, current, 2, stricter)
     assert written.governance.required_baseline == stricter
+
+
+# --- QG R3: identity and frozen content of an ending proposal -------------------------
+
+
+def _end_with(harness: Harness, current: GovernedDefinition, record: WorkflowProposal) -> Any:
+    entry = decided_entry(record, ended_at=NOW)
+    state = current.governance
+    governance = state.model_copy(
+        update={
+            "open_proposal": None,
+            "decided_proposals": (*state.decided_proposals, entry),
+            "outbox": (*state.outbox, outbox_for_proposal(record)),
+        }
+    )
+    return harness.repository.write_governance(
+        _bump(current), governance, expected_revision=current.definition.revision
+    )
+
+
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("change", ["stages", "author", "created_at", "same_id_author"])
+def test_an_ending_or_kept_proposal_keeps_identity_and_content(
+    harness: Harness, pending: bool, change: str
+) -> None:
+    current = _with_open_proposal(harness, pending=pending)
+    stored = current.governance.open_proposal
+    assert stored is not None
+    ended = stored.model_copy(update={"state": ProposalState.WITHDRAWN, "withdrawn_at": NOW})
+    with pytest.raises(GovernanceHistoryRewriteError):
+        if change == "stages":
+            alt = stages("Swapped")
+            hashed = proposal_content_hash(ProposalKind.CHANGE, alt) if pending else None
+            _end_with(
+                harness, current, ended.model_copy(update={"stages": alt, "content_hash": hashed})
+            )
+        elif change == "author":
+            _end_with(harness, current, ended.model_copy(update={"author_id": "someone-else"}))
+        elif change == "created_at":
+            moved = ended.model_copy(update={"created_at": NOW + timedelta(days=1)})
+            _end_with(harness, current, moved)
+        else:
+            kept = stored.model_copy(update={"author_id": "someone-else"})
+            harness.repository.write_governance(
+                _bump(current),
+                current.governance.model_copy(update={"open_proposal": kept}),
+                expected_revision=current.definition.revision,
+            )
+    assert harness.repository.get_governed(WID) == current
+    assert _end_with(harness, current, ended).governance.open_proposal is None
+
+
+def test_a_pending_proposal_cannot_be_rebased_but_a_draft_can(harness: Harness) -> None:
+    pending = _with_open_proposal(harness, pending=True)
+    stored = pending.governance.open_proposal
+    assert stored is not None
+    rebased = stored.model_copy(update={"base_version": 0})
+    _refused(harness, pending, pending.governance.model_copy(update={"open_proposal": rebased}))
+
+
+def test_draft_rebase_is_allowed(harness: Harness) -> None:
+    draft = _with_open_proposal(harness)
+    stored = draft.governance.open_proposal
+    assert stored is not None
+    rebased = stored.model_copy(update={"base_version": 0, "revision": 3})
+    written = harness.repository.write_governance(
+        _bump(draft),
+        draft.governance.model_copy(update={"open_proposal": rebased}),
+        expected_revision=draft.definition.revision,
+    )
+    assert written.governance.open_proposal == rebased
+
+
+def test_a_new_decided_summary_must_match_its_record(harness: Harness) -> None:
+    current = _with_open_proposal(harness)
+    stored = current.governance.open_proposal
+    assert stored is not None
+    ended = stored.model_copy(update={"state": ProposalState.WITHDRAWN, "withdrawn_at": NOW})
+    entry = decided_entry(ended, ended_at=NOW).model_copy(update={"author_id": "someone-else"})
+    state = current.governance
+    governance = state.model_copy(
+        update={
+            "open_proposal": None,
+            "decided_proposals": (*state.decided_proposals, entry),
+            "outbox": (*state.outbox, outbox_for_proposal(ended)),
+        }
+    )
+    _refused(harness, current, governance)
