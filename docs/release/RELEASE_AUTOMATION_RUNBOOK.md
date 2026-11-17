@@ -366,13 +366,39 @@ any write to find out.**
      `STARTUP_CLAIM_CLEARING_INCOMPLETE`. They show up as a store that cannot be written durably.
 3. **Fix the cause the owner approves** (table below). A fix that writes data, such as the backfill
    or a reviewed correction, needs its own owner approval and window.
-4. **Startup kind only: restart the backend process.**
-   - Follow the controlled stop and start order in `deploy/LIGHTSAIL_RUNTIME.md` with the
-     backend's own wrapper (`dc`, or `dcg` when the GoldTier overlay is active). Never use `dcgw`
-     outside an authorised D-137 write window.
-   - On an unchanged service, `up -d` alone does not restart the process.
-5. **Confirm.** A startup restart logs no `dispatch fence unavailable at startup` warning. If it
-   does, go back to step 1.
+4. **Startup kind only: restart the backend process. The host operator (AWS lane) performs this,
+   only with the owner's dated written authorisation given directly to that operator.**
+
+   The host decides how the backend is created, so never pick a Compose wrapper from this runbook.
+   On the staging host, the ACRA lease controller creates the backend with its own overlays.
+   A `dc`, `dcg` or `dcgw` `up` would recreate it without them. Follow the operator's host
+   procedure, in this order:
+
+   1. Check the preconditions: no D-137 write window is open, no release is running, and it is not
+      the ACRA lease renewal window.
+   2. Record the backend container id, the lease state and the start time.
+   3. **Close the ACRA lease** through the lease controller. Never stop the backend while the
+      lease is open: the lease watcher treats that as a fault and closes the lease on its own.
+      The close recreates the backend without the ACRA overlay, so the container id changes.
+      That is already a new backend process: run the Confirm step below against its start
+      time.
+   4. **Only if the fence is still unavailable** after the cause is fixed, stop and then start that
+      same container in place. Never use `up`, a recreate, `dc`, `dcg` or `dcgw`. On an unchanged
+      service, `up -d` alone does not restart the process.
+   5. **Reopen the lease** through the lease controller's own procedure, if the owner wants it
+      open. It recreates the backend with the ACRA overlay, and the container id changes again.
+      Repeat the Confirm step below.
+   6. After the final backend change (the reopen, or step 3 or 4 if the lease stays closed), the
+      operator runs the host's post-checks: the R3 firewall verifier, the GoldTier egress pin
+      with Sandbox mode and writes disabled, and the assistant egress checks.
+
+   **Never stop, start or recreate the AI Assistant for this.** It has no restart policy. It starts
+   only through its systemd gate, and stopping it drops the in-memory provider session keys, which
+   HR must then enter again. A backend restart resets process-local sessions and the login
+   limiter, so users sign in again.
+5. **Confirm.** The restarted backend logs no `dispatch fence unavailable at startup` warning. Count
+   the lines; never print the log. If it does log one, close the lease again if it was reopened,
+   and go back to step 1.
 6. **Explicitly resume each paused case** (`RECOVERY_PENDING`) from its case page, one at a time.
    Nothing resumes on its own. Each case continues the same submission and never replays a write
    that was already attempted.
