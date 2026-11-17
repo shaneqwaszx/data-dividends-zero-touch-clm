@@ -400,9 +400,9 @@ async function signOut(page: Page) {
 }
 
 /** Opens the inbox row, ticks any obligation acknowledgement, gives a reason and approves. */
-async function directorApprove(page: Page, workflowName: string, reasonText: string) {
+async function directorApprove(page: Page, workflowName: string, reasonText: string, buttonName = "Approve and publish") {
   await decideFromInbox(page, workflowName);
-  const approve = page.getByRole("button", { name: "Approve and publish" });
+  const approve = page.getByRole("button", { name: buttonName });
   await expect(approve).toBeDisabled();
   const confirm = page.getByLabel(/permanent once approved/);
   if (await confirm.count()) await confirm.check();
@@ -557,7 +557,7 @@ test("Governance 11: a non-onboarding workflow is deactivated and reactivated th
   await proposeRecovery(page, "Propose deactivate");
   await signOut(page);
   await signIn(page, DIRECTOR);
-  await directorApprove(page, NEW_WORKFLOW, "E2E synthetic deactivation of the review");
+  await directorApprove(page, NEW_WORKFLOW, "E2E synthetic deactivation of the review", "Approve and deactivate");
   await signOut(page);
   await signIn(page, HR);
   await openWorkflow(page, NEW_WORKFLOW);
