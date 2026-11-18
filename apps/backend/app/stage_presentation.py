@@ -4,8 +4,26 @@ The node ``status`` keeps its existing meaning (execution or readiness). This mo
 separate verdict that keeps four facts apart: execution completion, evidence validity, an
 unresolved blocker, and an open operator review. It is derived only from facts the pipeline
 projection already receives. It never feeds readiness, a gate, a send, an audit code or any
-persisted record, and it introduces no rule of its own: ``blocks_send`` restates the retained
-readiness blockers and open exceptions that the existing gates already refuse on.
+persisted record, and it introduces no rule of its own.
+
+``blocks_send`` (per stage) is true whenever the stage is not done and something holds it:
+RUNNING, ACTION_REQUIRED, BLOCKED or FAILED, or NOT_STARTED with a retained readiness blocker
+mapped to it, or any open exception it owns or links. The only not-done stage that reports
+false is FINAL_REVIEW_SEND waiting solely for the human confirmation (that confirmation is the
+send action), and a NOT_STARTED stage with nothing retained against it.
+
+No case-level "send available" flag is provided: the zero-touch confirmation gate also
+re-evaluates readiness from live evidence, re-checks classification, registry provenance and
+target-write permission, may run a fresh read-only Search, and checks the D-123 workflow send
+hold, none of which this read-only projection can reproduce. The UI must never derive send
+availability from these stage flags; it must use the existing confirmation exception and the
+gate's own response.
+
+Mapping to the report's section 7 matrix: COMPLETE_INFO is COMPLETE with an informational
+``reason_code`` (NO_QUALIFYING_UBO, POC_BASIS_ACCEPTED, OWNERSHIP_SOURCE_PARTIAL, NO_RECORDS);
+COMPLETE_REVIEW_ADVISED is REVIEW_ADVISED; SKIPPED (verified GoldTier match) is kept distinct.
+COMPLETE always means nothing open: a retained blocker or open exception owned by the stage
+turns it into ACTION_REQUIRED.
 
 Owner decisions (2026-11-18): A1 an advised review does not count as done; A2 D-121/D-124
 advisory behaviour is unchanged; A3 the UEN conflict stays owned by the Document stage and is
@@ -247,8 +265,17 @@ def present_stages(
         if node_id == "GOLDTIER_TARGET" and state in {"ACTION_REQUIRED", "BLOCKED"}:
             # The package owns no blocker; it references readiness without recounting.
             state, reason = "BLOCKED", "EARLIER_STAGE_BLOCKERS"
-        if node_id == "FINAL_REVIEW_SEND" and state == "ACTION_REQUIRED" and final_review_required:
+        if (
+            node_id == "FINAL_REVIEW_SEND"
+            and state == "ACTION_REQUIRED"
+            and final_review_required
+            and not own
+        ):
+            # Never masks another open exception owned by this stage (counted below).
             reason = "FINAL_CONFIRMATION_REQUIRED"
+        if stage_blockers and state in {"COMPLETE", "SKIPPED", "REVIEW_ADVISED"}:
+            # COMPLETE means nothing open: a retained blocker mapped here keeps it open.
+            state, reason = "ACTION_REQUIRED", stage_blockers[0]
         if (
             node_id in _READINESS_NODES
             and state == "BLOCKED"
@@ -263,12 +290,15 @@ def present_stages(
                                               "OWNERSHIP_SOURCE_PARTIAL"} else None
             reason = reason or _code(node.blocker_code) or "OPEN_EXCEPTION"
 
-        if state == "NOT_STARTED":
-            blocks_send = False
-        elif node_id == "FINAL_REVIEW_SEND" and reason == "FINAL_CONFIRMATION_REQUIRED":
+        held = bool(own or linked or stage_blockers)
+        if (
+            node_id == "FINAL_REVIEW_SEND"
+            and reason == "FINAL_CONFIRMATION_REQUIRED"
+            and not held
+        ):
             blocks_send = False  # The confirmation is the send action, not a blocker of it.
         else:
-            blocks_send = bool(own or linked or stage_blockers) or state in {"BLOCKED", "FAILED"}
+            blocks_send = held or state in {"RUNNING", "ACTION_REQUIRED", "BLOCKED", "FAILED"}
         result[node_id] = BrowserStagePresentation(
             state=state,
             reason_code=reason,
