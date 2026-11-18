@@ -2,20 +2,23 @@
 
 ## Status
 
-**Proposed. Not accepted.** Drafted 2026-11-17 for separate owner approval, within the scope the
+**ACCEPTED by the owner (2026-11-18):** decisions B1–B11 as recorded. The targeted independent
+design review was READY WITH NOTES (R3), and its notes are resolved in R4.
+
+Drafted 2026-11-17 for separate owner approval, within the scope the
 owner fixed in advance (programme decision D-10, 2026-11-17). "D-10" here always means the
 workflow designer programme's owner decision (`WORKFLOW_DESIGNER_PROGRAMME.md` §10). It is not
 DECISION_LOG `D-010`, which is unrelated (deterministic UBO calculation). Revised 2026-11-18
 after an independent doc review (READY WITH NOTES), then again for the owner's decisions B1 to B11
 of 2026-11-18 (B1 and B2 revised: conditional onboarding, with the basis frozen at the first
-registry binding). It stays **PROPOSED** until the design review.
+registry binding).
 
 This ADR is a design record only:
 - **Nothing in it is implemented.** Current behaviour is unchanged.
 - It is not sponsor-confirmed. Authority: `USER_AUTHORIZED_POC`.
-- Implementation (PR-9 backend, PR-10 UI) needs this ADR's acceptance, then its own QGs.
+- Implementation (PR-9 backend, PR-10 UI) follows this acceptance, each with its own QG.
 
-Decision record: **D-XXX (to be allocated by the integrator)** in [DECISION_LOG](DECISION_LOG.md).
+Decision record: to be allocated in [DECISION_LOG](DECISION_LOG.md) at integration.
 
 **Extends:** ADR-017 (§2 ratchet, RR-8 and the baseline; §1.3 permanent-obligation warning; §6
 simulation), ADR-016 (designer), ADR-014 (Director-managed workflows).
@@ -274,6 +277,9 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
 - `ever_touched: tuple[ObligationKey, ...]` (§3.5 F3). This is a **monotonic** record of every
   stage and field that has ever had an answer or a confirmation. Entries are only ever added,
   even when the answer is later cleared or the confirmation superseded.
+  - It is **bounded**: it holds only keys that exist in some version the run has held, and each
+    key at most once. That is at most 32 stages × (1 + 32 fields).
+  - It is counted in the run's byte budget, which is checked before every run write.
 
 **Effective basis.** Every consumer uses the run's **effective basis**:
 - **Before the freeze:** `UNVERIFIED`.
@@ -350,10 +356,10 @@ The consumers are `_rebased`, `_onboarding_run`, `_loaded_answers`, `start_run`,
   - an entry in `ever_touched` for a field in `X`, or for any field of a stage in `X`, from any
     source, including document suggestions and case-data prefill
   - a confirmation ever recorded for a stage in `X`
-- **Why history.** A lost `TOO_LATE` freeze followed by a cleared answer still counts as
-  touched, so it cannot narrow on retry.
   - the case is already sent, or has a `target_dispatch_confirmation`
   - the case has any `workflow_dispatch` claim
+- **Why history.** A lost `TOO_LATE` freeze followed by a cleared answer still counts as
+  touched, so it cannot narrow on retry.
 - **What it guarantees.** Completed, started or confirmed obligations are never removed
   retroactively. The run keeps everything.
 - **Otherwise** the freeze writes `F` and the narrowed resolved copy in the same write. That is
@@ -379,6 +385,12 @@ The consumers are `_rebased`, `_onboarding_run`, `_loaded_answers`, `start_run`,
   - the run's frozen basis is `REGISTRY_BOUND`
   - the recomputed basis differs from it in `binding_ref`, legal form or status
   - no escalation is recorded
+- **One pure function.** The recompute is a single shared pure function,
+  `basis_conflict_of(case, run) -> BasisConflictCheck`. Its callers are `send_hold_code`, D1,
+  the hook and the escalation's persist-first step.
+  - It is deterministic, with no clock, I/O or randomness. Times come from the caller.
+  - It returns no conflict, a conflict, or `WORKFLOW_STAGE_CHECK_UNAVAILABLE` when the case or
+    run cannot be read or decoded. The send check and D1 refuse on that result.
 - **The hook only persists the conflict.** On every later case write that changes
   `registry_evidence_binding` or `entity`, the onboarding service calls the same hook. It writes
   `basis_conflict` so that the conflict is visible and can be escalated. If the hook is lost,
@@ -533,11 +545,11 @@ The C-5 placeholder becomes functional within scope:
 
 - **The send check enforces the resolved copy.** `send_hold_code` enforces the run's copy
   resolved with the **effective basis** (§3.3). It also runs the read-only conflict recompute of
-  §3.5 F5, which does not depend on the post-write hook. A non-applicable conditional stage is absent from the run, so it
-  neither holds nor is bypassed. An applicable one blocks the send exactly like any added
+  §3.5 F5, which does not depend on the post-write hook. A non-applicable conditional stage is
+  absent from the run, so it neither holds nor is bypassed. An applicable one blocks the send exactly like any added
   required stage (`stage_blocks_send`).
-- **D1 under version `V`** evaluates the hold on the run's copy resolved for `V`, with the frozen
-  basis. A publication that adds a conditional stage triggers ADR-017 §3.7 re-confirmation only
+- **D1 under version `V`** evaluates the hold on the run's copy resolved for `V`, with the
+  effective basis. A publication that adds a conditional stage triggers ADR-017 §3.7 re-confirmation only
   for cases where it applies after resolution. For an onboarding case not yet frozen, that is
   every open case (`UNVERIFIED`).
 - **New hold, onboarding only:** `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` (§3.5 F6). It is
@@ -546,11 +558,14 @@ The C-5 placeholder becomes functional within scope:
   - **Zero-touch.** `services/zero_touch_orchestration.py` `_FENCE_RECONFIRMATION_CODES`
     (around line 161) must include it. Otherwise the refusal falls through to
     `_technical_failure` (around line 4006) instead of returning to target confirmation.
-  - **CLM.** The refusal path in `services/clm_orchestration.py` (around line 786) must map it
-    like `WORKFLOW_STAGE_INCOMPLETE`.
-  - **Fence.** The fence's `_on_hold` callback fires only for `HOLD_INCOMPLETE` today. It must
-    also fire for the new hold. The new hold never supersedes a confirmation by itself.
-    Escalation followed by confirming the added stages is the only way forward.
+  - **CLM.** The refusal handler in `services/clm_orchestration.py` (around line 786) already
+    passes `exc.code` through, so **no code change is needed there**. CT-37 still covers it.
+  - **Fence (option (a)).** The fence's `_on_hold` callback is **not** fired for the conflict
+    hold; it stays limited to `HOLD_INCOMPLETE`.
+    - The refusal alone holds the send, and the conflict hold never supersedes a confirmation.
+    - After escalation, the added stages that are not yet confirmed produce
+      `WORKFLOW_STAGE_INCOMPLETE`. That supersedes the confirmation through the existing path
+      (ADR-017 §3.7).
 - **Unchanged:** D3, D4–D6, leases, the durable write rule, no-replay recovery and D-136 E1–E4.
 - **Failure.** If resolution fails (an unreadable basis, an unknown enum value in stored content),
   the check returns `WORKFLOW_STAGE_CHECK_UNAVAILABLE`, which fails closed.
@@ -579,7 +594,9 @@ If implementation finds that the case snapshot must change after all, it stops. 
 allocated by the integrator with the D-117 owner. This ADR picks no number.
 
 Byte budget: at most 5 short enum strings per stage or field. This is negligible against the
-1 MiB version budget, and budget checks are unchanged.
+1 MiB version budget, and the version budget checks are unchanged. Runs add the bounded
+`ever_touched` set, plus the basis and conflict records (each under 1 KiB), to the run document's
+size check.
 
 ### 9. Migration and rollout
 
@@ -659,7 +676,7 @@ is unchanged.
 | CT-34 | Conflict: a different form, status or identity after a `REGISTRY_BOUND` freeze writes `basis_conflict`, keeps the frozen copy and holds the send. An `UNVERIFIED`-frozen run raises no conflict or hold. **Hook loss:** with the conflict hook suppressed, `send_hold_code` and D1 still hold from the read-only recompute. The escalation is add-only, audited (reason 10–240) and reauthorized in the lock. The effective basis stays `UNVERIFIED` across later publications and rebases. No path narrows after the freeze. The case event uses a new `code` string only; no `WorkflowState` or `EventOutcome` value is added |
 | CT-35 | Anchor eligibility: conditional content anchored before `ACRA_REGISTRY` (or with no anchor) is refused at validate, submit and approve, including a move to an earlier anchor. Locked stages can never be conditional (RR-9). Resolution never removes or reorders `ONBOARDING_LOCKED_STAGES` |
 | CT-36 | End to end (Mock): a synthetic LLP Marketplace Mock binding through `_acquire_required_registry_evidence` freezes `REGISTRY_BOUND (Mock): LLP`, and the LLP-only stage holds the send until it is confirmed. A synthetic `COMPANY` case gets no LLP stage and is not held. Recording mock GoldTier call counts |
-| CT-37 | Hold routing: `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` on the zero-touch send returns the case to target confirmation (via `_FENCE_RECONFIRMATION_CODES`, never `_technical_failure`) with **0 GoldTier calls**. The CLM refusal path maps it the same way. The fence's `_on_hold` fires for it |
+| CT-37 | Hold routing: `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` on the zero-touch send returns the case to target confirmation (via `_FENCE_RECONFIRMATION_CODES`, never `_technical_failure`) with **0 GoldTier calls**. The CLM handler passes the code through unchanged. Option (a): `_on_hold` is **not** fired for the conflict hold, and no confirmation is superseded by it. After escalation, the unconfirmed added stages give `WORKFLOW_STAGE_INCOMPLETE`, which supersedes through the existing path. The shared recompute returns `WORKFLOW_STAGE_CHECK_UNAVAILABLE` on a read failure, and is deterministic |
 | CT-38 | Event-count token: appending the escalation event changes `len(case.events)`. A stale `expected_case_event_count`, document-processing request or target-confirmation `evidence_version` is refused or retried, never accepted |
 | CT-39 | Emergency fallback on a frozen run: the fallback publication rebases the open case with its effective basis. It removes no stage the run held and leaves the frozen basis and `ever_touched` unchanged |
 | CT-40 | Touched from history: an answer recorded then cleared, with a lost `TOO_LATE` freeze, still gives `TOO_LATE_TO_NARROW` on retry. The F4 tests run on every freeze. The hook takes no gate or definition lock (lock-order test) |
