@@ -441,3 +441,18 @@ def test_physical_migration_lock_is_insert_only_and_released_by_id(
     assert not release_migration_lock(locks, "0" * 32)
     assert release_migration_lock(locks, lock_id)
     assert locks.count_documents({}) == 0
+
+
+def test_backend_refuses_to_start_while_a_migration_lock_is_held(store: MongoWorkflowStore) -> None:
+    """Integrator hook: MongoWorkflowStore.initialize fails closed under a held P2-1 lock."""
+    from app.persistence.mongo_workflow_store import MigrationInProgressError
+    from app.persistence.p2_1_migration import MIGRATION_LOCK_COLLECTION, MIGRATION_LOCK_ID
+
+    locks = store._db[MIGRATION_LOCK_COLLECTION]
+    locks.insert_one({"_id": MIGRATION_LOCK_ID, "lock_id": "test", "state": "HELD"})
+    try:
+        with pytest.raises(MigrationInProgressError):
+            store.initialize()
+    finally:
+        locks.delete_one({"_id": MIGRATION_LOCK_ID})
+    store.initialize()  # released: starts again
