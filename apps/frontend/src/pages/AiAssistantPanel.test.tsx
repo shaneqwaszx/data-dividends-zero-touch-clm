@@ -842,6 +842,14 @@ describe("AiAssistantPanel external-data notice (P2-3)", () => {
     expect(shown?.textContent).toContain(sends);
     // It never claims that personal information is removed.
     expect(shown?.textContent).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+    // Compact notice: collapsed by default, and the visible summary still carries the binding facts.
+    const summary = shown?.querySelector<HTMLElement>('[data-testid="external-ai-notice-summary"]');
+    expect(summary?.closest("[hidden]")).toBeNull();
+    expect(summary?.textContent).toContain(`${sends} are sent to Anthropic, even if no Claude answer is shown.`);
+    expect(summary?.textContent).toContain("When Claude (Anthropic) is asked in this chat");
+    expect(summary?.textContent).toContain("replaced with placeholders first, but this is not complete.");
+    expect(shown?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
+    expect(shown?.querySelector<HTMLElement>('[data-testid="external-ai-notice-details"]')?.hidden).toBe(true);
     // Screen readers hear it with the question box, and it sits before the box.
     const box = view.querySelector("textarea");
     expect(box?.getAttribute("aria-describedby")).toBe(shown?.id);
@@ -923,6 +931,10 @@ describe("AiAssistantPanel external-data notice (P2-3)", () => {
     expect(shown?.textContent).toContain("They are sent even if no GPT-OSS-120B answer is shown to you.");
     expect(shown?.textContent).toContain("Use synthetic test data only.");
     expect(shown?.textContent).not.toContain("Anthropic");
+    const summary = shown?.querySelector<HTMLElement>('[data-testid="external-ai-notice-summary"]');
+    expect(summary?.closest("[hidden]")).toBeNull();
+    expect(summary?.textContent).toContain("are sent to OpenRouter, even if no GPT-OSS-120B answer is shown.");
+    expect(summary?.textContent).toContain("replaced with placeholders first, but this is not complete.");
     expect(view.querySelector("textarea")?.getAttribute("aria-describedby")).toBe(shown?.id);
   });
 
