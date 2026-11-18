@@ -788,3 +788,51 @@ def test_render_is_a_local_read_so_it_runs_in_plan_only_mode() -> None:
         render.render_set(Gate(Capture(), Mode.PLAN_ONLY, AuditLog()), REPO, "base")
     assert seen[0].effect is Effect.LOCAL_READ and "--no-path-resolution" in seen[0].argv
     assert "MONGO_URI" in (seen[0].env or {}) and "mongodb" not in (seen[0].env or {})["MONGO_URI"]
+
+
+F2_BRANCH = "origin/release/f2-ai-insights-notice-c5a1c7f4"
+
+
+def f2_commit(repo: Path) -> tuple[str, str]:
+    (repo / "f2.txt").write_text("f2\n", encoding="utf-8")
+    git(repo, "add", "f2.txt")
+    git(repo, "commit", "-q", "-m", "f2 release")
+    head, tree = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "HEAD^{tree}")
+    git(repo, "update-ref", f"refs/remotes/{F2_BRANCH}", head)
+    return head, tree
+
+
+def test_f2_lineage_accepts_only_its_pinned_commit_and_tree(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head, tree = f2_commit(repo)
+    # The shipped pin names the real qualified commit, so a test commit is refused.
+    with pytest.raises(StopCondition) as unpinned:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=F2_BRANCH)
+    assert unpinned.value.code == "RELEASE_IDENTITY_NOT_PINNED"
+    monkeypatch.setitem(source.PINNED_RELEASE_IDENTITIES, "F2_FRONTEND_LINEAGE", (head, tree))
+    state = source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=F2_BRANCH)
+    assert (state.base_ref, state.base_reason) == (F2_BRANCH, "F2_FRONTEND_LINEAGE")
+    # A later commit on the same branch is refused even with its own tree.
+    (repo / "f2.txt").write_text("later\n", encoding="utf-8")
+    git(repo, "commit", "-q", "-am", "later")
+    later, later_tree = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "HEAD^{tree}")
+    git(repo, "update-ref", f"refs/remotes/{F2_BRANCH}", later)
+    with pytest.raises(StopCondition) as moved:
+        source.verify_source(local_gate(), repo, commit=later, tree=later_tree, base_ref=F2_BRANCH)
+    assert moved.value.code == "RELEASE_IDENTITY_NOT_PINNED"
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "origin/release/f2-ai-insights-c5a1c7f5",
+        "origin/release/f2-ai-insights-notice-c5a1c7f4-2",
+        "origin/release/f2-ai-insights-c5a1c7f4",
+        "release/f2-ai-insights-c5a1c7f4",
+    ],
+)
+def test_no_other_f2_like_base_is_allowed(base: str) -> None:
+    with pytest.raises(StopCondition) as refused:
+        source.release_base_reason(base)
+    assert refused.value.code == "BASE_REF_NOT_ALLOWED"
