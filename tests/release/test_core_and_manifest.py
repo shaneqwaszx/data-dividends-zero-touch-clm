@@ -679,3 +679,50 @@ def test_the_approval_prompt_names_the_f2_lineage() -> None:
         "SOURCE IS NOT origin/main: release branch origin/release/f2-ai-insights-notice-c5a1c7f4 "
         "(F2_FRONTEND_LINEAGE)."
     ) in prompts[-1]
+
+
+COMBINED_PINS = {
+    "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE": (
+        "origin/release/c10-opq-assistant-backend-insights-c5a1c7f4",
+        "5ad86fb527f82c8c430af19ea2e2b1213d1b7407",
+        "9be9b86015d503bab37ab5dee7d0c68596c1f573",
+    ),
+}
+
+
+@pytest.mark.parametrize("reason", sorted(COMBINED_PINS))
+def test_combined_lineages_are_pinned_and_assistant_backend_only(reason: str) -> None:
+    base_ref, commit, tree = COMBINED_PINS[reason]
+
+    def manifest_for(services: list[str]) -> dict:
+        manifest = make_manifest(services)
+        manifest["source"]["base_ref"] = base_ref
+        manifest["source"]["base_reason"] = reason
+        manifest["source"]["commit"], manifest["source"]["tree"] = commit, tree
+        return manifest
+
+    manifests.validate_manifest(manifest_for(["assistant", "backend"]))
+    for services in (["frontend"], ["assistant"], ["assistant", "backend", "frontend"]):
+        try:
+            candidate = manifest_for(services)
+        except Exception:
+            continue
+        with pytest.raises(ReleaseError) as refused:
+            manifests.validate_manifest(candidate)
+        assert refused.value.code == "MANIFEST_INVALID"
+    wrong = manifest_for(["assistant", "backend"])
+    wrong["source"]["commit"] = "1" * 40
+    with pytest.raises(ReleaseError):
+        manifests.validate_manifest(wrong)
+
+
+def test_c11_fallback_frontend_lineage_is_pinned_and_frontend_only() -> None:
+    manifest = make_manifest(["frontend"])
+    manifest["source"]["base_ref"] = "origin/release/f2-c11-fallback-c5a1c7f4"
+    manifest["source"]["base_reason"] = "F2_C11_FALLBACK_FRONTEND_LINEAGE"
+    manifest["source"]["commit"] = "5dd4d3cf6026541c9f7e9221a23fc4ba8f1437be"
+    manifest["source"]["tree"] = "7efa88622ef1bddb1a710feb97b25474321c06c2"
+    manifests.validate_manifest(manifest)
+    manifest["source"]["tree"] = "1" * 40
+    with pytest.raises(ReleaseError):
+        manifests.validate_manifest(manifest)

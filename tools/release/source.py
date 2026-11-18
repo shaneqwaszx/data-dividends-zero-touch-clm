@@ -40,6 +40,16 @@ RELEASE_BASES: tuple[tuple[re.Pattern[str], str], ...] = (
     # below, and frontend only (manifest rule). GitHub's main ruleset squash-merges, so the
     # qualified commit cannot become an ancestor of main.
     (re.compile(r"^origin/release/f2-ai-insights-notice-c5a1c7f4$"), "F2_FRONTEND_LINEAGE"),
+    # Combined assistant + backend release on c5a1c7f4 (owner-directed 2026-11-19): UBO_CALCULATION
+    # (U-1..U-5), G-6 R0/R1, the D-144 ownership wording fix and inert C11 hooks (A), or A plus
+    # the C11 enabling values (B, owner approval pending). Each branch pinned to one commit and tree,
+    # assistant and backend only.
+    (
+        re.compile(r"^origin/release/c10-opq-assistant-backend-insights-c5a1c7f4$"),
+        "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE",
+    ),
+    # The frontend for B2: the deployed F-2 + notice frontend plus the reviewed C11 fallback (P-C).
+    (re.compile(r"^origin/release/f2-c11-fallback-c5a1c7f4$"), "F2_C11_FALLBACK_FRONTEND_LINEAGE"),
 )
 # A lineage listed here accepts only this exact (commit, tree): never a later commit on the branch.
 PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
@@ -47,9 +57,21 @@ PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
         "8454370251e010d4dc93331263a61d3f57b1f1e0",
         "b2121b9976358ed7f43a54e87518982bb0dcdf0f",
     ),
+    "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE": (
+        "5ad86fb527f82c8c430af19ea2e2b1213d1b7407",
+        "9be9b86015d503bab37ab5dee7d0c68596c1f573",
+    ),
+    "F2_C11_FALLBACK_FRONTEND_LINEAGE": (
+        "5dd4d3cf6026541c9f7e9221a23fc4ba8f1437be",
+        "7efa88622ef1bddb1a710feb97b25474321c06c2",
+    ),
 }
 # A lineage listed here may change only these services.
-RELEASE_SERVICES: dict[str, frozenset[str]] = {"F2_FRONTEND_LINEAGE": frozenset({"frontend"})}
+RELEASE_SERVICES: dict[str, frozenset[str]] = {
+    "F2_FRONTEND_LINEAGE": frozenset({"frontend"}),
+    "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE": frozenset({"assistant", "backend"}),
+    "F2_C11_FALLBACK_FRONTEND_LINEAGE": frozenset({"frontend"}),
+}
 INTEGRATION_REASON = "INTEGRATION_BASELINE"
 
 
