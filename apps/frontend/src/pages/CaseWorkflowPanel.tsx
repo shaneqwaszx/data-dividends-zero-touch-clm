@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { RunApplicabilityBasis } from "../components/workflow-governance/RunApplicabilityBasis";
 import StageDisclosure from "./StageDisclosure";
 import {
   confirmStage,
@@ -120,11 +121,30 @@ export function canFillOnboardingStages(role: string, summary: { status: string;
     && summary?.status !== "COMPLETED" && summary?.current_stage !== "MOCK_GOLDTIER";
 }
 
+/**
+ * ADR-018: the run's applicability basis, only when the run carries one. The escalation is offered to
+ * case fillers on a case (UI shaping only; the backend reauthorizes it).
+ */
+function RunBasis({ run, caseId, userId, canFill }: Pick<StageSectionProps, "caseId" | "userId" | "canFill"> & { run: WorkflowRun }) {
+  const queryClient = useQueryClient();
+  if (!run.applicability) return null;
+  const escalation = caseId && canFill ? {
+    caseId,
+    run: { run_id: run.run_id, revision: run.revision },
+    onChanged: () => { void queryClient.invalidateQueries({ queryKey: workflowQueryKeys.list(userId) }); },
+  } : null;
+  return <RunApplicabilityBasis view={run.applicability} escalation={escalation} />;
+}
+
 /** The added onboarding stages that follow any of the given existing stages. */
 export function CaseWorkflowStages({ run, anchors, ...props }: StageSectionProps & {
   run: WorkflowRun | null | undefined; anchors: string[];
 }) {
+  // The page renders one group per anchor; the basis is shown once, before the run's first added stage.
+  const first = run?.stages.find(stage => stage.after_node_id !== null);
+  const showBasis = run && first && anchors.includes(first.after_node_id!);
   return <>
+    {showBasis && <RunBasis run={run} caseId={props.caseId} userId={props.userId} canFill={props.canFill} />}
     {run?.stages.filter(stage => stage.after_node_id !== null && anchors.includes(stage.after_node_id))
       .map(stage => <StageSection key={stage.stage_id} {...props} run={run} stage={stage} />)}
   </>;
@@ -133,8 +153,11 @@ export function CaseWorkflowStages({ run, anchors, ...props }: StageSectionProps
 /** Director-started workflows, each in its own stage order. */
 export function CaseWorkflowRuns({ runs, ...props }: StageSectionProps & { runs: WorkflowRun[] | undefined }) {
   return <>
-    {runs?.flatMap(run => run.stages.map(stage => (
-      <StageSection key={`${run.run_id}-${stage.stage_id}`} {...props} run={run} stage={stage} />
-    )))}
+    {runs?.flatMap(run => [
+      <RunBasis key={`${run.run_id}-basis`} run={run} caseId={props.caseId} userId={props.userId} canFill={props.canFill} />,
+      ...run.stages.map(stage => (
+        <StageSection key={`${run.run_id}-${stage.stage_id}`} {...props} run={run} stage={stage} />
+      )),
+    ])}
   </>;
 }
