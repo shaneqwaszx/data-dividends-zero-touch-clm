@@ -1125,6 +1125,14 @@ describe("Editing how the AI should respond", () => {
     expect(notice?.textContent).toContain("They are sent even if no Claude answer is shown to you.");
     expect(notice?.textContent).toContain("Use synthetic test data only.");
     expect(notice?.textContent).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+    // Compact notice: collapsed by default, and the visible summary still carries the binding facts.
+    const summary = notice?.querySelector<HTMLElement>('[data-testid="external-ai-notice-summary"]');
+    expect(summary?.closest("[hidden]")).toBeNull();
+    expect(summary?.textContent).toContain(
+      "When Claude (Anthropic) is asked for Try with this change, the title and text of this change, the conversation's first question and this case's details are sent to Anthropic, even if no Claude answer is shown.",
+    );
+    expect(summary?.textContent).toContain("replaced with placeholders first, but this is not complete.");
+    expect(notice?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
     const tryButton = button(request, "Try with this change");
     expect(tryButton.getAttribute("aria-describedby")).toBe(notice?.id);
     // Shown before anything is tried: no request has been made for the trial yet.

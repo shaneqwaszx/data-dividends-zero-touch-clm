@@ -287,7 +287,15 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
     const notice = panel.querySelector('[data-testid="external-ai-notice"]')!;
     expect(notice.getAttribute("data-surface")).toBe("insights");
     expect(notice.textContent).toContain("sent to Anthropic");
-    const button = panel.querySelector("button")!;
+    // Compact notice: collapsed by default, and the visible summary still carries the binding facts.
+    const summary = notice.querySelector<HTMLElement>('[data-testid="external-ai-notice-summary"]')!;
+    expect(summary.closest("[hidden]")).toBeNull();
+    expect(summary.textContent).toContain(
+      "counts and status labels from the eligible cases on this dashboard (no names, teams or case identifiers) are sent to Anthropic, even if no Claude answer is shown.",
+    );
+    expect(summary.textContent).toContain("replaced with placeholders first, but this is not complete.");
+    expect(notice.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe("false");
+    const button = panel.querySelector<HTMLButtonElement>("button.btn")!;
     expect(button.textContent).toBe("Generate AI Insights");
     expect(button.getAttribute("aria-describedby")).toBe(notice.id);
     expect(panel.textContent).toContain("3 left today");
@@ -316,7 +324,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_LIMIT", message: "limit" } }, 429),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(host.textContent).toContain("The daily limit for AI insights has been reached.");
     expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
@@ -324,7 +332,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
 
     serve({ "GET /dashboard/insights/mode": mode("generate", 0) });
     const exhausted = await mount(olivia);
-    expect(exhausted.querySelector("button")!.disabled).toBe(true);
+    expect(exhausted.querySelector<HTMLButtonElement>("button.btn")!.disabled).toBe(true);
   });
 
   it("says insights are unavailable when the service refuses, without retrying", async () => {
@@ -333,7 +341,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(host.textContent).toContain("AI insights are unavailable right now.");
     expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
@@ -522,11 +530,11 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
     serve({ "GET /dashboard/insights/mode": text("{bad") });
     const host = await mount(olivia);
     serve({ "GET /dashboard/insights/mode": mode("generate") });
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
     expect(host.querySelector('[data-testid="external-ai-notice"]')!.getAttribute("data-surface")).toBe("insights");
-    expect(host.querySelector("button")!.textContent).toBe("Generate AI Insights");
+    expect(host.querySelector<HTMLButtonElement>("button.btn")!.textContent).toBe("Generate AI Insights");
   });
 
   it("never switches to the automatic route when the re-check after a generation fails", async () => {
@@ -537,7 +545,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights": json(REPLY),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(paths()).toEqual(["GET /dashboard/insights/mode", "POST /dashboard/insights/generate", "GET /dashboard/insights/mode"]);
     expect(paths()).not.toContain("POST /dashboard/insights");
