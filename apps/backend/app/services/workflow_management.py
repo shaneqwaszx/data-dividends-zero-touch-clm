@@ -627,9 +627,10 @@ class WorkflowManagementService:
     ) -> WorkflowRun:
         with self._cases.case_lock(case_id):
             self._require_filler(reauthorize())
-            self._retry_freeze(case_id)
             run = self._open_run(case_id, run_id, expected_revision)
             self._require_not_sent(run, case_id)
+            # After the sent check: a sent case's run is never written (QG P2-1).
+            run = self._after_retried_freeze(case_id, run_id, expected_revision)
             return self._with_answers(run, stage_id, values)
 
     def confirm_stage(
@@ -647,9 +648,9 @@ class WorkflowManagementService:
         with self._gate.confirming(gated), self._cases.case_lock(case_id):
             actor = reauthorize()
             self._require_filler(actor)
-            self._retry_freeze(case_id)
             run = self._open_run(case_id, run_id, expected_revision)
             self._require_not_sent(run, case_id)
+            run = self._after_retried_freeze(case_id, run_id, expected_revision)
             return self._with_confirmation(run, stage_id, actor)
 
     # Integration hooks. Neither may change a case's outcome when nothing is configured.
@@ -1119,9 +1120,22 @@ class WorkflowManagementService:
                 "workflow applicability freeze deferred", extra={"case_id": str(case_id)}
             )
 
+    def _after_retried_freeze(
+        self, case_id: UUID, run_id: UUID, expected_revision: int
+    ) -> WorkflowRun:
+        """Retry a lost freeze, then re-open the run: a freeze that wrote moves the revision,
+        so the caller's write is refused with 409 and the screen reloads (QG P3-2)."""
+
+        self._retry_freeze(case_id)
+        return self._open_run(case_id, run_id, expected_revision)
+
     def _freeze_locked(self, case_id: UUID) -> str:
         """Under the case lock only. Reads the definition without its lock (lock order)."""
 
+        if self._case_is_sent(case_id):
+            # A sent case keeps its onboarding run exactly as it was sent (UNVERIFIED if it
+            # was never frozen, which already applies everything).
+            return BASIS_HOOK_NONE
         for attempt in range(2):
             case = self._cases.get_case(case_id)
             if case is None:

@@ -1113,6 +1113,9 @@ class OnboardingService:
                 )
             )
             self._repository.save(OnboardingCase.model_validate(requested.model_dump()))
+            if changed_identity or verify_registry:
+                # ADR-018 §3.5 F5: the committed write cleared the entity and binding.
+                self._after_registry_binding(requested)
 
             if verified is not None:
                 requested = self._acquire_registry_after_identity_recheck(
@@ -3974,6 +3977,16 @@ class OnboardingService:
             )
             self._record(case, case.state, outcome, messages[code], code)
             return case.model_copy(deep=True)
+
+    def notify_registry_entity_changed(self, case_id: UUID) -> None:
+        """ADR-018 §3.5 F5: for an owner that commits an entity or binding change itself
+        (the reconciliation legal-name decision commits ``prepare_reconciled_value``'s
+        candidate in its own unit of work). Run after that commit, under the case lock."""
+
+        with self.case_lock(case_id):
+            case = self._repository.get(case_id)
+            if case is not None:
+                self._after_registry_binding(case)
 
     def _after_registry_binding(self, case: OnboardingCase) -> None:
         """Run the basis hook after the committed REGISTRY_FETCHED write (F1, F5). A newly

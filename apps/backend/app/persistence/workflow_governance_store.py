@@ -73,6 +73,7 @@ from app.domain.workflows import (
     ONBOARDING_WORKFLOW_ID,
     WorkflowDefinition,
     WorkflowVersion,
+    applies_to_includes,
 )
 from app.persistence.errors import (
     PersistenceConflictError,
@@ -1043,7 +1044,8 @@ def _check_baseline(
     refuse: Callable[[str], None],
 ) -> None:
     """Defence in depth for the ratchet's baseline (ADR-017 2): it changes only on a
-    publication, and then only becomes stricter; no stored obligation disappears."""
+    publication, and then only becomes stricter; no stored obligation disappears. Its
+    applicability may broaden on a publication (ADR-018 4.2) but never narrows."""
 
     if incoming == before:
         return
@@ -1056,6 +1058,8 @@ def _check_baseline(
         if new_stage is None or new_stage.normalised_name != stage.normalised_name:
             refuse("BASELINE_STAGE_REMOVED_OR_RENAMED")
             return
+        if not applies_to_includes(new_stage.applicability, stage.applicability):
+            refuse("BASELINE_APPLICABILITY_NARROWED")
         fields = {item.field_id: item.signature for item in new_stage.fields}
         for field in stage.fields:
             old, new = field.signature, fields.get(field.field_id)
@@ -1070,8 +1074,8 @@ def _check_baseline(
                 refuse("BASELINE_CHOICE_WIDENED")
             if new.has_case_data_key and not old.has_case_data_key:
                 refuse("BASELINE_CASE_DATA_KEY_GAINED")
-            if new.applicability != old.applicability:
-                refuse("BASELINE_APPLICABILITY_CHANGED")
+            if not applies_to_includes(new.applicability, old.applicability):
+                refuse("BASELINE_APPLICABILITY_NARROWED")
 
 
 def check_outbox_integrity(

@@ -839,3 +839,68 @@ def test_the_hook_takes_neither_the_gate_nor_the_definition_lock():
 
 def test_conflict_record_constant_matches_the_hook_outcome():
     assert BASIS_HOOK_CONFLICT_RECORDED == "CONFLICT_RECORDED"
+
+
+# --- M3-C QG notes (P2-1, P3-1, P3-5) ---------------------------------------------------------
+
+
+def test_a_sent_case_with_a_lost_hook_refuses_the_write_and_never_writes_its_run():
+    world = World(LLP_TEXT, hook=False)
+    case = world.new_case()
+    run = world.run(case.case_id)
+    world.sent.add(case.case_id)
+    with pytest.raises(WorkflowValidationError) as refused:
+        world.workflows.save_answers(
+            lambda: RM,
+            case_id=case.case_id,
+            run_id=run.run_id,
+            stage_id="registry-notes",
+            expected_revision=run.revision,
+            values={"reference": "R-1"},
+        )
+    assert refused.value.code == "WORKFLOW_CASE_SENT"
+    with pytest.raises(WorkflowValidationError):
+        world.workflows.confirm_stage(
+            lambda: RM,
+            case_id=case.case_id,
+            run_id=run.run_id,
+            stage_id="registry-notes",
+            expected_revision=run.revision,
+        )
+    assert world.stored(case.case_id) is None  # no freeze write on a sent case
+    assert world.workflows.freeze_onboarding_basis(case.case_id) == BASIS_HOOK_NONE
+    assert world.stored(case.case_id) is None
+
+
+@pytest.mark.parametrize("closure", ["sent", "target_dispatch_confirmation"])
+def test_a_sent_case_and_a_dispatch_confirmation_are_too_late_to_narrow(closure):
+    world = World(LLP_TEXT, hook=False)
+    case = world.new_case()
+    if closure == "sent":
+        world.sent.add(case.case_id)
+    else:
+        # A recorded dispatch confirmation (the model is not needed for the check).
+        case = case.model_copy(update={"target_dispatch_confirmation": object()})
+    assert world.workflows._case_closed(case)  # noqa: SLF001
+    decision = freeze_decision(
+        case,
+        _pure_run(case),
+        World.version(1, STAGES, case.created_at),
+        now=case.created_at,
+        case_closed=True,
+    )
+    assert decision.basis.reason == ApplicabilityBasisReason.TOO_LATE_TO_NARROW
+    assert decision.stages == STAGES  # nothing is narrowed
+
+
+def test_a_later_entity_or_binding_change_runs_the_hook():
+    world = World(LLP_TEXT)
+    case = world.new_case()
+    changed = world.replace_case(case.case_id, registry_evidence_binding=None)
+    events = len(changed.events)
+    world.service.notify_registry_entity_changed(case.case_id)
+    run = world.stored(case.case_id)
+    assert run.basis_conflict is not None
+    current = world.service.get_case(case.case_id)
+    assert len(current.events) == events + 1
+    assert current.events[-1].code == CASE_EVENT_APPLICABILITY_BASIS_CONFLICT

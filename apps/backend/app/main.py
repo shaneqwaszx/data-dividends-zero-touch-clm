@@ -118,6 +118,7 @@ from app.domain.target_submission import (
     GoldTierSearchResolution,
     GoldTierTargetOutcome,
 )
+from app.domain.workflow_governance import CONDITIONAL_APPLICABILITY_ENABLED_ENV
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID
 from app.domain.zero_touch import (
     AutomationStage,
@@ -743,7 +744,15 @@ def _build_workflow_governance(
         ledger=ledger,
         startup=startup,
         clock=clock,
+        conditional_enabled=_conditional_applicability_enabled(),
     )
+
+
+def _conditional_applicability_enabled() -> bool:
+    """ADR-018 §9 (B7): the enablement gate, read once at startup (default off)."""
+
+    value = os.environ.get(CONDITIONAL_APPLICABILITY_ENABLED_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def create_app(

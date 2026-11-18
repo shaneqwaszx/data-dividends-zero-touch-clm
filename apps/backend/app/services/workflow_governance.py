@@ -57,6 +57,8 @@ from app.api_workflow_governance_models import (
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability
 from app.domain.target_submission import GoldTierExecutionLedgerEntry, WorkflowDispatchState
 from app.domain.workflow_governance import (
+    CONDITIONAL_APPLICABILITY_ENABLED_DEFAULT,
+    CONDITIONAL_NOT_ENABLED_ISSUE,
     DRAFT_RELEASE_AFTER_DAYS,
     GOVERNANCE_ERROR_STATUS,
     MAX_ENCODED_VERSION_BYTES,
@@ -78,6 +80,7 @@ from app.domain.workflow_governance import (
     VersionProvenance,
     WorkflowGovernanceState,
     WorkflowProposal,
+    canonical_json,
     proposal_content_hash,
 )
 from app.domain.workflows import (
@@ -272,8 +275,11 @@ class WorkflowGovernanceService:
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
         confirmation_gate: ConfirmationGate | None = None,
+        conditional_enabled: bool = CONDITIONAL_APPLICABILITY_ENABLED_DEFAULT,
     ) -> None:
         self._repository = repository
+        # ADR-018 §9 (B7): the enablement gate, fixed at construction (read once at startup).
+        self._conditional_enabled = conditional_enabled
         self._runs = runs
         self._lock = lock
         # Shared with ``WorkflowManagementService`` through the same definition lock.
@@ -435,6 +441,7 @@ class WorkflowGovernanceService:
                 raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_OPEN)
             number, _active = self._active(governed)
             stages = self._initial_stages(governed, request)
+            self._refuse_not_enabled(stages)
             proposal = _proposal(
                 {
                     "proposal_id": str(self._uuid_factory()),
@@ -477,6 +484,7 @@ class WorkflowGovernanceService:
                 {ProposalState.DRAFT},
             )
             _refuse_client_stages(current.kind, request.stages)
+            self._refuse_not_enabled(request.stages)
             proposal = _proposal(
                 {
                     **_fields(current),
@@ -1237,6 +1245,9 @@ class WorkflowGovernanceService:
             kind=kind,
         )
         issues = list(report.issues)
+        if not self._conditional_enabled and any(stage.is_conditional for stage in stages):
+            # Validate, submit and decide all re-run this report (ADR-018 §9, B7).
+            issues.insert(0, _not_enabled_issue())
         if kind in LIFECYCLE_KINDS and governed.definition.is_onboarding:
             issues.insert(0, _kind_issue("Onboarding cannot be deactivated or reactivated."))
         if kind == ProposalKind.REACTIVATE and not self._deactivated(governed):
@@ -1291,6 +1302,16 @@ class WorkflowGovernanceService:
         )
 
     # --- M2 helpers (CC-4) ---------------------------------------------------------------
+
+    def _refuse_not_enabled(self, stages: tuple[WorkflowStage, ...]) -> None:
+        """ADR-018 §9 (B7): conditional content is refused until the gate is on."""
+
+        if not self._conditional_enabled and any(stage.is_conditional for stage in stages):
+            raise WorkflowGovernanceError(
+                GovernanceErrorCode.PROPOSAL_INVALID,
+                CONDITIONAL_NOT_ENABLED_ISSUE,
+                issues=(_not_enabled_issue(),),
+            )
 
     @staticmethod
     def _deactivated(governed: GovernedDefinition) -> bool:
@@ -1583,13 +1604,21 @@ FALLBACK_OBLIGATION_MESSAGE = (
 )
 
 
-def _obligation_shape(baseline: RequiredBaseline) -> frozenset[tuple[Any, ...]]:
-    """The obligations a baseline enforces, without its version bookkeeping."""
+_BASELINE_BOOKKEEPING = {"first_published_version", "last_published_version"}
 
-    return frozenset(
-        (stage.stage_id, stage.normalised_name, field.field_id, field.signature)
-        for stage in baseline.stages
-        for field in stage.fields
+
+def _obligation_shape(baseline: RequiredBaseline) -> tuple[Any, ...]:
+    """Everything a baseline enforces or renders (stage and field applicability, signatures,
+    representatives), without only its version bookkeeping (ADR-018 §4.3a, QG P3-5)."""
+
+    return tuple(
+        sorted(
+            (
+                stage.stage_id,
+                canonical_json(stage.model_dump(mode="json", exclude=_BASELINE_BOOKKEEPING)),
+            )
+            for stage in baseline.stages
+        )
     )
 
 
@@ -1640,6 +1669,12 @@ def _refuse_client_stages(
             GovernanceErrorCode.PROPOSAL_INVALID,
             "The server computes this proposal's content; stages cannot be supplied.",
         )
+
+
+def _not_enabled_issue() -> ValidationIssue:
+    return ValidationIssue(
+        code=GovernanceErrorCode.PROPOSAL_INVALID.value, message=CONDITIONAL_NOT_ENABLED_ISSUE
+    )
 
 
 def _kind_issue(message: str) -> ValidationIssue:
