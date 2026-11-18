@@ -23,7 +23,8 @@ marker being absent, writes every governance field with the marker **last**. Re-
 after the marker is a no-op; an interrupted run re-runs safely.
 
 Planning reads only. The CLI (``scripts/p2_1_migration.py``) dry-runs by default; its
-owner-approved apply mode (2026-11-18) adds a signed window approval, a verified backup,
+owner-approved apply mode (2026-11-18) adds a window approval (integrity-pinned by its
+``approval_sha256``), a verified backup,
 writer quiescence (no live dispatch lease plus an exclusive migration lock that backend
 startup refuses), a fresh plan whose hash must equal the dry run's, and post-apply
 P2-1 verification; the helpers for those steps are at the end of this module.
@@ -496,12 +497,14 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 @dataclass(frozen=True)
 class WindowApproval:
-    """The owner-signed window approval (``WINDOW_APPROVAL_FORMAT``).
+    """The owner's window approval (``WINDOW_APPROVAL_FORMAT``), integrity-pinned by
+    ``approval_sha256`` (reported, and re-checked immediately before the apply).
 
     JSON fields: ``format``, ``database``, ``window_id``, ``start_utc``, ``end_utc`` (ISO-8601
     with an offset; window at most 12 h), ``approver``, and ``backup``:
-    ``{"manifest_path", "manifest_sha256"[, "archive_path"]}``. Relative paths resolve
-    against the approval file's directory.
+    ``{"manifest_path", "manifest_sha256", "archive_path"}`` (``archive_path`` is
+    mandatory for an apply, optional for a dry run). Relative paths resolve against the
+    approval file's directory.
     """
 
     database: str
@@ -592,14 +595,21 @@ def protected_database_allowed(database: str, approval: WindowApproval | None) -
     return approval is not None and approval.database.strip().lower() == name
 
 
-def verify_backup(approval: WindowApproval, *, database: str, now: datetime) -> dict[str, object]:
+def verify_backup(
+    approval: WindowApproval,
+    *,
+    database: str,
+    now: datetime,
+    require_archive: bool = True,
+) -> dict[str, object]:
     """The backup named by the approval exists and is the one recorded.
 
     The manifest follows the ``deploy/recovery`` convention (JSON with ``format`` starting
     ``mongo-gzip-archive/``, ``database``, ``boundary_utc``, ``sha256`` and ``bytes`` of the
     archive). Its SHA-256 must equal the approval's ``manifest_sha256``; its database must
-    be this database; its boundary must lie inside the window and not in the future. With
-    ``archive_path`` set, the archive's size and SHA-256 must equal the manifest's.
+    be this database; its boundary must lie inside the window and not in the future. The
+    archive (``archive_path``; required unless ``require_archive`` is False) must exist
+    and its size and SHA-256 must equal the manifest's.
     """
 
     path = approval.manifest_path
@@ -629,6 +639,8 @@ def verify_backup(approval: WindowApproval, *, database: str, now: datetime) -> 
     boundary = _utc(manifest.get("boundary_utc"), "BACKUP_MANIFEST_INVALID")
     if not approval.start <= boundary <= now.astimezone(UTC):
         raise ApplyPreconditionError("BACKUP_NOT_IN_WINDOW")
+    if approval.archive_path is None and require_archive:
+        raise ApplyPreconditionError("BACKUP_ARCHIVE_NOT_NAMED")
     if approval.archive_path is not None:
         archive = approval.archive_path
         if not archive.is_file():

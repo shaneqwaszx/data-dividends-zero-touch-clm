@@ -26,8 +26,22 @@ Apply refuses unless every one of these holds, checked in this order:
   while it exists), or the lock of an interrupted run of the same window is resumed by id;
 - a fresh dry run in the same invocation is refusal-free and its hash equals
   ``--expect-plan-hash``.
-It then inserts the cold copies, writes each marker last, re-runs the P2-1 verification,
-and releases the lock. It prints only safe identifiers, counts, hashes and reason codes.
+After the lock and the lease re-check it reloads the approval and re-verifies the backup
+(refusing if either changed), then inserts the cold copies, writes each marker last,
+re-runs the P2-1 verification, and releases the lock. It prints only safe identifiers,
+counts, hashes and reason codes.
+
+The lock: only a lock freshly acquired by this run is released, and only on success or
+on a refusal before any write. A resumed lock (``--resume-lock``) is never released
+except on success, because an earlier run may already have written. To resume: run a
+fresh dry run with the same approval and pass its ``plan_hash`` with
+``--resume-lock <lock_id>`` (each resume issues a new ``lock_id``; use the one printed
+last). A resume re-inserts the plan's cold copies under fresh attempt suffixes (fallback
+mode): bounded, identical-hash duplicates that cold readers deduplicate.
+
+A stale lock is never broken automatically: ``expires_at`` is informational only. An
+operator clears a lock only through an explicit, separately approved action (after
+checking the database state against the plan and the backup), outside this tool.
 
 Exit codes: 0 READY (dry run) or APPLIED_VERIFIED; 1 the plan has refusals or the
 post-apply verification failed (lock retained); 2 a precondition refused (nothing written;
@@ -47,6 +61,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "backend"))
@@ -71,7 +86,6 @@ from app.persistence.p2_1_migration import (
 )
 from app.persistence.workflow_governance_store import MongoColdHistoryStore
 from pymongo import MongoClient
-from pymongo.uri_parser import parse_uri
 
 URI_ENVIRONMENT_KEY = "CLM_MIGRATION_MONGO_URI"
 DATABASE_ENVIRONMENT_KEY = "CLM_MIGRATION_MONGO_DATABASE"
@@ -99,12 +113,28 @@ def _default_seeder() -> SeedBaseline | None:
     return seeder if callable(seeder) else None
 
 
+def _uri_database(uri: str) -> str | None:
+    """The URI path database, parsed locally (no DNS, so ``mongodb+srv`` is not resolved).
+
+    Returns "" when the URI names no database and None when it is not a MongoDB URI.
+    """
+
+    for scheme in ("mongodb://", "mongodb+srv://"):
+        if uri.startswith(scheme):
+            rest = uri[len(scheme) :]
+            break
+    else:
+        return None
+    if "/" not in rest:
+        return ""
+    return unquote(rest.split("/", 1)[1].split("?", 1)[0])
+
+
 def _confirmed_database(uri: str, environ: Mapping[str, str]) -> set[str] | None:
     """The databases named by the URI path and the environment (None: URI unparsable)."""
 
-    try:
-        from_uri = parse_uri(uri).get("database")
-    except Exception:  # noqa: BLE001 - never echo the URI or the parser detail
+    from_uri = _uri_database(uri)
+    if from_uri is None:
         return None
     named = {
         value for value in (from_uri, environ.get(DATABASE_ENVIRONMENT_KEY)) if value
@@ -252,10 +282,20 @@ def _apply(
     except ApplyPreconditionError as exc:
         return _refuse(exc.reason, **report)
     report["lock_id"] = lock_id
+    # Only a lock acquired fresh by this run may be released before success; a resumed lock
+    # belongs to a run that may already have written (cold copies or markers).
+    fresh = args.resume_lock is None
     written = False
+    resume_step = (
+        "run a fresh dry run with the same approval and pass its plan_hash with "
+        "--resume-lock <lock_id> inside the same approved window"
+    )
 
     def stop(status: str, code: int, *, release: bool, **extra: object) -> int:
-        released = release_migration_lock(locks, lock_id) if release else False
+        allowed = release and (status == "APPLIED_VERIFIED" or (fresh and not written))
+        released = release_migration_lock(locks, lock_id) if allowed else False
+        if not released and status != "APPLIED_VERIFIED":
+            extra = {**extra, "next_step": resume_step}
         _print({**report, **extra, "status": status, "lock_released": released})
         return code
 
@@ -265,6 +305,17 @@ def _apply(
             return stop(
                 "REFUSED", EXIT_REFUSED, release=True, reason="WRITERS_NOT_QUIESCED"
             )
+        # Immediately before the apply, writers quiesced: the approval and backup again.
+        try:
+            again = load_window_approval(
+                args.window_approval, database=args.database, now=clock()
+            )
+            if again != approval:
+                raise ApplyPreconditionError("WINDOW_APPROVAL_CHANGED")
+            if verify_backup(approval, database=args.database, now=clock()) != backup:
+                raise ApplyPreconditionError("BACKUP_CHANGED")
+        except ApplyPreconditionError as exc:
+            return stop("REFUSED", EXIT_REFUSED, release=True, reason=exc.reason)
         plan = _plan(args, database, seeder, clock())
         digest = plan_hash(plan)
         report.update(plan.summary())
@@ -300,7 +351,6 @@ def _apply(
             EXIT_INTERRUPTED,
             release=False,
             error_type=type(exc).__name__,
-            next_step="re-run with --resume-lock <lock_id> inside the same approved window",
         )
 
 

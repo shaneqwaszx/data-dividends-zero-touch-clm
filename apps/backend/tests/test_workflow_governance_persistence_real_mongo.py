@@ -456,3 +456,42 @@ def test_backend_refuses_to_start_while_a_migration_lock_is_held(store: MongoWor
     finally:
         locks.delete_one({"_id": MIGRATION_LOCK_ID})
     store.initialize()  # released: starts again
+
+
+def test_physical_refused_resume_keeps_the_lock(
+    store: MongoWorkflowStore, tmp_path: Any, capsys: Any
+) -> None:
+    """QG P1: a resumed run that is refused never releases the lock of a run that wrote."""
+
+    from test_p2_1_migration import APPLY_NOW
+
+    from app.persistence.p2_1_migration import (
+        MIGRATION_LOCK_COLLECTION,
+        acquire_migration_lock,
+        load_window_approval,
+        read_migration_lock,
+        store_cold_inserts,
+    )
+
+    store.definitions.insert_one(p2_0_raw())
+    approval_path = _approval(store, tmp_path)
+    database = store.definitions.database
+    locks = database[MIGRATION_LOCK_COLLECTION]
+    approval = load_window_approval(Path(approval_path), database=database.name, now=APPLY_NOW)
+    lock_id = acquire_migration_lock(locks, approval=approval, now=APPLY_NOW)
+    plan = plan_p2_1_migration(
+        store.definitions.find({}), seed_baseline=Seeder(), now=APPLY_NOW, cold=store.cold
+    )
+    store_cold_inserts(plan.migrations[0], store.cold, now=APPLY_NOW)  # then the crash
+    apply = ["--apply", "--window-approval", approval_path, "--expect-plan-hash"]
+    code, report = _cli(store, [*apply, "0" * 64, "--resume-lock", lock_id], capsys)
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    assert report["lock_released"] is False and "fresh dry run" in report["next_step"]
+    held = read_migration_lock(locks)
+    assert held is not None and held["lock_id"] == report["lock_id"]
+    code, dry = _cli(store, ["--dry-run"], capsys)
+    code, report = _cli(
+        store, [*apply, str(dry["plan_hash"]), "--resume-lock", str(held["lock_id"])], capsys
+    )
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED"
+    assert read_migration_lock(locks) is None

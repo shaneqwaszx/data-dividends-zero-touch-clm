@@ -1074,3 +1074,154 @@ def test_planned_migration_is_frozen() -> None:
     assert isinstance(planned, PlannedMigration)
     with pytest.raises(AttributeError):
         planned.revision = 5  # type: ignore[misc]
+
+
+# --- QG (migration apply): resumed locks are never released by a refusal -------------
+
+
+def interrupted(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> tuple[FakeClient, Path, str]:
+    """A run that wrote cold copies and then died: lock retained, no marker."""
+
+    client = world()
+    approval = write_approval(tmp_path)
+    digest = dry_run_hash(client, capsys)
+    client[DATABASE]["workflow_versions"].faults["insert_one_after"] = [WTimeoutError("t")]
+    code, report, _ = run(apply_argv(approval, digest), capsys, client=client)
+    assert code == 4 and report["lock_released"] is False
+    assert "fresh dry run" in report["next_step"]
+    return client, approval, str(report["lock_id"])
+
+
+def _lock(client: FakeClient) -> dict[str, Any] | None:
+    return read_migration_lock(client[DATABASE][MIGRATION_LOCK_COLLECTION])
+
+
+def _assert_kept(report: dict[str, Any], client: FakeClient) -> str:
+    assert report["lock_released"] is False
+    assert "fresh dry run" in report["next_step"] and "--resume-lock" in report["next_step"]
+    held = _lock(client)
+    assert held is not None and held["lock_id"] == report["lock_id"]
+    return str(report["lock_id"])
+
+
+def test_a_refused_resume_never_releases_the_lock(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client, approval, lock_id = interrupted(tmp_path, capsys)
+    good = dry_run_hash(client, capsys)
+    # 1. A stale or wrong plan hash.
+    code, report, _ = run(
+        apply_argv(approval, "0" * 64, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    lock_id = _assert_kept(report, client)
+    # 2. A writer is running again (lease appears after the resume took the lock).
+    cases = client[DATABASE]["clm_case_snapshots"]
+    calls = {"n": 0}
+    real_find = cases.find
+
+    def find(query: Any = None, *rest: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            return [
+                {
+                    "_id": "case",
+                    "target_executions": [
+                        {"state": "IN_PROGRESS", "workflow_dispatch": {"lease_until": APPLY_NOW}}
+                    ],
+                }
+            ]
+        return real_find(query, *rest)
+
+    cases.find = find  # type: ignore[method-assign]
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 2 and report["reason"] == "WRITERS_NOT_QUIESCED"
+    lock_id = _assert_kept(report, client)
+    cases.find = real_find  # type: ignore[method-assign]
+    # 3. The plan now has refusals.
+    definitions = client[DATABASE]["clm_workflow_definitions"]
+    saved = copy.deepcopy(definitions.documents["refresh"])
+    definitions.documents["refresh"].pop("latest_version")
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 1 and report["reason"] == "PLAN_HAS_REFUSALS"
+    lock_id = _assert_kept(report, client)
+    definitions.documents["refresh"] = saved
+    # 4. An unexpected failure before this run wrote anything.
+    definitions.faults["find"] = [RuntimeError("boom")]
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 3 and report["status"] == "FAILED"
+    lock_id = _assert_kept(report, client)
+    # Finally the documented procedure converges and releases the lock.
+    code, report, _ = run(
+        apply_argv(approval, dry_run_hash(client, capsys), "--resume-lock", lock_id),
+        capsys,
+        client=client,
+    )
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED" and report["lock_released"]
+    assert _lock(client) is None
+
+
+def test_apply_requires_a_verified_archive_but_a_dry_run_does_not(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    approval = write_approval(tmp_path, archive=False)
+    code, report, _ = run(apply_argv(approval, "0" * 64), capsys)
+    assert code == 2 and report == {"status": "REFUSED", "reason": "BACKUP_ARCHIVE_NOT_NAMED"}
+    code, report, _ = run(
+        ["--database", DATABASE, "--dry-run", "--window-approval", str(approval)],
+        capsys,
+        client=world(),
+    )
+    assert code == 0 and report["status"] == "READY"
+
+
+@pytest.mark.parametrize("tamper", ["archive", "approval"])
+def test_backup_and_approval_are_re_verified_after_quiescence(
+    tmp_path: Path,
+    tamper: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = world()
+    approval = write_approval(tmp_path)
+    digest = dry_run_hash(client, capsys)
+    calls = {"n": 0}
+
+    def leases(_cases: Any, *, now: datetime) -> int:
+        calls["n"] += 1
+        if calls["n"] == 2:  # the re-check after the lock: change something meanwhile
+            if tamper == "archive":
+                (tmp_path / "backup.cms").write_bytes(b"swapped archive bytes......")
+            else:
+                content = json.loads(approval.read_text(encoding="utf-8"))
+                content["approver"] = "someone-else"
+                approval.write_text(json.dumps(content), encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(cli, "live_dispatch_leases", leases)
+    code, report, _ = run(apply_argv(approval, digest), capsys, client=client)
+    expected = "BACKUP_ARCHIVE_HASH_MISMATCH" if tamper == "archive" else "WINDOW_APPROVAL_CHANGED"
+    assert code == 2 and report["reason"] == expected
+    # A fresh lock with nothing written is released; nothing was migrated.
+    assert report["lock_released"] is True and _lock(client) is None
+    assert client[DATABASE]["clm_workflow_definitions"].log == []
+
+
+def test_srv_uri_database_is_read_without_dns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = world()
+    environ = {
+        cli.URI_ENVIRONMENT_KEY: f"mongodb+srv://u:synthetic-secret@cluster.invalid/{DATABASE}?tls=true"
+    }
+    code, report, out = run(
+        apply_argv(write_approval(tmp_path), "0" * 64), capsys, client=client, environ=environ
+    )
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    assert "cluster.invalid" not in out
