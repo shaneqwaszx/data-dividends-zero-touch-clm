@@ -159,7 +159,12 @@ class _CaseDocumentReader:
 # ADR-017 fence refusals: none of these attempted a GoldTier write.
 _FENCE_UNAVAILABLE_CODE = "WORKFLOW_STAGE_CHECK_UNAVAILABLE"
 _FENCE_RECONFIRMATION_CODES = frozenset(
-    {"WORKFLOW_STAGE_INCOMPLETE", "WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED"}
+    {
+        "WORKFLOW_STAGE_INCOMPLETE",
+        "WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED",
+        # ADR-018 §6: an unescalated applicability conflict returns to target confirmation.
+        "WORKFLOW_APPLICABILITY_BASIS_CONFLICT",
+    }
 )
 
 
