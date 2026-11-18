@@ -232,9 +232,15 @@ At creation, the run's stage copy is computed from the version with the basis `B
   fields (allowed for onboarding, which has no `WORKFLOW_PROPOSAL_EMPTY` rule) is copied
   unchanged, exactly as today. CT-23 tests both cases.
 - **One resolved copy everywhere.** `start_run`, `_loaded_answers` (case-data prefill),
-  `_onboarding_run` and `_rebased` all work on the **resolved** copy. None of them reads the
-  version's unresolved `stages` directly, so answers are never prefilled or kept for a stage or
-  field the run does not hold. CT-24 asserts this.
+  `_onboarding_run`, `_rebased`, `send_hold_code` and D1 all work on the copy resolved with the
+  **effective basis** (below). None of them reads the version's unresolved `stages` directly, so
+  answers are never prefilled or kept for a stage or field the run does not hold. CT-24 asserts
+  this.
+- **The one named exception: `active_onboarding_stages`.** It is the read-only display of what
+  the active version would enforce on a new open case. It shows the **unresolved** stages,
+  labelled with their applicability. It never feeds the send check, D1 or a run.
+- **Locked stages are untouched.** Resolution never removes or reorders
+  `ONBOARDING_LOCKED_STAGES`, and never changes an added stage's anchor.
 - **`applies_to` is kept** on the copied stages and fields, so the run shows why each one
   applies.
 
@@ -260,9 +266,23 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
     binding_ref: BindingRef | None
     escalated_by: ActorId | None = None   # set by the audited escalation (F6)
     escalated_at: datetime | None = None
+    escalation_reason: DecisionReason | None = None   # 10–240 characters, operator-entered
 ```
 
-`WorkflowRun` also gains `basis_conflict: BasisConflict | None` (excluded when `None`).
+`WorkflowRun` also gains two fields, each excluded when it is `None` or empty:
+- `basis_conflict: BasisConflict | None`
+- `ever_touched: tuple[ObligationKey, ...]` (§3.5 F3). This is a **monotonic** record of every
+  stage and field that has ever had an answer or a confirmation. Entries are only ever added,
+  even when the answer is later cleared or the confirmation superseded.
+
+**Effective basis.** Every consumer uses the run's **effective basis**:
+- **Before the freeze:** `UNVERIFIED`.
+- **After the freeze:** the frozen basis.
+- **After an escalation** (`basis_conflict.escalated_at` set): `UNVERIFIED`, **permanently**.
+  Nothing clears `escalated_at`.
+
+The consumers are `_rebased`, `_onboarding_run`, `_loaded_answers`, `start_run`,
+`send_hold_code` and D1. So a later version can never drop a stage that the escalation added.
 
 - A run without a basis (every run created before this ADR) is treated as `UNVERIFIED`. Its
   stages were copied from unconditional content, so this changes nothing.
@@ -280,9 +300,9 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
 - **Onboarding runs.** These start with `UNVERIFIED (NO_BINDING)`, `frozen: False`. Every
   conditional obligation applies until the freeze (§3.5).
 - **Rebasing (decided, B3).** When an open onboarding case rebases to a newer version
-  (`_rebased`), its **current basis is reapplied** to the new version's stages: the frozen
-  basis, or `UNVERIFIED` before the freeze. The classification is never re-evaluated by a
-  rebase. Confirmations are kept only for a stage whose resolved copy is unchanged, as today.
+  (`_rebased`), its **effective basis** (§3.3) is reapplied to the new version's stages:
+  `UNVERIFIED` before the freeze, the frozen basis after it, and `UNVERIFIED` after an
+  escalation. The classification is never re-evaluated by a rebase. Confirmations are kept only for a stage whose resolved copy is unchanged, as today.
   Answers are kept only for fields in the resolved copy (§3.3). A rebase never performs the
   freeze.
 
@@ -294,8 +314,13 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
   `_acquire_required_registry_evidence` after the case compare-and-set succeeds.
 - **The hook.** The onboarding service then calls one new workflow hook,
   `freeze_onboarding_basis(case_id)`.
-- **Where it runs.** It runs under the case lock (`case_lock`), which every run writer already
-  takes. It reads the committed case and computes the basis (§3.2).
+- **Where it runs.** It runs **inside the same `case_lock` critical section** as the binding
+  write, which every run writer already takes. It reads the committed case and computes the
+  basis (§3.2).
+- **Locks.** It takes neither the per-workflow confirmation gate lock nor the definition lock.
+  The existing lock order is unchanged: gate before case, and case before definition. The hook
+  needs only the case lock and reads the definition without locking it.
+- **Eligibility.** Every freeze, not only a late one, first applies the F4 eligibility tests.
 - **The write.** It writes the onboarding run once, using the run repository's existing
   safeguards:
   - **A never-saved run:** insert-only `create`, with the basis.
@@ -320,10 +345,13 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
 - **The test.** Resolve the run with `F`. Let `X` be the conditional stages and fields present
   in the current `UNVERIFIED` copy that `F` would exclude. **If any item in `X` is touched, the
   freeze writes `UNVERIFIED (TOO_LATE_TO_NARROW)`, `frozen: True`.**
-- **Touched** means any of these:
-  - an answer stored for a field in `X`, or for any field of a stage in `X`, from any source,
-    including document suggestions and case-data prefill
-  - a confirmation of a stage in `X`
+- **Touched** is defined from **run history**, not from the current answers. Any of these
+  counts:
+  - an entry in `ever_touched` for a field in `X`, or for any field of a stage in `X`, from any
+    source, including document suggestions and case-data prefill
+  - a confirmation ever recorded for a stage in `X`
+- **Why history.** A lost `TOO_LATE` freeze followed by a cleared answer still counts as
+  touched, so it cannot narrow on retry.
   - the case is already sent, or has a `target_dispatch_confirmation`
   - the case has any `workflow_dispatch` claim
 - **What it guarantees.** Completed, started or confirmed obligations are never removed
@@ -340,36 +368,64 @@ class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
   - exactly one successful `REGISTRY_FETCHED` event exists
 - Otherwise the freeze writes `UNVERIFIED (AMBIGUOUS_BINDING)`, `frozen: True`.
 - F3 always applies to a late freeze.
+- The same eligibility tests run first on **every** freeze (F1).
 
 **F5. Freeze-once, and conflicts.**
 - **The basis never changes after the freeze.** Re-acquisition, an identity correction or a new
   binding cannot change it, and nothing can narrow it.
-- **The check.** On every later case write that changes `registry_evidence_binding` or `entity`,
-  the onboarding service calls the same hook. It compares the newly computed basis with the
-  frozen basis.
+- **Enforcement does not depend on the hook.** `send_hold_code` and D1 recompute the basis
+  **read-only**, from the case they already load. They return the conflict hold if all of these
+  hold:
+  - the run's frozen basis is `REGISTRY_BOUND`
+  - the recomputed basis differs from it in `binding_ref`, legal form or status
+  - no escalation is recorded
+- **The hook only persists the conflict.** On every later case write that changes
+  `registry_evidence_binding` or `entity`, the onboarding service calls the same hook. It writes
+  `basis_conflict` so that the conflict is visible and can be escalated. If the hook is lost,
+  enforcement still holds.
+- **Only a `REGISTRY_BOUND` basis can conflict.** A run frozen as `UNVERIFIED` (for any reason)
+  already applies everything, so a later binding adds nothing, and no conflict or hold arises.
 - **A conflict** is a different legal form, a different status, or a binding for another
   identity. On a conflict, the hook:
   - writes `basis_conflict` to the run, under the same filter rules as F1
   - keeps the frozen stage copy unchanged
   - logs `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`, with safe identifiers only
-- **If the run was never frozen,** it stays `UNVERIFIED`, and the conflict marks it
-  `AMBIGUOUS_BINDING` when it is frozen.
+- **If the run was never frozen,** it stays `UNVERIFIED`. The F4 tests then make any later freeze
+  `AMBIGUOUS_BINDING`.
 
 **F6. Safe, audited recovery (add-only).**
-- **The hold.** While `basis_conflict` is unescalated, `send_hold_code` returns a new hold
-  `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`. D1 refuses, and the run view shows an
-  operator-visible notice.
+- **The hold.** While a conflict exists (persisted, or recomputed under F5) and is unescalated,
+  `send_hold_code` returns a new hold, `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`. D1 refuses, and
+  the run view shows an operator-visible notice.
 - **The only recovery** is the **audited escalation** "Apply all conditional steps":
   - a filler-role action under the case lock, with a reason of 10–240 characters
-  - it sets the run's resolved copy to `UNVERIFIED` (every condition applies), keeps all answers
-    and confirmations, and records `escalated_by` and `escalated_at`
+  - it sets the run's effective basis to `UNVERIFIED` permanently (every condition applies),
+    keeps all answers and confirmations, and records `escalated_by`, `escalated_at` and
+    `escalation_reason`
+  - if no conflict was persisted yet (because the hook was lost), it first persists the
+    recomputed conflict
   - it **only adds** obligations
 - **Narrowing after a freeze is impossible.** No action, route or tool can narrow a run's
   obligations after the freeze.
-- **Records.** The escalation is recorded on the run and in the case's event history, using the
-  existing `WorkflowEvent` mechanism with a safe summary. It writes nothing to the workflow
-  definition document, which holds no case data.
-- **Needs design-review confirmation.** The new hold code and the case event kind.
+- **Records.**
+  - **The run record is the authoritative audit:** `basis_conflict`, with the escalation
+    fields and the reason.
+  - **The case event is appended afterwards.** It goes through the onboarding owner
+    (`OnboardingService._record`, under the case snapshot's revision-and-nonce compare-and-set),
+    as one `WorkflowEvent`:
+    - a new **`code` string only** (`WORKFLOW_APPLICABILITY_ESCALATED`, or
+      `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`)
+    - `stage = case.state`
+    - an existing `EventOutcome` value
+    - a safe summary
+  - **No new enum values.** Adding values to `WorkflowState` or `EventOutcome` is **forbidden**.
+  - **No definition writes.** Nothing is written to the workflow definition document, which
+    holds no case data.
+  - **Effect on event counts.** Appending the event changes `len(case.events)`. The consumers of
+    that token see the change and fail closed or retry; they never accept stale evidence:
+    - `expected_case_event_count`
+    - document processing
+    - target-confirmation `evidence_version`
 
 **F7. Unchanged.** Mandatory engine stages, UBO and compliance rules are never conditional
 (CA-6, RR-9). The freeze touches only added workflow stages.
@@ -475,8 +531,9 @@ The C-5 placeholder becomes functional within scope:
 
 ### 6. Send check and the dispatch fence
 
-- **The send check is unchanged in logic.** `send_hold_code` enforces the run's **frozen,
-  resolved** stage copy. A non-applicable conditional stage is absent from the run, so it
+- **The send check enforces the resolved copy.** `send_hold_code` enforces the run's copy
+  resolved with the **effective basis** (§3.3). It also runs the read-only conflict recompute of
+  §3.5 F5, which does not depend on the post-write hook. A non-applicable conditional stage is absent from the run, so it
   neither holds nor is bypassed. An applicable one blocks the send exactly like any added
   required stage (`stage_blocks_send`).
 - **D1 under version `V`** evaluates the hold on the run's copy resolved for `V`, with the frozen
@@ -485,7 +542,15 @@ The C-5 placeholder becomes functional within scope:
   every open case (`UNVERIFIED`).
 - **New hold, onboarding only:** `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` (§3.5 F6). It is
   treated like `WORKFLOW_STAGE_INCOMPLETE`: it returns the case to target confirmation, and
-  never ends automation.
+  never ends automation. Integration points that must handle it (line numbers approximate):
+  - **Zero-touch.** `services/zero_touch_orchestration.py` `_FENCE_RECONFIRMATION_CODES`
+    (around line 161) must include it. Otherwise the refusal falls through to
+    `_technical_failure` (around line 4006) instead of returning to target confirmation.
+  - **CLM.** The refusal path in `services/clm_orchestration.py` (around line 786) must map it
+    like `WORKFLOW_STAGE_INCOMPLETE`.
+  - **Fence.** The fence's `_on_hold` callback fires only for `HOLD_INCOMPLETE` today. It must
+    also fire for the new hold. The new hold never supersedes a confirmation by itself.
+    Escalation followed by confirming the added stages is the only way forward.
 - **Unchanged:** D3, D4–D6, leases, the durable write rule, no-replay recovery and D-136 E1–E4.
 - **Failure.** If resolution fails (an unreadable basis, an unknown enum value in stored content),
   the check returns `WORKFLOW_STAGE_CHECK_UNAVAILABLE`, which fails closed.
@@ -504,10 +569,10 @@ The C-5 placeholder becomes functional within scope:
 
 | Store | Change | Numbered schema change? |
 |---|---|---|
-| Case snapshot document | **None.** The legal form and binding are read from existing fields. The escalation event uses the existing `events` list (a new event kind, no new field) | **No.** Stays 21; 22 stays reserved for D-117. If the design review rules that a new event kind changes the case schema, escalate to the integrator and the D-117 owner before PR-9 |
+| Case snapshot document | **None.** The legal form and binding are read from existing fields. The escalation event is one `WorkflowEvent` in the existing `events` list: a new `code` string, with `stage = case.state` and an existing `EventOutcome`. No new field, and no new `WorkflowState` or `EventOutcome` value (forbidden) | **No.** Stays 21; 22 stays reserved for D-117 (targeted design review: no escalation needed) |
 | Workflow definition `payload` (`versions[].stages`, `draft_stages`) | Optional `applies_to` on stages and fields, excluded when `None` | No numbered schema. It is a payload shape change (§9) |
 | Top-level `required_baseline` | `FieldSignature.applicability` typed; `BaselineStage.applicability` added | Contract change (§10) |
-| `workflow_runs` payload | Optional `applicability_basis` (with `frozen`, `binding_ref`) and `basis_conflict`; `applies_to` on copied stages | No numbered schema. It is a payload shape change (§9). The basis lives here, **not** in the case snapshot |
+| `workflow_runs` payload | Optional `applicability_basis` (with `frozen`, `binding_ref`), `basis_conflict` (with `escalation_reason`) and `ever_touched`; `applies_to` on copied stages | No numbered schema. It is a payload shape change (§9). The basis lives here, **not** in the case snapshot |
 | Cold `workflow_versions` and `workflow_proposals` | The same optional field inside records | None (content is insert-only and unchanged for existing records) |
 
 If implementation finds that the case snapshot must change after all, it stops. The number is
@@ -549,7 +614,8 @@ To be recorded in `WORKFLOW_GOVERNANCE_API.md` §6 and approved by the integrato
 6. `SimulationScenario.legal_form` typed (§7). The catalogue gains the new scenarios.
 7. Run view: `applicability_basis` (status, legal form, reason, environment, frozen) and
    `basis_conflict`; never raw source values.
-8a. `ApplicabilityBasis`, `BindingRef` and `BasisConflict` models. The new reasons are
+8a. `ApplicabilityBasis`, `BindingRef` and `BasisConflict` (with `escalation_reason`) models, and
+    `WorkflowRun.ever_touched`. The new reasons are
     `CONFLICTING_CLASSIFICATION`, `AMBIGUOUS_BINDING` and `TOO_LATE_TO_NARROW`.
 8b. The hold code `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`.
 8c. The escalation route `POST /api/clm/cases/{id}/workflow/applicability-escalation`
@@ -580,7 +646,7 @@ is unchanged.
 | CT-21 | Model canonicalisation (sorted, no duplicates, no full set, field ⊆ stage, `OTHER` refused). Golden hashes of existing proposals, versions and fixtures unchanged |
 | CT-22 | The RR-8a/b/c matrix at validate, submit and approve, against the active version and the baseline. An interleaved broader publication. Deactivate then reactivate. Baseline union. Safe targets keep the broadest applicability, widen stage applicability where needed, or raise `SafeTargetError` |
 | CT-23 | Evaluation for every legal form, `OTHER`, no entity, no binding (including the government register and direct-provider paths), a `uen_route` conflict, read failure, and `NEW_CASE`. Both adapter paths: a Sandbox `entityType` and a Marketplace Mock `companyType` fixture (synthetic), including the OPQ-shaped `companyType` that decodes to `OTHER` and gives `UNVERIFIED`. The single-classifier source check (§3.1). An emptied stage is dropped, and a stage authored with zero fields is kept. Determinism (the same inputs give the same copy) |
-| CT-24 | Freezing: a later case change (identity correction, re-acquisition) never changes the run. Rebase reapplies the current basis (frozen, or `UNVERIFIED` before the freeze), and never freezes. `start_run`, `_loaded_answers`, `_onboarding_run` and `_rebased` use the resolved copy: no prefill or kept answer for a non-applicable stage or field. Confirmations are kept only for unchanged resolved stages |
+| CT-24 | Freezing: a later case change (identity correction, re-acquisition) never changes the run. Rebase reapplies the effective basis (`UNVERIFIED` before the freeze, frozen after, `UNVERIFIED` permanently after an escalation), and never freezes. A rebase after an escalation, and after `TOO_LATE_TO_NARROW`, drops no stage the run held. `active_onboarding_stages` is the only consumer of unresolved stages. `start_run`, `_loaded_answers`, `_onboarding_run` and `_rebased` use the resolved copy: no prefill or kept answer for a non-applicable stage or field. Confirmations are kept only for unchanged resolved stages |
 | CT-25 | Send check and fence: a non-applicable stage neither holds nor is bypassed. An applicable one holds. D1/D3 against the publication of an applicable versus a non-applicable conditional stage. Re-confirmation only when applicable. Resolution failure gives `WORKFLOW_STAGE_CHECK_UNAVAILABLE`. An unescalated `basis_conflict` holds the send. Escalation releases the hold only once every condition's stage is confirmed. A recording mock GoldTier shows exact call counts |
 | CT-26 | Simulation: per-scenario step sets differ as specified. No case read, provider call or write |
 | CT-27 | Permanent-obligation set includes new conditional obligations and `APPLICABILITY_BROADENED`. An inexact acknowledgement is refused |
@@ -590,8 +656,13 @@ is unchanged.
 | CT-31 | Mandatory (B10): a frozen snapshot of the `classify_registry_legal_form` table. Any change fails until it is reviewed. Unrecognised and conflicting inputs give `UNVERIFIED` (A4) |
 | CT-32 | Freeze-once: the first committed binding freezes. Freeze and an answer write race under the case lock. A second binding never changes a frozen basis. Insert-only create and the `frozen != true` filter refuse a second freeze across two processes. A lost freeze write leaves `UNVERIFIED`. Memory and Mongo at parity |
 | CT-33 | Too late to narrow: each touched kind (an answer from each source, a confirmation, sent, a dispatch confirmation, a dispatch claim) gives `TOO_LATE_TO_NARROW`, and nothing is removed. Untouched excluded items are dropped. The late-freeze eligibility rule (F4) gives `AMBIGUOUS_BINDING` otherwise |
-| CT-34 | Conflict: a different form, status or identity after the freeze writes `basis_conflict`, keeps the frozen copy and holds the send. The escalation is add-only, audited and reauthorized in the lock. No path narrows after the freeze |
-| CT-35 | Anchor eligibility: conditional content anchored before `ACRA_REGISTRY` (or with no anchor) is refused at validate, submit and approve, including a move to an earlier anchor. Locked stages can never be conditional (RR-9) |
+| CT-34 | Conflict: a different form, status or identity after a `REGISTRY_BOUND` freeze writes `basis_conflict`, keeps the frozen copy and holds the send. An `UNVERIFIED`-frozen run raises no conflict or hold. **Hook loss:** with the conflict hook suppressed, `send_hold_code` and D1 still hold from the read-only recompute. The escalation is add-only, audited (reason 10–240) and reauthorized in the lock. The effective basis stays `UNVERIFIED` across later publications and rebases. No path narrows after the freeze. The case event uses a new `code` string only; no `WorkflowState` or `EventOutcome` value is added |
+| CT-35 | Anchor eligibility: conditional content anchored before `ACRA_REGISTRY` (or with no anchor) is refused at validate, submit and approve, including a move to an earlier anchor. Locked stages can never be conditional (RR-9). Resolution never removes or reorders `ONBOARDING_LOCKED_STAGES` |
+| CT-36 | End to end (Mock): a synthetic LLP Marketplace Mock binding through `_acquire_required_registry_evidence` freezes `REGISTRY_BOUND (Mock): LLP`, and the LLP-only stage holds the send until it is confirmed. A synthetic `COMPANY` case gets no LLP stage and is not held. Recording mock GoldTier call counts |
+| CT-37 | Hold routing: `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` on the zero-touch send returns the case to target confirmation (via `_FENCE_RECONFIRMATION_CODES`, never `_technical_failure`) with **0 GoldTier calls**. The CLM refusal path maps it the same way. The fence's `_on_hold` fires for it |
+| CT-38 | Event-count token: appending the escalation event changes `len(case.events)`. A stale `expected_case_event_count`, document-processing request or target-confirmation `evidence_version` is refused or retried, never accepted |
+| CT-39 | Emergency fallback on a frozen run: the fallback publication rebases the open case with its effective basis. It removes no stage the run held and leaves the frozen basis and `ever_touched` unchanged |
+| CT-40 | Touched from history: an answer recorded then cleared, with a lost `TOO_LATE` freeze, still gives `TOO_LATE_TO_NARROW` on retry. The F4 tests run on every freeze. The hook takes no gate or definition lock (lock-order test) |
 
 The D-136 E1–E4, P2-0 fence, nonce-writer, CT-0 to CT-20, RBAC, AI Assistant and
 identity-provenance suites must stay green.
@@ -652,7 +723,7 @@ identity-provenance suites must stay green.
 11. **B11, decided:** the status names are `REGISTRY_BOUND` / `UNVERIFIED`, always shown with the environment.
 
 **For the design review (within B1/B2, not new owner decisions):**
-- the F6 hold code, the escalation route and the case event kind
+- the escalation route and the two case event `code` strings (targeted review R2: no new case schema)
 - optional run `write_nonce` hardening (F2)
 
 ## Related decisions
