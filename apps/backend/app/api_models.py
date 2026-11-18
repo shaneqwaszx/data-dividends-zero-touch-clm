@@ -144,6 +144,7 @@ from app.services.government_status import (
     government_status_evidence,
 )
 from app.services.partnership_agreement import registry_partner_names
+from app.stage_presentation import BrowserStagePresentation, present_stages
 
 ProcessingNodeStatus = Literal[
     "UNSUPPORTED",
@@ -1453,6 +1454,9 @@ class BrowserProcessingNode(BaseModel):
     # D-141 presentation only: OWNERSHIP_UBO is complete for readiness because a current
     # review is advisory under D-121; the review stays open. None everywhere else.
     advisory_review: bool | None = None
+    # OPQ S1: computed per response on top-level stages only, never persisted; None on
+    # children. Old clients ignore it; ``status`` and ``advisory_review`` are unchanged.
+    presentation: BrowserStagePresentation | None = None
     children: tuple["BrowserProcessingNode", ...] = Field(default_factory=tuple, max_length=12)
 
 
@@ -2056,6 +2060,7 @@ def project_processing_pipeline(
     target_submission: BrowserTargetSubmissionEvidence | None = None,
     ownership: OwnershipAnalysisRecord | None = None,
     ownership_review_advisory: bool = False,
+    ownership_poc_basis_accepted: bool = False,
 ) -> tuple[BrowserProcessingNode, ...]:
     """Build the exact, presentation-safe workflow order from retained backend facts.
 
@@ -2818,13 +2823,26 @@ def project_processing_pipeline(
         "children": (*search_children, existing_target_node)
         if existing_target_state is not None else search_children,
     })
-    return (
+    nodes = (
         common_prefix[0],
         initial_identity_node,
         common_prefix[1],
         search_with_state,
         common_prefix[2],
         *common_suffix,
+    )
+    # OPQ S1: a separate display verdict per stage; every existing node field is unchanged.
+    presentations = present_stages(
+        nodes,
+        automation=automation,
+        clm=clm,
+        case=case,
+        reconciliation=reconciliation,
+        ownership=ownership,
+        ownership_poc_basis_accepted=ownership_poc_basis_accepted,
+    )
+    return tuple(
+        node.model_copy(update={"presentation": presentations[node.node_id]}) for node in nodes
     )
 
 

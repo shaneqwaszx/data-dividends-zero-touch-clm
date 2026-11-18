@@ -1488,6 +1488,11 @@ def create_app(
                     and ownership.review_is_advisory(ownership_record)
                     and not ownership.poc_basis_accepted(ownership_record)
                 ),
+                # OPQ S1 presentation only: the same read-only verdict used just above.
+                ownership_poc_basis_accepted=(
+                    ownership_record is not None
+                    and ownership.poc_basis_accepted(ownership_record)
+                ),
             ),
             team=administration.directory.get(case.team_id),
             ownership=ownership_record,
