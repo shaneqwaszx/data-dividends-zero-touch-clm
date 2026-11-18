@@ -35,8 +35,33 @@ INTEGRATION_BASE = "origin/main"
 # parent must already be on the integration baseline, so only the reviewed delta is outside it.
 RELEASE_BASES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^origin/release/n7a-reader-[0-9]{8}$"), "N7A_READER_LINEAGE"),
+    # F-2 (owner-approved 2026-11-19): the frontend-only AI Insights + compact external-AI notice release on the deployed
+    # C10 + OPQ release c5a1c7f4. One exact branch, pinned to the one qualified commit and tree
+    # below, and frontend only (manifest rule). GitHub's main ruleset squash-merges, so the
+    # qualified commit cannot become an ancestor of main.
+    (re.compile(r"^origin/release/f2-ai-insights-notice-c5a1c7f4$"), "F2_FRONTEND_LINEAGE"),
 )
+# A lineage listed here accepts only this exact (commit, tree): never a later commit on the branch.
+PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
+    "F2_FRONTEND_LINEAGE": (
+        "8454370251e010d4dc93331263a61d3f57b1f1e0",
+        "b2121b9976358ed7f43a54e87518982bb0dcdf0f",
+    ),
+}
+# A lineage listed here may change only these services.
+RELEASE_SERVICES: dict[str, frozenset[str]] = {"F2_FRONTEND_LINEAGE": frozenset({"frontend"})}
 INTEGRATION_REASON = "INTEGRATION_BASELINE"
+
+
+def check_pinned_identity(reason: str, commit: str, tree: str | None) -> None:
+    """Refuse a pinned lineage unless the commit and tree are exactly the qualified ones."""
+
+    pinned = PINNED_RELEASE_IDENTITIES.get(reason)
+    if pinned is not None and (commit, tree) != pinned:
+        raise StopCondition(
+            "RELEASE_IDENTITY_NOT_PINNED",
+            f"{reason} accepts only commit {pinned[0][:12]} with tree {pinned[1][:12]}",
+        )
 
 
 @dataclass(frozen=True)
@@ -99,6 +124,7 @@ def verify_source(
     release_branch = reason != INTEGRATION_REASON
     if release_branch and tree is None:
         raise StopCondition("TREE_REQUIRED", "a release-branch base needs the approved --tree")
+    check_pinned_identity(reason, commit, tree)
     if not FULL_SHA.match(commit):
         raise StopCondition("COMMIT_NOT_EXACT", "give the full 40-character approved commit")
     head = _git(gate, root, "rev-parse", "HEAD", purpose="read HEAD")

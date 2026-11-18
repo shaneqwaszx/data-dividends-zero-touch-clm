@@ -165,6 +165,14 @@ def validate_manifest(manifest: Any) -> None:
         raise ReleaseError("MANIFEST_INVALID", "source.base_reason must match source.base_ref")
     changed: list[str] = manifest["services_changed"]
     unchanged: list[str] = manifest["services_unchanged"]
+    allowed_services = source.RELEASE_SERVICES.get(reason)
+    if allowed_services is not None and set(changed) != set(allowed_services):
+        raise ReleaseError(
+            "MANIFEST_INVALID", f"{reason} may change only {', '.join(sorted(allowed_services))}"
+        )
+    pinned = source.PINNED_RELEASE_IDENTITIES.get(reason)
+    if pinned is not None and (provenance.get("commit"), provenance.get("tree")) != pinned:
+        raise ReleaseError("MANIFEST_INVALID", f"{reason} is pinned to one commit and tree")
     if set(changed) & set(unchanged):
         raise ReleaseError("MANIFEST_INVALID", "a service is listed as both changed and unchanged")
     active = tuple(manifest["overlay"]["active_host_overlays"])

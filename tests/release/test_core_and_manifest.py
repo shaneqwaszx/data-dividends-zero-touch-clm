@@ -633,3 +633,49 @@ def test_the_approval_prompt_says_when_the_source_is_not_main() -> None:
         "SOURCE IS NOT origin/main: release branch origin/release/n7a-reader-20261117 "
         "(N7A_READER_LINEAGE)."
     ) in prompts[-1]
+
+
+F2_PIN = (
+    "8454370251e010d4dc93331263a61d3f57b1f1e0",
+    "b2121b9976358ed7f43a54e87518982bb0dcdf0f",
+)
+
+
+def _f2_manifest(services: list[str]) -> dict:
+    manifest = make_manifest(services)
+    manifest["source"]["base_ref"] = "origin/release/f2-ai-insights-notice-c5a1c7f4"
+    manifest["source"]["base_reason"] = "F2_FRONTEND_LINEAGE"
+    manifest["source"]["commit"], manifest["source"]["tree"] = F2_PIN
+    return manifest
+
+
+def test_f2_manifest_is_accepted_only_frontend_and_pinned() -> None:
+    manifests.validate_manifest(_f2_manifest(["frontend"]))
+    for services in (["backend"], ["frontend", "backend"], ["assistant"]):
+        try:
+            candidate = _f2_manifest(services)
+        except Exception:  # make_manifest may refuse some combinations itself
+            continue
+        with pytest.raises(ReleaseError) as refused:
+            manifests.validate_manifest(candidate)
+        assert refused.value.code == "MANIFEST_INVALID"
+    other = _f2_manifest(["frontend"])
+    other["source"]["tree"] = "1" * 40
+    with pytest.raises(ReleaseError) as wrong_tree:
+        manifests.validate_manifest(other)
+    assert wrong_tree.value.code == "MANIFEST_INVALID"
+
+
+def test_the_approval_prompt_names_the_f2_lineage() -> None:
+    prompts: list[str] = []
+
+    def confirm(text: str) -> str:
+        prompts.append(text)
+        return "wrong"
+
+    with pytest.raises(StopCondition):
+        approvals.create_approval(_f2_manifest(["frontend"]), confirm=confirm, interactive=True, **_approval_arguments())  # type: ignore[arg-type]
+    assert (
+        "SOURCE IS NOT origin/main: release branch origin/release/f2-ai-insights-notice-c5a1c7f4 "
+        "(F2_FRONTEND_LINEAGE)."
+    ) in prompts[-1]
