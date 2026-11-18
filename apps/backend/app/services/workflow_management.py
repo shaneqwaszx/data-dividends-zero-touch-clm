@@ -13,11 +13,14 @@ from threading import Lock, RLock
 from typing import Literal, Protocol, cast
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
+from pydantic import ValidationError
+
 from app.connectors.idp import LocalDocumentProcessingError
 from app.connectors.local_document_runtime import isolated_document_pages
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability, Role
 from app.domain.models import OnboardingCase
 from app.domain.workflow_governance import (
+    HOLD_APPLICABILITY_BASIS_CONFLICT,
     GovernanceErrorCode,
     GovernanceEvent,
     GovernanceEventKind,
@@ -28,6 +31,7 @@ from app.domain.workflows import (
     MAX_ANSWER_LENGTH,
     ONBOARDING_USE_CASE,
     ONBOARDING_WORKFLOW_ID,
+    ApplicabilityBasis,
     WorkflowAnswer,
     WorkflowAnswerSource,
     WorkflowAuditEvent,
@@ -43,6 +47,17 @@ from app.domain.workflows import (
 )
 from app.persistence.errors import PersistenceConflictError, PersistenceError
 from app.persistence.workflow_governance_store import outbox_for_event
+from app.services.workflow_applicability import (
+    BasisCheckStatus,
+    basis_conflict_of,
+    conflict_record,
+    creation_basis,
+    freeze_decision,
+    has_conditional,
+    resolve_stages,
+    touched_keys,
+    with_touched,
+)
 from app.services.workflow_autofill import (
     find_labelled_value,
     match_option,
@@ -59,6 +74,13 @@ from app.services.workflow_repository import (
 LOGGER = logging.getLogger(__name__)
 HOLD_INCOMPLETE = "WORKFLOW_STAGE_INCOMPLETE"
 HOLD_UNAVAILABLE = "WORKFLOW_STAGE_CHECK_UNAVAILABLE"
+# ADR-018 §6: blocks the send alone (option (a)); it never supersedes a confirmation.
+HOLD_BASIS_CONFLICT = HOLD_APPLICABILITY_BASIS_CONFLICT
+# ADR-018 §3.5: what the registry-binding hook did (the onboarding owner records an event
+# only for a newly persisted conflict).
+BASIS_HOOK_NONE = "NONE"
+BASIS_HOOK_FROZEN = "FROZEN"
+BASIS_HOOK_CONFLICT_RECORDED = "CONFLICT_RECORDED"
 _FIELD_FILLER_ROLES = frozenset({Role.CLIENT_ONBOARDER, Role.RELATIONSHIP_MANAGER})
 
 _NEVER_SAVED = 0
@@ -282,8 +304,11 @@ class WorkflowManagementService:
         case_data: Callable[[UUID], Mapping[str, str]] | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
+        case_has_dispatch_claim: Callable[[UUID], bool] | None = None,
     ) -> None:
         self._definitions = definitions
+        # ADR-018 §3.5 F3: a dispatch claim makes a freeze too late to narrow.
+        self._case_has_dispatch_claim = case_has_dispatch_claim or (lambda _case_id: False)
         self._runs = runs
         self._cases = cases
         self._case_is_sent = case_is_sent or (lambda _case_id: False)
@@ -367,9 +392,11 @@ class WorkflowManagementService:
                     "WORKFLOW_NOT_STARTABLE", "This workflow does not open new cases."
                 )
             now = self._clock()
+            stages, basis = _creation_copy(None, version, now=now)
             return self._runs.create(
                 WorkflowRun(
                     run_id=self._uuid_factory(),
+                    applicability_basis=basis,
                     company=WorkflowCompany(
                         legal_name=legal_name,
                         registration_id=registration_id,
@@ -381,7 +408,7 @@ class WorkflowManagementService:
                     workflow_name=definition.name,
                     use_case=definition.use_case,
                     workflow_version=version.version,
-                    stages=version.stages,
+                    stages=stages,
                     revision=1,
                     started_by=actor.profile.user_id,
                     created_at=now,
@@ -559,16 +586,19 @@ class WorkflowManagementService:
             if any(run.workflow_id == workflow_id for run in self._runs.list_for_case(case_id)):
                 raise WorkflowConflictError
             now = self._clock()
+            stages, basis = self._case_creation_copy(case_id, version, now=now)
             return self._runs.create(
                 WorkflowRun(
                     run_id=self._uuid_factory(),
                     case_id=case_id,
-                    answers=self._loaded_answers(case_id, version.stages),
+                    applicability_basis=basis,
+                    # Prefill only what the resolved copy holds (ADR-018 §3.3).
+                    answers=self._loaded_answers(case_id, stages),
                     workflow_id=definition.workflow_id,
                     workflow_name=definition.name,
                     use_case=definition.use_case,
                     workflow_version=version.version,
-                    stages=version.stages,
+                    stages=stages,
                     revision=1,
                     started_by=actor.profile.user_id,
                     created_at=now,
@@ -597,6 +627,7 @@ class WorkflowManagementService:
     ) -> WorkflowRun:
         with self._cases.case_lock(case_id):
             self._require_filler(reauthorize())
+            self._retry_freeze(case_id)
             run = self._open_run(case_id, run_id, expected_revision)
             self._require_not_sent(run, case_id)
             return self._with_answers(run, stage_id, values)
@@ -616,6 +647,7 @@ class WorkflowManagementService:
         with self._gate.confirming(gated), self._cases.case_lock(case_id):
             actor = reauthorize()
             self._require_filler(actor)
+            self._retry_freeze(case_id)
             run = self._open_run(case_id, run_id, expected_revision)
             self._require_not_sent(run, case_id)
             return self._with_confirmation(run, stage_id, actor)
@@ -632,6 +664,14 @@ class WorkflowManagementService:
             run = self._onboarding_run(case, self._runs.list_for_case(case_id))
             if run is None:
                 return None
+            # ADR-018 §3.5 F5: recomputed read-only from the case already loaded, so a lost
+            # hook never weakens enforcement. Only a frozen REGISTRY_BOUND basis can conflict.
+            check = basis_conflict_of(case, run)
+            if check.status == BasisCheckStatus.UNAVAILABLE:
+                return HOLD_UNAVAILABLE
+            if check.status == BasisCheckStatus.CONFLICT:
+                return HOLD_BASIS_CONFLICT
+            # The run's copy is already resolved with its effective basis (§6).
             confirmed = run.confirmed_stage_ids
             incomplete = any(
                 stage_blocks_send(stage) and stage.stage_id not in confirmed
@@ -686,6 +726,99 @@ class WorkflowManagementService:
                 self._apply_suggestions(run, document_id, pages)
         except Exception:
             LOGGER.warning("workflow autofill skipped", extra={"case_id": str(case_id)})
+
+    # ADR-018 §3.5: the onboarding basis.
+
+    def freeze_onboarding_basis(self, case_id: UUID) -> str:
+        """F1/F5 hook, called by the onboarding owner after a committed registry binding
+        write. It takes the case lock (reentrant; the caller already holds it) and neither
+        the confirmation gate nor the definition lock. It freezes the basis once, or
+        persists a conflict for a frozen ``REGISTRY_BOUND`` basis. It never raises: a lost
+        freeze leaves the run UNVERIFIED (broadest), and the send check recomputes
+        conflicts on its own (F2, F5)."""
+
+        try:
+            with self._cases.case_lock(case_id):
+                return self._freeze_locked(case_id)
+        except Exception:  # noqa: BLE001 - fails safe (UNVERIFIED), never fails the case
+            LOGGER.warning(
+                "workflow applicability freeze deferred", extra={"case_id": str(case_id)}
+            )
+            return BASIS_HOOK_NONE
+
+    def escalate_applicability(
+        self,
+        reauthorize: Reauthorize,
+        *,
+        case_id: UUID,
+        run_id: UUID,
+        expected_revision: int,
+        reason: str,
+    ) -> WorkflowRun:
+        """F6 primitive: "Apply all conditional steps". Add-only and audited: the effective
+        basis becomes UNVERIFIED permanently, every condition applies, answers are kept and
+        confirmations are kept for unchanged stages. Reauthorized inside the case lock. The
+        route and the case event (``OnboardingService.record_applicability_event``) belong
+        to the caller (M3-D)."""
+
+        with self._cases.case_lock(case_id):
+            actor = reauthorize()
+            self._require_filler(actor)
+            case = self._cases.get_case(case_id)
+            if case is None:
+                raise WorkflowNotFoundError
+            run = self._open_run(case_id, run_id, expected_revision)
+            if not run.is_onboarding:
+                raise WorkflowNotFoundError
+            self._require_not_sent(run, case_id)
+            check = basis_conflict_of(case, run)
+            if check.status == BasisCheckStatus.UNAVAILABLE:
+                raise WorkflowValidationError(
+                    HOLD_UNAVAILABLE, "The workflow check is unavailable. Try again shortly."
+                )
+            if check.status != BasisCheckStatus.CONFLICT:
+                raise WorkflowValidationError(
+                    "WORKFLOW_APPLICABILITY_NOT_IN_CONFLICT",
+                    "This case has no applicability conflict to resolve.",
+                )
+            version = self._version_for(run.workflow_version)
+            if version is None:
+                raise WorkflowValidationError(
+                    HOLD_UNAVAILABLE, "The workflow check is unavailable. Try again shortly."
+                )
+            now = self._clock()
+            if run.basis_conflict is None:
+                # Persist-first: the recomputed conflict is recorded before the escalation.
+                assert check.observed is not None
+                run = self._persist(run, basis_conflict=conflict_record(check.observed, now=now))
+            assert run.basis_conflict is not None
+            try:
+                escalated = type(run.basis_conflict).model_validate(
+                    {
+                        **run.basis_conflict.model_dump(),
+                        "escalated_by": actor.profile.user_id,
+                        "escalated_at": now,
+                        "escalation_reason": reason,
+                    }
+                )
+            except ValidationError:
+                raise WorkflowValidationError(
+                    "WORKFLOW_ESCALATION_REASON_INVALID",
+                    "Give a reason of 10 to 240 characters.",
+                ) from None
+            stages = resolve_stages(version.stages, None)
+            previous = {stage.stage_id: stage for stage in run.stages}
+            current = {stage.stage_id: stage for stage in stages}
+            return self._persist(
+                run,
+                basis_conflict=escalated,
+                stages=stages,
+                confirmations=tuple(
+                    item
+                    for item in run.confirmations
+                    if previous.get(item.stage_id) == current.get(item.stage_id)
+                ),
+            )
 
     def delete_case_data(self, case_id: UUID) -> Callable[[], None]:
         """Delete a case's answers and return how to put them back if the case survives."""
@@ -867,6 +1000,16 @@ class WorkflowManagementService:
                 "updated_at": self._clock(),
             }
         )
+        if candidate.is_onboarding and has_conditional(candidate.stages):
+            # ADR-018 §3.5 F3: every answer or confirmation, from any source, is history.
+            # Unconditional runs carry none, so their documents are unchanged.
+            candidate = WorkflowRun.model_validate(
+                {
+                    **candidate.model_dump(),
+                    "ever_touched": with_touched(run, candidate),
+                    "stored_revision": None,
+                }
+            )
         try:
             # Only a never-saved run is inserted. Every other write is guarded by the
             # revision the run was read at, which refuses a stale writer.
@@ -918,16 +1061,9 @@ class WorkflowManagementService:
             return existing
         if definition is None:
             return existing
-        # An open case follows the latest active version. A sent case stays as it was
-        # sent: the version active when it was created.
-        versions = (
-            [item for item in definition.versions if item.activated_at <= case.created_at]
-            if sent
-            else list(definition.versions)
-        )
-        if not versions:
+        version = _onboarding_version(definition, case, sent=sent)
+        if version is None:
             return existing
-        version = versions[-1]
         if not version.stages:
             return None
         if existing is not None:
@@ -947,6 +1083,91 @@ class WorkflowManagementService:
             created_at=case.created_at,
             updated_at=case.created_at,
         )
+
+    def _case_creation_copy(
+        self, case_id: UUID, version: WorkflowVersion, *, now: datetime
+    ) -> tuple[tuple[WorkflowStage, ...], ApplicabilityBasis | None]:
+        if not has_conditional(version.stages):
+            return version.stages, None
+        try:
+            case = self._cases.get_case(case_id)
+        except Exception:  # noqa: BLE001 - a failed read is UNVERIFIED (everything applies)
+            basis = creation_basis(None, version, now=now, read_failed=True)
+            return resolve_stages(version.stages, None), basis
+        return _creation_copy(case, version, now=now)
+
+    def _case_closed(self, case: OnboardingCase) -> bool:
+        return (
+            self._case_is_sent(case.case_id)
+            or case.target_dispatch_confirmation is not None
+            or self._case_has_dispatch_claim(case.case_id)
+        )
+
+    def _version_for(self, number: int) -> WorkflowVersion | None:
+        definition = self._definitions.get(ONBOARDING_WORKFLOW_ID)
+        if definition is None:
+            return None
+        return next((item for item in definition.versions if item.version == number), None)
+
+    def _retry_freeze(self, case_id: UUID) -> None:
+        """F4: the next run write under the case lock retries a lost freeze."""
+
+        try:
+            self._freeze_locked(case_id)
+        except Exception:  # noqa: BLE001 - a failed retry leaves UNVERIFIED (fails safe)
+            LOGGER.warning(
+                "workflow applicability freeze deferred", extra={"case_id": str(case_id)}
+            )
+
+    def _freeze_locked(self, case_id: UUID) -> str:
+        """Under the case lock only. Reads the definition without its lock (lock order)."""
+
+        for attempt in range(2):
+            case = self._cases.get_case(case_id)
+            if case is None:
+                return BASIS_HOOK_NONE
+            run = self._onboarding_run(case, self._runs.list_for_case(case_id))
+            if run is None:
+                return BASIS_HOOK_NONE
+            now = self._clock()
+            basis = run.applicability_basis
+            try:
+                if basis is not None and basis.frozen:
+                    # Freeze-once (F5): never recomputed; only a conflict is persisted.
+                    check = basis_conflict_of(case, run)
+                    if (
+                        check.status == BasisCheckStatus.CONFLICT
+                        and not check.persisted
+                        and check.observed is not None
+                    ):
+                        self._persist(
+                            run, basis_conflict=conflict_record(check.observed, now=now)
+                        )
+                        LOGGER.warning(
+                            HOLD_BASIS_CONFLICT,
+                            extra={"case_id": str(case_id), "run_id": str(run.run_id)},
+                        )
+                        return BASIS_HOOK_CONFLICT_RECORDED
+                    return BASIS_HOOK_NONE
+                version = self._version_for(run.workflow_version)
+                if (
+                    case.registry_evidence_binding is None
+                    or version is None
+                    or not has_conditional(version.stages)
+                ):
+                    # Unconditional content is never frozen: nothing to narrow, and its run
+                    # documents stay byte-identical.
+                    return BASIS_HOOK_NONE
+                decision = freeze_decision(
+                    case, run, version, now=now, case_closed=self._case_closed(case)
+                )
+                self._persist(run, applicability_basis=decision.basis, stages=decision.stages)
+                return BASIS_HOOK_FROZEN
+            except WorkflowConflictError:
+                # Insert-only create or the revision CAS refused: re-read once (F1).
+                if attempt:
+                    return BASIS_HOOK_NONE
+        return BASIS_HOOK_NONE
 
     def provision_onboarding(self) -> WorkflowDefinition:
         """Startup provisioning (ADR-017 3.5): idempotent, insert-only, never on a read.
@@ -1047,17 +1268,22 @@ def _rebased(run: WorkflowRun, version: WorkflowVersion) -> WorkflowRun:
 
     if run.workflow_version == version.version:
         return run
+    stages = version.stages
+    if has_conditional(stages):
+        # ADR-018 §3.4 (B3): reapply the effective basis, never re-evaluate or freeze, and
+        # never drop anything the run already touched.
+        stages = resolve_stages(stages, run.effective_legal_form, keep=touched_keys(run))
     previous = {stage.stage_id: stage for stage in run.stages}
-    current = {stage.stage_id: stage for stage in version.stages}
+    current = {stage.stage_id: stage for stage in stages}
     fields = {
         (stage.stage_id, field.field_id): field
-        for stage in version.stages
+        for stage in stages
         for field in stage.fields
     }
     return run.model_copy(
         update={
             "workflow_version": version.version,
-            "stages": version.stages,
+            "stages": stages,
             # Each version shown gets its own revision, so any screen still showing an
             # older version must reload first, however many versions it has missed.
             "revision": run.revision + version.version - run.workflow_version,
@@ -1077,6 +1303,32 @@ def _rebased(run: WorkflowRun, version: WorkflowVersion) -> WorkflowRun:
             ),
         }
     )
+
+
+def _onboarding_version(
+    definition: WorkflowDefinition, case: OnboardingCase, *, sent: bool
+) -> WorkflowVersion | None:
+    """An open case follows the latest version. A sent case stays as it was sent: the
+    version active when it was created."""
+
+    versions = (
+        [item for item in definition.versions if item.activated_at <= case.created_at]
+        if sent
+        else list(definition.versions)
+    )
+    return versions[-1] if versions else None
+
+
+def _creation_copy(
+    case: OnboardingCase | None, version: WorkflowVersion, *, now: datetime
+) -> tuple[tuple[WorkflowStage, ...], ApplicabilityBasis | None]:
+    """A non-onboarding run's resolved copy and frozen basis; unconditional content is
+    copied unchanged with no basis (byte-identical runs)."""
+
+    if not has_conditional(version.stages):
+        return version.stages, None
+    basis = creation_basis(case, version, now=now)
+    return resolve_stages(version.stages, basis.legal_form), basis
 
 
 def _suggested_value(field: WorkflowField, value: str) -> str | None:
