@@ -1,6 +1,6 @@
 import { withWorkflowStages, workflowStageElementId } from "../workflowPipeline";
 import {
-  ADVISED_STAGE_LABEL, exceptionOwnerNode, isAdvisoryReview, isWaitingForEarlierSteps, presentationDisplay,
+  ADVISED_STAGE_LABEL, ADVISED_STAGE_SUMMARY, exceptionOwnerNode, isAdvisoryReview, isWaitingForEarlierSteps, presentationDisplay,
   presentationIssueCount, stagePresentation, WAITING_STAGE_LABEL, type RailState,
 } from "../stageDisplay";
 import type { WorkflowRun } from "../workflowApi";
@@ -156,6 +156,56 @@ export function stagePresentationNote(summary: ZeroTouchCaseSummary, nodeId: str
   if (!node || !presentation) return { linkedTo: [] };
   const display = presentationDisplay(presentation);
   return { state: display.state, label: display.label, note: display.note, linkedTo: stepLinkedOwners(pipeline, node, [node]) };
+}
+
+const ATTENTION_VERDICTS: ReadonlySet<StagePresentationState> = new Set<StagePresentationState>(["ACTION_REQUIRED", "BLOCKED", "FAILED"]);
+
+/** Header sentence for one stage from its verdict only: the chip label, then detail, reason and links. */
+function verdictHeaderText(verdict: ReturnType<typeof stagePresentationNote>, detail?: string): string {
+  const linked = verdict.linkedTo.length ? ` Linked issue owned by ${verdict.linkedTo.map(owner => owner.label).join(", ")}.` : "";
+  return [`${verdict.label}.`, detail, verdict.note].filter(Boolean).join(" ") + linked;
+}
+
+/**
+ * OPQ S2: Registry verification header text. With a backend verdict it follows only that verdict
+ * (the same mapping as the chip); without one the legacy text is unchanged.
+ */
+export function registryHeaderText(summary: ZeroTouchCaseSummary, legacyNeedsAttention: boolean): string {
+  const verdict = stagePresentationNote(summary, "ACRA_REGISTRY");
+  if (verdict.state) {
+    return verdictHeaderText(verdict, ATTENTION_VERDICTS.has(verdict.state) ? "Review registry identity and evidence."
+      : verdict.state === "COMPLETE" ? "Retained registry evidence and source." : undefined);
+  }
+  return legacyNeedsAttention ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source.";
+}
+
+/**
+ * OPQ S2: Ownership & UBO header text. With a backend verdict it follows only that verdict;
+ * without one the legacy (D-082 N2 / D-141) text is unchanged.
+ */
+export function ownershipHeaderText(
+  summary: ZeroTouchCaseSummary,
+  ownership: { state: string; poc_basis_accepted?: boolean | null; issues: readonly unknown[] } | null | undefined,
+  { legacyNeedsAttention, confirmedOwnershipEmpty }: { legacyNeedsAttention: boolean; confirmedOwnershipEmpty: boolean },
+): string {
+  const verdict = stagePresentationNote(summary, "OWNERSHIP_UBO");
+  if (verdict.state) {
+    if (verdict.state === "REVIEW_ADVISED") return verdictHeaderText(verdict, ADVISED_STAGE_SUMMARY);
+    if (ATTENTION_VERDICTS.has(verdict.state)) return verdictHeaderText(verdict, "Review ownership evidence.");
+    if (verdict.state === "COMPLETE") {
+      return verdictHeaderText(verdict, ownership?.poc_basis_accepted ? "Ownership calculated — POC basis accepted."
+        : "Provisional ownership and UBO analysis.");
+    }
+    return verdictHeaderText(verdict);
+  }
+  if (stageStatusFor(summary, ["OWNERSHIP_UBO"])?.tone === "advised") return ADVISED_STAGE_SUMMARY;
+  if (ownership?.poc_basis_accepted && !legacyNeedsAttention) return "Ownership calculated — POC basis accepted.";
+  if (ownership) {
+    return "Ownership: " + ownership.state.replaceAll("_", " ") + ". "
+      + (legacyNeedsAttention || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0
+        ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.");
+  }
+  return confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response." : "Ownership analysis not confirmed.";
 }
 
 /** Rail marker for a step; a grouped step uses its member that needs the user most (as before). */

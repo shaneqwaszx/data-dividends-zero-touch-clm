@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { presentationDisplay, presentationIssueCount } from "../stageDisplay";
 import type { ProcessingNode, StagePresentation, StagePresentationState, ZeroTouchCaseSummary } from "../types";
-import { OnboardingProgressPanel, PipelineRail, stagePresentationNote, stageStatusFor } from "./CaseStatePanels";
+import {
+  OnboardingProgressPanel, ownershipHeaderText, PipelineRail, registryHeaderText, stagePresentationNote, stageStatusFor,
+} from "./CaseStatePanels";
 import StageDisclosure from "./StageDisclosure";
 
 // OPQ S2: the frontend renders the backend stage verdict (OPQ S1) and derives nothing itself.
@@ -286,5 +288,72 @@ describe("OPQ S2 fallback without a verdict", () => {
     ]);
     expect(stageStatusFor(summary, ["ACRA_REGISTRY"])).toEqual({ tone: "done", label: "Complete" });
     expect(presentationIssueCount(summary)).toBeNull();
+  });
+});
+
+describe("OPQ S2 section header text follows the verdict", () => {
+  // Header and chip agree: a JURISDICTION exception (automation stage REGISTRY) is owned by the
+  // JURISDICTION node, so the Registry verdict stays COMPLETE and the header must not say otherwise.
+  const jurisdictionCase = () => summaryWith([
+    node("JURISDICTION", "Jurisdiction", "REVIEW_REQUIRED", verdict("ACTION_REQUIRED", {
+      reason_code: "JURISDICTION_UNRESOLVED", owned_exception_ids: ["exc-j"], blocks_send: true,
+    })),
+    node("ACRA_REGISTRY", "Registry verification", "COMPLETE", verdict("COMPLETE")),
+  ], ["exc-j"]);
+
+  it("JURISDICTION exception: Registry chip and header both say Complete", () => {
+    const summary = jurisdictionCase();
+    expect(stageStatusFor(summary, ["ACRA_REGISTRY"])).toEqual({ tone: "done", label: "Complete" });
+    // The legacy signal would say attention (stage REGISTRY exception open); the verdict wins.
+    const text = registryHeaderText(summary, true);
+    expect(text).toBe("Complete. Retained registry evidence and source.");
+    expect(text).not.toContain("Attention required");
+    expect(stageStatusFor(summary, ["JURISDICTION"])?.tone).toBe("attention");
+  });
+
+  it("Registry header carries the chip label and the linked owner for the UEN conflict", () => {
+    const summary = summaryWith([
+      node("ACRA_REGISTRY", "Registry verification", "COMPLETE", verdict("ACTION_REQUIRED", {
+        reason_code: "IDENTITY_CONFIRMATION_REQUIRED", linked_exception_ids: ["exc-uen"], blocks_send: true,
+      })),
+      node("DOCUMENT_IDP", "Document verification", "REVIEW_REQUIRED", verdict("ACTION_REQUIRED", { owned_exception_ids: ["exc-uen"] })),
+    ], ["exc-uen"]);
+    const text = registryHeaderText(summary, false);
+    expect(text.startsWith(`${stageStatusFor(summary, ["ACRA_REGISTRY"])!.label}.`)).toBe(true);
+    expect(text).toContain("Linked issue owned by Document verification.");
+  });
+
+  const ownershipRecord = { state: "ANALYZED", poc_basis_accepted: false, issues: [{}] };
+  const flags = { legacyNeedsAttention: true, confirmedOwnershipEmpty: false };
+
+  it.each([
+    [verdict("COMPLETE", { reason_code: "NO_QUALIFYING_UBO" }), "Complete. Provisional ownership and UBO analysis. No qualifying UBOs identified."],
+    [verdict("REVIEW_ADVISED", { reason_code: "EVIDENCE_ABSENT" }), "Review advised. Not blocking. Review ownership before Review & Send. No ownership evidence was available to analyse."],
+    [verdict("ACTION_REQUIRED", { reason_code: "OWNERSHIP_REVIEW_REQUIRED", owned_exception_ids: ["e"] }), "Action required — ownership review required. Review ownership evidence."],
+    [verdict("COMPLETE", { reason_code: "POC_BASIS_ACCEPTED" }), "Complete. Ownership calculated — POC basis accepted."],
+  ])("Ownership header starts with the chip label (%#)", (presentation, expected) => {
+    const summary = summaryWith([node("OWNERSHIP_UBO", "Ownership & UBO", "COMPLETE", presentation)]);
+    const record = presentation.reason_code === "POC_BASIS_ACCEPTED" ? { ...ownershipRecord, poc_basis_accepted: true } : ownershipRecord;
+    const text = ownershipHeaderText(summary, record, flags);
+    expect(text).toBe(expected);
+    expect(text.startsWith(`${stageStatusFor(summary, ["OWNERSHIP_UBO"])!.label}.`)).toBe(true);
+  });
+
+  it("keeps the legacy header text when the verdict is null", () => {
+    const registry = summaryWith([node("ACRA_REGISTRY", "Registry verification", "COMPLETE", null)]);
+    expect(registryHeaderText(registry, true)).toBe("Attention required — review registry identity and evidence.");
+    expect(registryHeaderText(registry, false)).toBe("Retained registry evidence and source.");
+    const plain = summaryWith([node("OWNERSHIP_UBO", "Ownership & UBO", "COMPLETE", null)]);
+    expect(ownershipHeaderText(plain, ownershipRecord, flags)).toBe("Ownership: ANALYZED. Attention required — review ownership evidence.");
+    expect(ownershipHeaderText(plain, { state: "ANALYZED", issues: [] }, { legacyNeedsAttention: false, confirmedOwnershipEmpty: false }))
+      .toBe("Ownership: ANALYZED. Provisional ownership and UBO analysis.");
+    expect(ownershipHeaderText(plain, { state: "ANALYZED", poc_basis_accepted: true, issues: [] }, { legacyNeedsAttention: false, confirmedOwnershipEmpty: false }))
+      .toBe("Ownership calculated — POC basis accepted.");
+    expect(ownershipHeaderText(plain, null, { legacyNeedsAttention: false, confirmedOwnershipEmpty: true }))
+      .toBe("No ownership analysis retained in the confirmed response.");
+    expect(ownershipHeaderText(plain, null, { legacyNeedsAttention: false, confirmedOwnershipEmpty: false }))
+      .toBe("Ownership analysis not confirmed.");
+    const advised = summaryWith([{ ...node("OWNERSHIP_UBO", "Ownership & UBO", "COMPLETE", null), advisory_review: true }]);
+    expect(ownershipHeaderText(advised, ownershipRecord, flags)).toBe("Not blocking. Review ownership before Review & Send.");
   });
 });
