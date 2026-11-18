@@ -155,7 +155,7 @@ class _ListGate:
 def _hosted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> Hosted:
     if enabled:
         monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
-        monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 6)
+        monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 3)
     hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
     hosted.setup_claude()
     hosted.qualify_and_activate()
@@ -168,7 +168,7 @@ def test_under_d139_the_hosted_policy_admits_no_case_to_insights(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
 ) -> None:
     monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
-    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 6)
+    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 3)
     hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
     hosted.setup_claude()
     hosted.qualify_and_activate()
@@ -226,7 +226,8 @@ def test_disabled_no_insights_route_answers_even_with_claude_active_and_a_key(
     assert reply.status_code == 503
     assert reply.json()["detail"]["code"] == "DASHBOARD_INSIGHTS_UNAVAILABLE"
     assert len(hosted.claude.requests) == before
-    assert anthropic_runtime.hosted_qualification_turns() == ("H-G1", "H-S1", "H-T1")
+    # D-142 R4 (R3-1): the general, Support and Try paths are closed to every external model.
+    assert anthropic_runtime.hosted_qualification_turns() == ()
 
 
 # --- enabled (test-only decision): one explicit call, eligible cases only, no names ----------
@@ -432,8 +433,9 @@ def test_a_reply_that_fails_pr178s_checks_is_the_unavailable_response(
 
 def test_the_qualification_adds_the_fifth_turn_only_when_enabled(enabled: Hosted) -> None:
     hosted = enabled
-    assert anthropic_runtime.hosted_qualification_turns() == ("H-G1", "H-S1", "H-T1", "H-D1")
-    # The enabled fixture qualified with six calls; the sixth was the insights prompt.
+    # D-142 R4: only the service-built insights turn remains beside the case chat.
+    assert anthropic_runtime.hosted_qualification_turns() == ("H-D1",)
+    # The enabled fixture qualified with three calls; the third was the insights prompt.
     assert len(insights_bodies(hosted)) >= 1
     overview = hosted.hr("GET", "").json()
     assert overview["active"]["profile_id"] == BALANCED.profile_id

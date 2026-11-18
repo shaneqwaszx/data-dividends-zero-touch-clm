@@ -14,13 +14,19 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from ai_assistant import anthropic_runtime, data_access, remote_test, synthetic_eligibility
+from ai_assistant import (
+    anthropic_runtime,
+    data_access,
+    privacy_boundary,
+    remote_test,
+    synthetic_eligibility,
+)
 from ai_assistant.anthropic_runtime import NOTICES as CLAUDE_NOTICES
 from ai_assistant.context import build_case_facts
 from ai_assistant.data_access import IT_NOTICES, LOCAL_NOTICES, SyntheticOnlyModel
 from ai_assistant.guardrails import validate_answer
 from ai_assistant.llm import LlmUnavailableError, ModelCallError
-from ai_assistant.main import REMOTE_ELIGIBILITY_NOTICE, create_app
+from ai_assistant.main import INTENT_NOTICE, REMOTE_ELIGIBILITY_NOTICE, create_app
 from ai_assistant.model_admin import MESSAGES
 from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
 from ai_assistant.model_profiles import ProfileConfigError
@@ -169,7 +175,7 @@ def test_the_same_live_garden_prompt_is_eligible_for_gpt_oss_and_claude(tmp_path
     openrouter = OpenRouter()
     gpt_oss = openrouter_model(tmp_path / "openrouter", openrouter)
     assert check(snapshot, facts, messages, [], digests=digests_for(GARDEN[1])) is None
-    gpt_oss.complete(messages)
+    gpt_oss.complete(privacy_boundary.admit(messages, person_written=False))  # R1, R4
     assert len(openrouter.chats) == 1
 
     settings = claude_config(tmp_path / "anthropic", **D095)
@@ -302,7 +308,8 @@ def test_the_rm_chat_uses_claude_on_live_garden_without_openrouter_configuration
         serve(monkeypatch, case, digests)
         reply = journey.ask(question, stream=True)
         assert reply["answered_by"] == "case_data"
-        assert reply["notice"].startswith(CLAUDE_NOTICES.eligibility)
+        # D-142 R4: a question with no supported intent is refused before the eligibility check.
+        assert reply["notice"].startswith((CLAUDE_NOTICES.eligibility, INTENT_NOTICE))
     assert journey.claude.posts == sent + 1
     assert journey.openrouter.chats == [] and journey.baseline.calls == 0
 
@@ -489,9 +496,16 @@ def test_without_d095_a_restricted_local_model_keeps_the_d094_fixture_boundary(
 ) -> None:
     journey = Journey(tmp_path, monkeypatch)
     _restrict(journey)
+    # D-142 R4: the external field table no longer carries the backend's free text (the live
+    # Garden timeline's "policy catalogue v1" event was the only word outside the D-094
+    # vocabulary), so the synthetic Garden case's live prompt is inside the text boundary.
     serve(monkeypatch, LIVE_GARDEN)
+    assert journey.ask(stream=True)["answered_by"] == "model"
+    assert journey.baseline.calls == 1
+    # A case that is not the synthetic fixture is still refused by the D-094 case boundary.
+    serve(monkeypatch, REAL, [])
     assert journey.ask(stream=True)["answered_by"] == "case_data"
-    assert journey.baseline.calls == 0
+    assert journey.baseline.calls == 1
 
 
 def test_the_wrapper_itself_refuses_unchecked_messages_and_never_warms(tmp_path: Path) -> None:

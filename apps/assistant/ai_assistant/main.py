@@ -33,7 +33,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, R
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import copilot, hosted_insights
+from . import controlled_intents, copilot, data_access, hosted_insights
 from .answer_records import (
     ANSWER_ID,
     AnswerRecorder,
@@ -70,6 +70,7 @@ from .guardrails import (
     validate_answer,
     with_required_lines,
 )
+from .guide import FIELD_LABEL
 from .knowledge.models import Entry, EntryKind, EntryStatus
 from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import Hit, Retriever, case_context, settings_from
@@ -99,6 +100,14 @@ from .llm import (
 )
 from .model_admin import Active, model_admin_router, open_selector
 from .model_factory import build_chat_model
+from .privacy_boundary import (
+    PSEUDONYMISED,
+    identities_from_facts,
+    minimise_facts,
+    strip_entity_refs,
+)
+from .privacy_boundary import admit as privacy_admit
+from .privacy_boundary import preview as privacy_preview
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
 from .provider_payload import (
     anthropic_bound,
@@ -118,6 +127,7 @@ from .synthetic_boundary import check as synthetic_boundary_check
 from .synthetic_eligibility import approve as synthetic_eligibility_approve
 from .synthetic_eligibility import check as synthetic_eligibility_check
 from .synthetic_eligibility import mode as synthetic_dev_mode
+from .synthetic_eligibility import poc_check, poc_view, withheld_present
 from .telemetry import (
     PARTS,
     AnsweredBy,
@@ -327,8 +337,41 @@ HOSTED_ELIGIBILITY_NOTICES = {
         "synthetic, so this answer comes straight from the case data."
     ),
 }
+# D-142: the pseudonymised policy refuses a case only when its prompt cannot be made safe.
+HOSTED_PRIVACY_NOTICES = {
+    "anthropic": (
+        "Claude Sonnet 5.5 through Anthropic could not be given this question safely, so this "
+        "answer comes straight from the case data."
+    ),
+    "openrouter": (
+        "GPT-OSS 120B through OpenRouter could not be given this question safely, so this "
+        "answer comes straight from the case data."
+    ),
+}
+# D-142 Q4: every answer an external model wrote says how its input was protected. R1 (P3):
+# limited pseudonymisation, not a promise that nothing identifying could be sent.
+# D-142 R2: the ownership facts an external prompt gets while an upload is withheld.
+OWNERSHIP_WITHHELD = {
+    "available": False,
+    "note": "The ownership analysis is not shared while an uploaded document is withheld.",
+}
+
+PRIVACY_ATTRIBUTION = (
+    "Before anything was sent to the external model, the names and identifiers the assistant "
+    "recognised were replaced with placeholders, and restored here. This is limited "
+    "pseudonymisation, not full anonymisation."
+)
+FIELD_LABELS = frozenset(FIELD_LABEL.values())
+# D-142 R4 (R3-1, Option A): an external model answers only the supported case questions,
+# each sent as its fixed canonical question; any other question gets the case-data answer.
+INTENT_NOTICE = (
+    "The external model answers only the supported case questions, so this answer comes "
+    "straight from the case data."
+)
 _REMOTE_REFUSALS = (
+    INTENT_NOTICE,
     *HOSTED_ELIGIBILITY_NOTICES.values(),
+    *HOSTED_PRIVACY_NOTICES.values(),
     REMOTE_BOUNDARY_NOTICE,
     REMOTE_ELIGIBILITY_NOTICE,
     CLAUDE_NOTICES.boundary,
@@ -367,6 +410,20 @@ class Prepared:
     conversational: bool = False
     # D-130 OD-G8: the identifiers kept out of a Claude-bound prompt (None: not Claude-bound).
     provider_names: tuple[str, ...] | None = None
+    # D-142: the prompt was built for an external model (its facts follow the field table).
+    remote: bool = False
+    # D-142 R2: the facts the external prompt was built from when unverified uploads were
+    # withheld (CaseSnapshot.poc_view), and how many were withheld; None and 0 otherwise.
+    external_facts: dict[str, Any] | None = None
+    withheld: int = 0
+    # R3: the prompt was built for any external model (hosted, remote test or IT non-loopback).
+    external: bool = False
+    # R4 (R3-1): for an external prompt, the canonical question sent in place of the user's
+    # (None: nothing may be sent, for the closed reason in intent_reason), and the approved
+    # repository knowledge it may carry (never staff-written entries).
+    canonical: str | None = None
+    intent_reason: str | None = None
+    external_tagged: list[TaggedHit] = field(default_factory=list)
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [
@@ -596,7 +653,23 @@ def create_app(
         # D-139: model-free guidance serves every case the backend let this user read (its 401,
         # 403 and safe 404 above decide). Whether this case's content may go to an external
         # model is decided separately, per answer, before any call (hosted_refusal).
-        return snapshot
+        return with_poc_view(snapshot, case_id, request.cookies.get(SESSION_COOKIE_NAME))
+
+    def with_poc_view(snapshot: CaseSnapshot, case_id: UUID, session: str | None) -> CaseSnapshot:
+        # D-142 R2: on the hosted service, when a provider's policy is pseudonymised, the case
+        # as external inference may receive it (unverified uploads and what was derived from
+        # them withheld), read with the user's own session. Local answers are unchanged.
+        data_policy = getattr(getattr(app.state, "case_gate", None), "data_policy", None)
+        if not callable(data_policy) or PSEUDONYMISED not in (
+            data_policy("anthropic"),
+            data_policy("openrouter"),
+        ):
+            return snapshot
+        try:
+            digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
+        except ClmBackendError:
+            digests = None
+        return replaced(snapshot, poc_view=poc_view(snapshot, digests))
 
     Snapshot = Annotated[CaseSnapshot, Depends(load_case)]
 
@@ -718,6 +791,7 @@ def create_app(
         trial: Entry | None = None,
         history: list[dict[str, str]] | None = None,
         names: tuple[str, ...] | None = None,
+        external: bool = False,
     ) -> Prepared:
         """``remote``: the active model is the D-094 remote test model, so only repository
         guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py).
@@ -726,6 +800,13 @@ def create_app(
 
         started = time.monotonic()
         facts = build_case_facts(snapshot)
+        # D-142 R2: an external prompt is built from the case without its unverified uploads
+        # when the hosted service holds that view; everything shown locally keeps every fact.
+        # R3: ``external`` also covers an activated IT model on an endpoint that is not literal
+        # loopback (external_it), so every external prompt takes the field table.
+        external = external or remote or names is not None
+        view = snapshot.poc_view if external else None
+        external_facts = build_case_facts(view.snapshot) if view is not None else None
         tagged: list[TaggedHit] = []
         use: KnowledgeUse | None = None
         profile = snapshot.actor.get("profile") or {}
@@ -766,33 +847,141 @@ def create_app(
         for suggestion in [*shown.follow_ups, *base[3:]]:
             if suggestion not in suggestions:
                 suggestions.append(suggestion)
-        messages = build_messages(
-            facts if names is None else provider_facts(facts, names),
-            history_of(body) if history is None else history,
-            question,
-            knowledge=knowledge_message(tagged, shown),
-        )
+        canonical: str | None = None
+        intent_reason: str | None = None
+        external_tagged: list[TaggedHit] = []
+        if external:
+            # D-142 R4 (R3-1, Option A): an external model never receives what the person
+            # wrote, the chat history, Try's unsaved rule or a staff-written knowledge entry.
+            # The question is recognised locally as one supported intent and sent as its fixed
+            # canonical question, with approved repository knowledge only; otherwise nothing
+            # may be sent (remote_gate refuses before any reservation or transport).
+            recognised = controlled_intents.recognise(
+                facts if external_facts is None else external_facts, question
+            )
+            if trial is not None:
+                intent_reason = controlled_intents.TRY_LOCAL
+            elif recognised.intent is None:
+                intent_reason = recognised.reason or controlled_intents.UNSUPPORTED
+            else:
+                canonical = recognised.intent.question
+                external_tagged = [
+                    item
+                    for item in external_knowledge(canonical, facts, role, team)
+                    if approved_entry(item.hit.entry)
+                ]
+            messages = build_messages(
+                model_facts(facts if external_facts is None else external_facts, names, external),
+                [],
+                canonical or controlled_intents.NOT_SENT,
+                knowledge=knowledge_message(
+                    external_tagged, shown_knowledge(external_tagged, facts)
+                ),
+            )
+        else:
+            messages = build_messages(
+                model_facts(facts, names, external),
+                history_of(body) if history is None else history,
+                question,
+                knowledge=knowledge_message(tagged, shown),
+            )
         prepared = Prepared(
             facts=facts,
-            messages=messages if names is None else scrub(messages, names),
+            # D-142 R1: one single-use privacy admission for exactly these messages and this
+            # case's identities (memory only); an external model consumes it once. R4: an
+            # external prompt holds service-written text only (its canonical question).
+            messages=privacy_admit(
+                messages if names is None else scrub(messages, names),
+                identities_from_facts(facts, people=names or ()),
+                source="case",
+                person_written=not external,
+            ),
             fallback=fallback,
             suggestions=suggestions[:6],
             tagged=tagged,
             knowledge=use,
             shown=shown,
-            plan=topic_plan(facts, question),
+            # R4: an external answer is checked against the plan of the question it was sent.
+            plan=topic_plan(facts, canonical if external and canonical else question),
             retrieval_ms=retrieval_ms,
             question=question,
             started=started,
             provider_names=names,
+            remote=remote,
+            external=external,
+            external_facts=external_facts,
+            withheld=view.withheld if view is not None else 0,
+            canonical=canonical,
+            intent_reason=intent_reason,
+            external_tagged=external_tagged,
         )
         if on_prepared is not None:
             on_prepared(prepared)
         return prepared
 
-    def names_for(model: ChatModel | None, *profiles: Any, extra: tuple[Any, ...] = ()) -> (
-        tuple[str, ...] | None
-    ):
+    def external_knowledge(
+        canonical: str, facts: dict[str, Any], role: Any, team: Any
+    ) -> list[TaggedHit]:
+        # R4: the knowledge an external prompt may carry is retrieved for its canonical
+        # question (never for what the person wrote) and kept only when it is approved
+        # repository text (the caller filters by approved_entry).
+        if retriever is None:
+            return []
+        try:
+            retrieval = retriever.retrieve(canonical, case_context(facts), role=role, team=team)
+            return approved_knowledge(tag_hits(retrieval), role=role, team=team)
+        except Exception:  # knowledge is optional: never let it break an answer
+            log.exception("knowledge retrieval failed")
+            return []
+
+    def external_model(active: Active) -> bool:
+        # R4 (Option A): any model whose prompt leaves this machine: hosted Claude or GPT-OSS,
+        # the remote test model, or an IT model on an endpoint that is not literal loopback.
+        model = active.model
+        return model is not None and (
+            is_remote_test_model(model) or provider_bound(model) or external_it(active)
+        )
+
+    def external_it(active: Active) -> bool:
+        # R3 (P2 "IT runtime skips the field table"): an IT-configured model whose endpoint is
+        # not literal loopback is external; the adapter's own endpoint decides when the active
+        # record carries none (a qualification harness).
+        if active.model is None:
+            return False
+        if getattr(active.model, "external_prompt", False) is True:
+            # R4: a qualification harness wrapping an external model builds its prompts as
+            # that model's chat does (model_qualification.WatchedModel).
+            return True
+        model: Any = active.model
+        for _ in range(8):
+            inner = getattr(model, "__dict__", {}).get(
+                "inner", getattr(model, "__dict__", {}).get("_inner")
+            )
+            if inner is None:
+                break
+            model = inner
+        # The adapter's own endpoint wins: it is where the prompt actually goes.
+        url = str(getattr(model, "_url", "") or "") or active.base_url or ""
+        return (
+            data_access.model_class(active.model, url or None) == data_access.IT_CLASS
+            and bool(url)
+            and not is_local_model_url(url)
+        )
+
+    def model_facts(
+        facts: dict[str, Any], names: tuple[str, ...] | None, external: bool
+    ) -> dict[str, Any]:
+        # D-142 field table for an external model (the viewer reduced to the role, OD-G8);
+        # a local model's facts are unchanged.
+        # D-142 R2 (D-4): no model receives the backend's party ids (they only keep entities
+        # that share a name apart on the way out).
+        if names is None and not external:
+            return strip_entity_refs(facts)
+        return minimise_facts(provider_facts(facts, names or ()), known_labels=FIELD_LABELS)
+
+    def names_for(
+        model: ChatModel | None, *profiles: Any, extra: tuple[Any, ...] = ()
+    ) -> tuple[str, ...] | None:
         # D-130 OD-G8: the identifiers to keep out of this model's prompt, if it is Claude-bound
         # (D-134: or GPT-OSS on its registered hosted deployment).
         if not provider_bound(model):
@@ -890,6 +1079,44 @@ def create_app(
         then hold a ticket); otherwise the lead notice, ending in the closed reason code. The
         document digests are read only here, with the user's own session."""
 
+        provider = "anthropic" if anthropic_bound(model) else "openrouter"
+        data_policy = getattr(app.state.case_gate, "data_policy", None)
+        if callable(data_policy) and data_policy(provider) == PSEUDONYMISED:
+            # D-142 R1: an authorised case whose data the trusted POC admission classifies as
+            # synthetic or Mock POC data (registry provenance, not the D-095 lists), and whose
+            # exact messages pass the privacy boundary (checked here for the notice, and again
+            # by the model, once, before it sends).
+            # R2 (owner direction): unverified uploads are withheld from the external prompt,
+            # not the whole case. The admission checks the view the prompt was built from; a
+            # prompt that still holds a withheld document's value is refused (the backstop).
+            view = snapshot.poc_view
+            if view is None:
+                try:
+                    digests = (
+                        backend.load_document_digests(case_id, session)
+                        if snapshot.documents
+                        else []
+                    )
+                except ClmBackendError:
+                    digests = None
+                view = poc_view(snapshot, digests)
+            entries = [item.hit.entry for item in prep.tagged if item.hit.entry is not trial]
+            external = prep.external_facts if prep.external_facts is not None else prep.facts
+            refusal = poc_check(view.snapshot, external, entries, digests=view.digests)
+            if refusal is None and (
+                (view.withheld and prep.external_facts is None)
+                or withheld_present(view, prep.messages, external)
+            ):
+                refusal = "POC_WITHHELD_CONTENT"
+            if refusal is None:
+                refusal = privacy_preview(prep.messages)
+            if refusal is None:
+                synthetic_eligibility_approve(prep.messages)
+                return None
+            record = getattr(app.state.case_gate, "record", None)
+            if callable(record):
+                record(case_id, refusal)
+            return f"{HOSTED_PRIVACY_NOTICES[provider]} Reason: {refusal}."
         try:
             digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
         except ClmBackendError:
@@ -907,8 +1134,12 @@ def create_app(
             record(case_id, refusal)
         else:
             log.info("external inference not used: %s", refusal)
-        provider = "anthropic" if anthropic_bound(model) else "openrouter"
         return f"{HOSTED_ELIGIBILITY_NOTICES[provider]} Reason: {refusal}."
+
+    def privacy_lead(model: ChatModel | None) -> str:
+        # D-142 Q4: the model's own attribution, then how its input was protected.
+        attribution = getattr(model, "attribution", None)
+        return f"{attribution} {PRIVACY_ATTRIBUTION}" if attribution else PRIVACY_ATTRIBUTION
 
     def remote_gate(
         active: Active,
@@ -923,8 +1154,19 @@ def create_app(
         the case-data answer (notice REMOTE_BOUNDARY_NOTICE or REMOTE_ELIGIBILITY_NOTICE,
         followed by the closed reason code, never a value)."""
 
+        if (prep.external or prep.remote) and prep.canonical is None:
+            # D-142 R4 (R3-1): not one supported, unambiguous intent: the case-data answer.
+            # Nothing is reserved or sent.
+            reason = prep.intent_reason or controlled_intents.UNSUPPORTED
+            log.info("external model not used: %s", reason)
+            return None, f"{INTENT_NOTICE} Reason: {reason}."
         if not is_remote_test_model(active.model):
-            return active.model, None
+            # D-142 R1 (P3): an IT-configured model on an endpoint that is not literal loopback
+            # is an external model; its answers say how its input was protected.
+            external = data_access.model_class(active.model, active.base_url) == (
+                data_access.IT_CLASS
+            )
+            return active.model, PRIVACY_ATTRIBUTION if external else None
         if gptoss_rate_refused(active.model, user_of(snapshot)):
             # D-134: over this user's request rate. Nothing is sent or reserved; the answer is
             # the case-data one, as when no model is available.
@@ -937,12 +1179,12 @@ def create_app(
             refusal = hosted_refusal(active.model, snapshot, prep, case_id, session)
             if refusal is not None:
                 return None, refusal
-            return active.model, getattr(active.model, "attribution", None)
+            return active.model, privacy_lead(active.model)
         if external_conversational(config):
             # D-122: any case. The per-call ticket stays, so only these exact messages go.
             synthetic_eligibility_approve(prep.messages)
             # R2.2: a hosted Claude answer names its model (only on what the model wrote).
-            return active.model, getattr(active.model, "attribution", None)
+            return active.model, privacy_lead(active.model)
         entries = [item.hit.entry for item in prep.tagged]
         # D-104 A1: a model that decides D-095 mode itself (Claude, a policy-restricted model)
         # does so on the shared interlocks; GPT-OSS keeps the OpenRouter-ready mode.
@@ -957,12 +1199,13 @@ def create_app(
             if refusal is not None:
                 log.info("remote test model not used: %s", refusal)
                 return None, f"{notices.eligibility} Reason: {refusal}."
-            return active.model, notices.dev_answered
+            # D-142 R1 (P3): the external answer also says how its input was protected.
+            return active.model, f"{notices.dev_answered} {PRIVACY_ATTRIBUTION}"
         refusal = synthetic_boundary_check(snapshot, prep.facts, prep.messages, entries)
         if refusal is not None:
             log.info("remote test model not used: %s", refusal)
             return None, f"{notices.boundary} Reason: {refusal}."
-        return active.model, notices.answered
+        return active.model, f"{notices.answered} {PRIVACY_ATTRIBUTION}"
 
     def answer_with_model(
         prep: Prepared, outcome: _Outcome, lead: str | None = None, *, collect: bool = False
@@ -1197,11 +1440,19 @@ def create_app(
         ownership figures are reported as not available and no percentage is grounded."""
 
         analysis = backend.load_ownership(case_id, request.cookies.get(SESSION_COOKIE_NAME))
-        return replaced(prep, facts={**prep.facts, "ownership": copilot.ownership_facts(analysis)})
+        ownership = copilot.ownership_facts(analysis)
+        if prep.external_facts is None:
+            return replaced(prep, facts={**prep.facts, "ownership": ownership})
+        # D-142 R2: the ownership analysis may rest on a withheld upload (uploaded evidence
+        # rows), so an external prompt does not receive it while any upload is withheld.
+        external = ownership if not prep.withheld else OWNERSHIP_WITHHELD
+        return replaced(
+            prep,
+            facts={**prep.facts, "ownership": ownership},
+            external_facts={**prep.external_facts, "ownership": external},
+        )
 
-    def local_ownership(
-        prep: Prepared, case_id: UUID, request: Request, remote: bool
-    ) -> Prepared:
+    def local_ownership(prep: Prepared, case_id: UUID, request: Request, remote: bool) -> Prepared:
         # D-115 X2: without D-122 an external model never gets the ownership analysis.
         if remote and not external_conversational(config):
             return prep
@@ -1215,14 +1466,34 @@ def create_app(
 
     def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
         names = prep.provider_names
-        messages = copilot.build_messages(
-            prep.facts if names is None else provider_facts(prep.facts, names),
-            history,
-            prep.question,
-            knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
-        )
+        base = prep.facts if prep.external_facts is None else prep.external_facts
+        external = prep.remote or prep.external
+        if external:
+            # R4 (R3-1): the canonical question only; no history, approved repository
+            # knowledge only (see prepare).
+            tagged = prep.external_tagged
+            messages = copilot.build_messages(
+                model_facts(base, names, external),
+                [],
+                prep.canonical or controlled_intents.NOT_SENT,
+                knowledge=copilot.knowledge_message(tagged, shown_knowledge(tagged, prep.facts)),
+            )
+        else:
+            messages = copilot.build_messages(
+                model_facts(base, names, external),
+                history,
+                prep.question,
+                knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
+            )
         if names is not None:
             messages = scrub(messages, names)
+        # D-142 R1: a new admission for the new messages (the case's own identities).
+        messages = privacy_admit(
+            messages,
+            identities_from_facts(prep.facts, people=names or ()),
+            source="copilot",
+            person_written=not external,
+        )
         line = copilot.read_only_line(prep.question)
         prepared = replaced(prep, messages=messages, plan=None, conversational=True)
         if on_prepared is not None:
@@ -1510,7 +1781,12 @@ def create_app(
         names = names_for(active.model, profile) if hosted else None
         prep = Prepared(
             facts={},
-            messages=messages if names is None else scrub(messages, names),
+            # D-142 R1: the general chat's own admission (the user's identifiers only).
+            messages=privacy_admit(
+                messages if names is None else scrub(messages, names),
+                [("PERSON", name) for name in identities(profile)],
+                source="general",
+            ),
             fallback=guidance_summary(tagged, shown) or copilot.GENERAL_FALLBACK,
             suggestions=[],
             tagged=tagged,
@@ -1524,16 +1800,13 @@ def create_app(
         if hosted and active.model is not None:
             # D-130: only these exact messages may go (the model admits them by this ticket).
             synthetic_eligibility_approve(prep.messages)
-            lead = getattr(active.model, "attribution", None)
+            lead = privacy_lead(active.model)
             return stream_of(
                 copilot_stream(prep, started, remember, active.model, required, lead=lead)
             )
-        if (
-            copilot_for(active)
-            and active.model is not None
-            and not is_remote_test_model(active.model)
-        ):
-            # No case, so no synthetic check: the general chat stays with a local model.
+        if copilot_for(active) and active.model is not None and not external_model(active):
+            # No case, so no synthetic check: the general chat stays with a local model. R4
+            # (Option A): no external model answers it (hosted_paths no longer holds it).
             return stream_of(copilot_stream(prep, started, remember, active.model, required))
         outcome = _Outcome(fallback_reason="model_disabled")
         reply = copilot_fallback(prep, outcome, required, copilot.GENERAL_LOCAL_ONLY_NOTICE)
@@ -1621,13 +1894,16 @@ def create_app(
             else None
         )
         if hosted and refused is None:
-            # D-139: the D-095 check passed and issued the ticket for these exact messages.
+            # D-139: the D-095 check (or, D-142, the privacy boundary) passed and issued the
+            # ticket for these exact messages.
             model = active.model
-            lead = getattr(model, "attribution", None)
+            lead = privacy_lead(model)
         elif refused is not None:
             model, lead = None, refused
         else:
-            model = None if is_remote_test_model(active.model) else active.model
+            # R4 (Option A): Try never goes to an external model; a local model or the
+            # case-data answer only.
+            model = None if external_model(active) else active.model
         reply = answer_with_model(prep, _Outcome(model=model), lead, collect=hosted)
         tag = prep.tagged[0].tag if prep.tagged else None
         offered = [line for line in prep.shown.lines if tag and line.endswith(f" [{tag}]")]
@@ -1660,10 +1936,14 @@ def create_app(
         except ClmBackendError as exc:
             raise backend_error(exc) from None
         question = body.message.strip()[: config.max_question_chars]
-        history = [
-            {"role": turn.role, "content": turn.content}
-            for turn in body.history[-config.max_history_messages :]
-        ] if config.max_history_messages else []
+        history = (
+            [
+                {"role": turn.role, "content": turn.content}
+                for turn in body.history[-config.max_history_messages :]
+            ]
+            if config.max_history_messages
+            else []
+        )
         model = selector.current().model
         # D-130: hosted Claude answers Support too; every other remote model stays refused.
         hosted = model is not None and hosted_chat(model, "support")
@@ -1676,8 +1956,9 @@ def create_app(
             catalogue=catalogue,
             model=model,
             hosted=hosted,
-            lead=getattr(model, "attribution", None) if hosted else None,
+            lead=privacy_lead(model) if hosted else None,
             names=names_for(model, profile) if hosted else None,
+            external=external_model(selector.current()),
         )
         return ChatResponse(
             answer=reply.answer,
@@ -1685,9 +1966,7 @@ def create_app(
             model=reply.model,
             notice=reply.notice,
             suggested_questions=[],
-            checks=AnswerChecks(
-                removed=[LEFT_OUT_REASON] if reply.left_out else [], disclosures=[]
-            )
+            checks=AnswerChecks(removed=[LEFT_OUT_REASON] if reply.left_out else [], disclosures=[])
             if reply.answered_by == "model"
             else None,
             sources=[KnowledgeSource(**source) for source in reply.sources],
@@ -1885,6 +2164,9 @@ def create_app(
                 },
             ) from None
         # Only these exact messages may go (the model admits them by this ticket); one attempt.
+        # D-142 R1: and by their own single-use privacy admission (no case identities here).
+        # R3: the user turn is the service's own metrics payload, declared at construction.
+        messages = privacy_admit(messages, (), source="insights", person_written=False)
         synthetic_eligibility_approve(messages)
         try:
             answer = collect_stream(model, messages)
@@ -1896,7 +2178,6 @@ def create_app(
             for stale in [k for k, (at, _) in insights_cache.items() if now - at > 3600]:
                 del insights_cache[stale]
         return HostedInsights(insights=insights, findings=findings.findings)
-
 
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -1959,6 +2240,7 @@ def create_app(
                 remote=remote,
                 history=history,
                 names=names_for(active.model, snapshot.actor.get("profile")),
+                external=external_it(active),
             )
             owned = local_ownership(prepared, case_id, request, remote)
             prep, required = copilot_prep(owned, history)
@@ -1981,6 +2263,7 @@ def create_app(
                 remote=is_remote_test_model(active.model),
                 history=history,
                 names=names_for(active.model, snapshot.actor.get("profile")),
+                external=external_it(active),
             )
             model, lead = remote_gate(
                 active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
@@ -2047,6 +2330,7 @@ def create_app(
                 remote=remote,
                 history=history,
                 names=names_for(active.model, snapshot.actor.get("profile")),
+                external=external_it(active),
             )
             owned = local_ownership(prepared, case_id, request, remote)
             prep, required = copilot_prep(owned, history)
@@ -2068,6 +2352,7 @@ def create_app(
             remote=is_remote_test_model(active.model),
             history=history,
             names=names_for(active.model, snapshot.actor.get("profile")),
+            external=external_it(active),
         )
         model, lead = remote_gate(
             active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)

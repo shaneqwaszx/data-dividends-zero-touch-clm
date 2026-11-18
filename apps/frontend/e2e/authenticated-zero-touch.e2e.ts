@@ -15,6 +15,14 @@ import {
   type BrowserNetworkPolicy,
 } from "../playwright.config";
 
+import { sampleCaseRows, sampleCaseUrlId } from "../src/pages/mockDashboards/onboardingSample";
+import type { AuthenticatedProfile } from "../src/types";
+
+// Rows per Cases tab page (apps/frontend/src/caseQueries.ts CASES_PAGE_SIZE, PR #178). Kept as an
+// independent literal: the unit suite pins CASES_PAGE_SIZE to 10, and this browser suite must fail
+// if the page size changes without its acceptance tests being revisited.
+const CASES_PAGE_SIZE = 10;
+
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const cleanFixture = path.resolve(
   currentDirectory,
@@ -1528,14 +1536,16 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(page.getByText("202400001A", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("202400006F", { exact: true })).toBeVisible();
 
+  // Each filter is one bounded backend page of the Cases tab page size (CASES_PAGE_SIZE = 10,
+  // PR #178); the 50-row backend default is no longer implied, so the limit is explicit.
   expect(filterRequests).toEqual(expect.arrayContaining([
     {
       method: "GET",
-      path: "/api/clm/zero-touch/case-portfolio?attention_type=DOCUMENT_REVIEW_REQUIRED",
+      path: `/api/clm/zero-touch/case-portfolio?attention_type=DOCUMENT_REVIEW_REQUIRED&limit=${CASES_PAGE_SIZE}`,
     },
     {
       method: "GET",
-      path: "/api/clm/zero-touch/case-portfolio?attention_type=OWNERSHIP_CYCLE",
+      path: `/api/clm/zero-touch/case-portfolio?attention_type=OWNERSHIP_CYCLE&limit=${CASES_PAGE_SIZE}`,
     },
   ]));
   expect(filterRequests.every((request) => request.method === "GET")).toBe(true);
@@ -1590,12 +1600,15 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await login(page);
   const targetUen = "209900104A";
 
+  const firstPageLabel = new RegExp(`^Showing 1–${CASES_PAGE_SIZE}$`);
+  const caseRows = page.locator("table.case-table tbody tr");
   await openWorkspaceTab(page, "Cases");
-  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
+  await expect(page.getByText(firstPageLabel)).toBeVisible();
+  await expect(caseRows).toHaveCount(CASES_PAGE_SIZE);
   // React StrictMode may cancel and replay the initial development-mode fetch. Both
   // observations must still be the same single bounded page shape, never row fan-out.
   expect(new Set(portfolioRequests)).toEqual(new Set([
-    "/api/clm/zero-touch/case-portfolio",
+    `/api/clm/zero-touch/case-portfolio?limit=${CASES_PAGE_SIZE}`,
   ]));
   expect(detailRequests).toEqual([]);
   expect(legacyListRequests).toEqual([]);
@@ -1620,17 +1633,66 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await expect.poll(() => portfolioRequests.at(-1)).toContain("priority_sort=lowest_first");
   await page.getByLabel("Priority", { exact: true }).selectOption("all");
   await page.getByLabel("Sort", { exact: true }).selectOption("highest_first");
-  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
+  await expect(page.getByText(firstPageLabel)).toBeVisible();
 
   const nextResponse = page.waitForResponse((response) => (
     new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
-      && new URL(response.url()).searchParams.get("offset") === "50"
+      && new URL(response.url()).searchParams.get("offset") === String(CASES_PAGE_SIZE)
+      && new URL(response.url()).searchParams.get("limit") === String(CASES_PAGE_SIZE)
   ));
-  await page.getByRole("button", { name: "Next" }).click();
+  const nextButton = page.getByRole("button", { name: "Next" });
+  const previousButton = page.getByRole("button", { name: "Previous" });
+  await nextButton.click();
   await nextResponse;
-  await expect(page.getByText(/Showing 51–/)).toBeVisible();
-  await page.getByRole("button", { name: "Previous" }).click();
-  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
+  await expect(page.getByText(new RegExp(`^Showing ${CASES_PAGE_SIZE + 1}–${2 * CASES_PAGE_SIZE}$`))).toBeVisible();
+  await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
+  await previousButton.click();
+  await expect(page.getByText(firstPageLabel)).toBeVisible();
+  await expect(previousButton).toBeDisabled();
+
+  // Paging reaches every row: walk the pages to the end and compare with an independent oracle.
+  // Live rows come first in backend order (read here through the same authorized API in 100-row
+  // pages); the signed-in user's team-scoped sample cases follow at the same page size (PR #178).
+  const liveOracle: string[] = [];
+  for (let offset = 0; offset <= 10_000; offset += 100) {
+    const response = await page.request.get(`/api/clm/zero-touch/case-portfolio?limit=100&offset=${offset}`);
+    expect(response.status()).toBe(200);
+    const body = await response.json() as { items: Array<{ case_id: string }>; has_more: boolean };
+    liveOracle.push(...body.items.map((item) => `/cases/${item.case_id}`));
+    if (!body.has_more) break;
+  }
+  // The 105 seeded Team A cases are visible to the Team A onboarder, so paging is genuinely exercised.
+  expect(liveOracle.length).toBeGreaterThanOrEqual(105);
+  const profile = (await (await page.request.get("/api/auth/me")).json() as { profile: AuthenticatedProfile }).profile;
+  const sampleCount = sampleCaseRows(profile).length;
+  expect(sampleCount).toBeGreaterThan(0);
+  const expectedTotal = liveOracle.length + sampleCount;
+  const pageCount = Math.ceil(expectedTotal / CASES_PAGE_SIZE);
+  const seenHrefs: string[] = [];
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+    const start = pageIndex * CASES_PAGE_SIZE + 1;
+    const end = Math.min(expectedTotal, start + CASES_PAGE_SIZE - 1);
+    await expect(page.getByText(new RegExp(`^Showing ${start}–${end}$`))).toBeVisible();
+    await expect(page.getByText(`Page ${pageIndex + 1}`, { exact: true })).toBeVisible();
+    await expect(caseRows).toHaveCount(end - start + 1);
+    seenHrefs.push(...await caseRows.getByRole("link", { name: "Open" }).evaluateAll(
+      (links) => links.map((link) => link.getAttribute("href") ?? ""),
+    ));
+    if (pageIndex < pageCount - 1) await nextButton.click();
+  }
+  await expect(nextButton).toBeDisabled();
+  expect(seenHrefs).toHaveLength(expectedTotal);
+  expect(new Set(seenHrefs).size).toBe(expectedTotal);
+  expect(seenHrefs.slice(0, liveOracle.length)).toEqual(liveOracle);
+  // Sample rows follow their own filter/sort order, so they are compared as a set.
+  const expectedSampleHrefs = sampleCaseRows(profile).map((row) => `/cases/${sampleCaseUrlId(row.case_id)}`);
+  expect(new Set(seenHrefs.slice(liveOracle.length))).toEqual(new Set(expectedSampleHrefs));
+  for (let pageIndex = pageCount - 1; pageIndex > 0; pageIndex--) {
+    await previousButton.click();
+    await expect(page.getByText(`Page ${pageIndex}`, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText(firstPageLabel)).toBeVisible();
+  await expect(previousButton).toBeDisabled();
 
   await search.fill(targetUen);
   const targetRow = page.getByRole("row").filter({ hasText: targetUen });
@@ -1673,7 +1735,8 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await expect(page.getByText(targetUen, { exact: true })).toHaveCount(0);
 
   await page.getByLabel("Search", { exact: true }).fill("");
-  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
+  await expect(page.getByText(firstPageLabel)).toBeVisible();
+  await expect(caseRows).toHaveCount(CASES_PAGE_SIZE);
   await page.setViewportSize({ width: 480, height: 900 });
   const scroller = page.getByLabel("Cases table");
   await scroller.focus();

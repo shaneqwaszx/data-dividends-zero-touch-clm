@@ -50,6 +50,12 @@ from app.persistence.workflow_governance_store import (
 DURABLE_WRITE_CONCERN = WriteConcern(w="majority", j=True, wtimeout=5_000)
 
 
+class MigrationInProgressError(PersistenceUnavailableError):
+    """P2_1_MIGRATION_IN_PROGRESS: a migration lock is held; the backend must not start."""
+
+    code = "P2_1_MIGRATION_IN_PROGRESS"
+
+
 class MongoWorkflowStore:
     def __init__(
         self,
@@ -60,6 +66,7 @@ class MongoWorkflowStore:
         runs_collection: str,
     ) -> None:
         db = client[database]
+        self._db = db
         self._client = client
         self.definitions: Collection[dict[str, Any]] = db[definitions_collection]
         self.runs: Collection[dict[str, Any]] = db[runs_collection]
@@ -73,6 +80,18 @@ class MongoWorkflowStore:
         except PyMongoError:
             raise PersistenceUnavailableError from None
         self.cold.initialize()
+        # A held P2-1 migration lock means a migration owns this database: refuse to start.
+        from app.persistence.p2_1_migration import (  # noqa: PLC0415 - avoids an import cycle
+            MIGRATION_LOCK_COLLECTION,
+            read_migration_lock,
+        )
+
+        try:
+            held = read_migration_lock(self._db[MIGRATION_LOCK_COLLECTION])
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        if held is not None:
+            raise MigrationInProgressError
 
     def close(self) -> None:
         self._client.close()

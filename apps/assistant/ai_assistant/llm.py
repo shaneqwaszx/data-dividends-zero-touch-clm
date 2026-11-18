@@ -2,7 +2,7 @@
 
 import json
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import aclosing
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
@@ -228,10 +228,24 @@ class OpenAICompatibleChatModel:
         self._temperature = temperature
         self._max_answer_tokens = max_answer_tokens
         self._transport = transport
+        # D-142 R2 (D-1, D-2): set by privacy_boundary.BoundedModel when this adapter serves an
+        # endpoint that is not literal loopback. Every request body it then builds is handed to
+        # the check (privacy_boundary.verify_wire) before it is sent; a refusal sends nothing.
+        self._wire_check: Callable[[list[dict[str, str]], bytes], None] | None = None
 
     @property
     def name(self) -> str:
         return self._model
+
+    def bind_wire_check(self, check: Callable[[list[dict[str, str]], bytes], None]) -> None:
+        """From now on every request this adapter sends passes ``check`` first."""
+
+        self._wire_check = check
+
+    def _checked(self, messages: list[dict[str, str]], request: httpx.Request) -> httpx.Request:
+        if self._wire_check is not None:
+            self._wire_check(messages, request.content)
+        return request
 
     def _payload(
         self, messages: list[dict[str, str]], *, stream: bool, max_tokens: int
@@ -271,7 +285,10 @@ class OpenAICompatibleChatModel:
         payload = self._payload(messages, stream=False, max_tokens=self._max_answer_tokens)
         try:
             with self._client() as client:
-                response = client.post(self._url, json=payload, headers=self._headers())
+                request = client.build_request(
+                    "POST", self._url, json=payload, headers=self._headers()
+                )
+                response = client.send(self._checked(messages, request))
         except httpx.HTTPError:
             raise LlmUnavailableError("model unreachable") from None
         if response.status_code != 200:
@@ -296,7 +313,10 @@ class OpenAICompatibleChatModel:
         payload = self._payload(messages, stream=False, max_tokens=1)
         try:
             with self._client() as client:
-                response = client.post(self._url, json=payload, headers=self._headers())
+                request = client.build_request(
+                    "POST", self._url, json=payload, headers=self._headers()
+                )
+                response = client.send(self._checked(messages, request))
         except httpx.HTTPError:
             raise LlmUnavailableError("model unreachable") from None
         if response.status_code != 200:
@@ -404,6 +424,7 @@ class OpenAICompatibleChatModel:
                     json=payload,
                     headers={**self._headers(), "Accept-Encoding": "identity"},
                 )
+                self._checked(messages, request)
                 with anyio.fail_after(max(0.0, deadline - time.monotonic())):
                     reply = await client.send(request, stream=True)
                 try:

@@ -28,12 +28,12 @@ Gates (owner decision 4, D-093; provisional technical gates):
 import hashlib
 import json
 import math
+import secrets
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import anyio
 
@@ -44,10 +44,15 @@ from .llm import (
     ModelCallError,
     OpenAICompatibleChatModel,
     Piece,
+    is_local_model_url,
     message_bytes,
 )
 from .model_catalog import MESSAGE_OVERHEAD_TOKENS
 from .model_factory import ASSISTANT_DIR
+from .privacy_boundary import BoundedModel
+from .privacy_boundary import admit as privacy_admit
+from .privacy_boundary import trusted_text as _privacy_trusted
+from .provider_payload import provider_bound as _provider_bound
 
 HARNESS_VERSION = "model-qualification/1"
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -100,6 +105,10 @@ BASIS_FILES = (
     "dashboard_insights.py",
     # D-134 (proposed): hosted GPT-OSS's per-user request rate.
     "request_rate.py",
+    # D-142 (proposed): the privacy boundary decides what every external model receives.
+    "controlled_intents.py",
+    "privacy_boundary.py",
+    "privacy_vocabulary.json",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (
@@ -187,6 +196,17 @@ def error_code(error: LlmUnavailableError) -> str:
     }.get(text, "PROTOCOL")
 
 
+def probe_target(model: Any, *, retain_largest: bool = False) -> Any:
+    """D-142 R1 (P2-3): the model a fixed probe is sent to. An adapter on an endpoint that is
+    not literal loopback is an external provider, so the probe passes the privacy boundary like
+    every other call to it (the probe is fixed, content-free text: it never holds case data)."""
+
+    url = str(getattr(model, "_url", "") or "")
+    if url and is_local_model_url(url):
+        return model
+    return BoundedModel(model, retain_largest=retain_largest)
+
+
 async def connection_test(model: OpenAICompatibleChatModel, model_id: str) -> dict[str, Any]:
     """Reachability and interface compatibility, with fixed synthetic text only."""
 
@@ -199,18 +219,26 @@ async def connection_test(model: OpenAICompatibleChatModel, model_id: str) -> di
         "first_piece_ms": None,
     }
     try:
-        listed = await anyio.to_thread.run_sync(model.listed_models)
+        target = probe_target(model)
+        # D-142 R3: the one case-data-free request (an authenticated, bodyless GET /models),
+        # through the same wrapper as the prompts.
+        listed = await anyio.to_thread.run_sync(target.listed_models)
         if listed:
             result["listed"] = model_id in listed
             if not result["listed"]:
                 result["code"] = "MODEL_NOT_LISTED"
                 return result
         started = time.monotonic()
-        await anyio.to_thread.run_sync(model.complete, PROBE)
+        # D-142 R1: each probe call has its own single-use admission (fixed text, no identities).
+        await anyio.to_thread.run_sync(
+            target.complete, privacy_admit(PROBE, source="probe", person_written=False)
+        )
         result["complete_ms"] = round((time.monotonic() - started) * 1000)
         started = time.monotonic()
         text = 0
-        async with aclosing(model.stream(PROBE)) as pieces:
+        async with aclosing(
+            target.stream(privacy_admit(PROBE, source="probe", person_written=False))
+        ) as pieces:
             async for piece in pieces:
                 if piece.text:
                     if result["first_piece_ms"] is None:
@@ -242,12 +270,17 @@ def _filler(size: int) -> str:
 
 
 def _fresh(extra: list[dict[str, str]]) -> list[dict[str, str]]:
-    """A unique first message, so a server's prompt cache cannot shorten the count."""
+    """A unique first message, so a server's prompt cache cannot shorten the count. D-142 R2:
+    the nonce is three small numbers between words, which the privacy boundary keeps as they
+    are, so a protected header stays unique too."""
 
+    a, b, c = (secrets.randbelow(1000) for _ in range(3))
     return [
         {
             "role": "system",
-            "content": f"Capacity check {uuid4().hex}. Synthetic text only; reply with one word.",
+            "content": (
+                f"Capacity check {a} of {b} in {c}. Synthetic text only; reply with one word."
+            ),
         },
         *extra,
     ]
@@ -276,26 +309,46 @@ def verify_capacity(
         "prompt_limit": None,
     }
 
-    def count(messages: list[dict[str, str]]) -> int:
-        stop()
-        tokens = model.prompt_tokens(messages)
+    # D-142 R2 (D-1): a model on an endpoint that is not literal loopback is counted through
+    # the privacy boundary (BoundedModel.measure), and every byte figure below is taken on the
+    # payload actually sent, so the capacity verified is the protected payload's.
+    measure = getattr(model, "measure", None)
+    measure_largest = getattr(model, "measure_largest", None)
+
+    def checked(found: tuple[int | None, list[dict[str, str]]]) -> tuple[int, int, int]:
+        tokens, sent = found
         if tokens is None:
             raise _Unverified("USAGE_NOT_REPORTED")
-        return tokens
+        body = sent[1:]  # without the unique first message
+        return tokens, message_bytes(body), len(body)
+
+    def count(messages: list[dict[str, str]]) -> tuple[int, int, int]:
+        stop()
+        if callable(measure):
+            # R3: generated filler, declared service-built at construction.
+            return checked(
+                measure(privacy_admit(messages, source="capacity", person_written=False))
+            )
+        return checked((model.prompt_tokens(messages), messages))
 
     try:
-        base = count(_fresh([{"role": "user", "content": "."}]))
-        if largest_prompt:
-            real = count(_fresh(largest_prompt))
-            bound = (
-                base + message_bytes(largest_prompt) + MESSAGE_OVERHEAD_TOKENS * len(largest_prompt)
-            )
+        base, _, _ = count(_fresh([{"role": "user", "content": "."}]))
+        largest: tuple[int, int, int] | None = None
+        if callable(measure_largest):
+            stop()
+            found = measure_largest(_fresh([])[:1])
+            largest = checked(found) if found is not None else None
+        elif largest_prompt:
+            largest = count(_fresh(largest_prompt))
+        if largest is not None:
+            real, size_bytes, messages_sent = largest
+            bound = base + size_bytes + MESSAGE_OVERHEAD_TOKENS * messages_sent
             if real > bound:
                 raise _Unverified("TOKENIZER_BOUND_NOT_CONFIRMED")
-        calibration = count(
+        calibration, calibration_bytes, _ = count(
             _fresh([{"role": "user", "content": _filler(CAPACITY_CALIBRATION_BYTES)}])
         )
-        rate = (calibration - base) / CAPACITY_CALIBRATION_BYTES
+        rate = (calibration - base) / max(calibration_bytes, 1)
         if rate <= 0:
             raise _Unverified("USAGE_UNRELIABLE")
         # Fill the window, leaving room only for the one output token the probe asks for.
@@ -303,9 +356,9 @@ def verify_capacity(
         size = math.floor((aim - base) / rate)
         if size <= CAPACITY_CALIBRATION_BYTES:
             raise _Unverified("WINDOW_TOO_SMALL")
-        probed = count(_fresh([{"role": "user", "content": _filler(size)}]))
+        probed, probed_bytes, _ = count(_fresh([{"role": "user", "content": _filler(size)}]))
         result["probed_tokens"] = probed
-        expected = base + rate * size
+        expected = base + rate * probed_bytes
         if probed < CAPACITY_LINEARITY * expected:
             # A server that keeps fewer tokens than it was sent has truncated the prompt.
             raise _Unverified("TRUNCATION_DETECTED")
@@ -356,6 +409,15 @@ class WatchedModel:
     ) -> None:
         self.inner = inner
         self._stop = stop
+        # D-142 R4 (R3-1): whether this model's prompt leaves the machine, read from the model
+        # it wraps, so the service builds every harness prompt as it does for that model in the
+        # chat (an external one from the canonical question, never from what was typed).
+        self.external_prompt = bool(
+            getattr(inner, "requires_synthetic_boundary", False) is True
+            or _provider_bound(inner)
+            or isinstance(inner, BoundedModel)
+            or getattr(inner, "external_prompt", False) is True
+        )
         if synthetic:
             # Conversational answers: the service checks every prompt as it does in the chat
             # (the synthetic boundary or the D-095 eligibility check, with its ticket), so the
@@ -549,3 +611,8 @@ def line_breakdown(turns: list[Any]) -> dict[str, int]:
         "model_answers": sum(1 for turn in turns if turn.answered_by == "model"),
         "deterministic_fallbacks": sum(1 for turn in turns if turn.answered_by != "model"),
     }
+
+
+# D-142 R3: the service's fixed wording, trusted by origin where it is defined (a system
+# role alone never makes text trusted: privacy_boundary.trusted_text).
+_privacy_trusted(PROBE[0]["content"])

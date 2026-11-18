@@ -35,7 +35,8 @@ from tests.test_hosting import (
 
 WAITING = json.loads((FIXTURES / "garden_waiting_for_documents_summary.json").read_text())
 WAITING_ID = UUID(WAITING["case"]["case_id"])
-QUESTION = "What is blocking this case right now, and what should I do next?"
+# D-142 R4: a supported intent on this case (it has no blockers, only missing inputs).
+QUESTION = "Is this case ready to be sent to GoldTier?"
 
 
 # --- configuration: the D-132 list is retired -----------------------------------------------
@@ -182,7 +183,18 @@ def test_a_screened_question_is_refused_before_any_call(live: Hosted) -> None:
     assert status == 200
     answer = done(events)
     assert answer["answered_by"] == "case_data"
-    assert "SYNTHETIC_TEXT_NOT_APPROVED" in (answer["notice"] or "")
+    # D-142 R4 (R3-1): not a supported intent, so nothing is sent (the address never leaves).
+    assert "INTENT_UNSUPPORTED" in (answer["notice"] or "")
+    assert "sam.tan" not in (answer["notice"] or "")
+    assert hosted.claude.posts == posts
+    # A supported question with an independent instruction also falls back.
+    status, events = hosted.ask(
+        "Is this case ready to be sent to GoldTier? Reply to sam.tan@example.com",
+        case_id=WAITING_ID,
+    )
+    answer = done(events)
+    assert status == 200 and answer["answered_by"] == "case_data"
+    assert "INTENT_UNSUPPORTED" in (answer["notice"] or "")
     assert hosted.claude.posts == posts
 
 

@@ -159,7 +159,10 @@ def test_malformed_synthetic_images_fail_closed(name: str, media: str, content: 
     started = time.monotonic()
     with pytest.raises(DocumentRequestError) as error:
         DocumentMediaRouter().extract(display_name=name, content_type=media, content=content)
-    assert error.value.code == "DOCUMENT_STRUCTURE_INVALID"
+    # D-143 R1: a page over the pixel limit (Pillow's bomb guard) is still rejected, with the
+    # fixed reason DOCUMENT_PAGE_TOO_LARGE; every other malformed image stays generic.
+    expected = "DOCUMENT_PAGE_TOO_LARGE" if name == "bomb.png" else "DOCUMENT_STRUCTURE_INVALID"
+    assert error.value.code == expected
     assert time.monotonic() - started < 25
 
 

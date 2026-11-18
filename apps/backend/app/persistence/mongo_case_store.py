@@ -113,6 +113,16 @@ _SUPPORTED_SCHEMA_VERSIONS = [
 ]
 
 
+def _wired_tiger_storage(results: list[dict[str, Any]]) -> bool:
+    """True only for exactly one ``$collStats`` result whose storage statistics carry a
+    WiredTiger section. Missing, empty, several or malformed results fail closed."""
+
+    if len(results) != 1:
+        return False
+    stats = results[0].get("storageStats")
+    return isinstance(stats, dict) and isinstance(stats.get("wiredTiger"), dict)
+
+
 class CapturedCaseBatch:
     """Opaque one-shot store read; raw envelopes never leave this boundary."""
 
@@ -657,15 +667,24 @@ class MongoCaseStore:
         raise PersistenceUnavailableError
 
     def probe_durability(self) -> tuple[bool, str | None]:
-        """ADR-017 3.8 ``hello`` probe: a journaled standalone or a replica-set primary on
-        the pinned, verified major version (7). Anything else refuses every dispatch."""
+        """ADR-017 3.8 probe: a journaled standalone or a replica-set primary on the pinned,
+        verified major version (7). Anything else refuses every dispatch.
+
+        Least privilege (F-9): it needs only what the application's own ``readWrite`` role
+        grants. ``hello`` and ``buildInfo`` need no privilege, and the storage engine is read
+        from ``$collStats`` storage statistics on this store's own collection (the
+        ``collStats`` action is part of ``read``/``readWrite``). It never calls
+        ``serverStatus``, which needs a cluster-wide privilege the staging user does not hold.
+        """
 
         if getattr(self, "_claim_clearing_incomplete", False):
             return False, "STARTUP_CLAIM_CLEARING_INCOMPLETE"
         try:
             hello = self._client.admin.command("hello")
             info = self._client.server_info()
-            status = self._client.admin.command("serverStatus", storageEngine=1)
+            storage = list(
+                self._collection.aggregate([{"$collStats": {"storageStats": {}}}])
+            )
         except PyMongoError:
             return False, "PROBE_FAILED"
         if hello.get("msg") == "isdbgrid":
@@ -677,8 +696,7 @@ class MongoCaseStore:
         version = str(info.get("version", ""))
         if version.split(".")[0] != VERIFIED_MONGO_MAJOR:
             return False, "SERVER_VERSION_UNVERIFIED"
-        engine = (status.get("storageEngine") or {}).get("name")
-        if engine != "wiredTiger":
+        if not _wired_tiger_storage(storage):
             # WiredTiger on MongoDB >= 6.1 always journals; nothing else is supported.
             return False, "JOURNALING_UNVERIFIED"
         return True, None

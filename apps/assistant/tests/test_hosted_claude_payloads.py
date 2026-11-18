@@ -18,6 +18,7 @@ import pytest
 
 from ai_assistant import model_qualification, support_chat
 from ai_assistant.anthropic_runtime import HOSTED_ANSWERED
+from ai_assistant.controlled_intents import BLOCKERS, CANONICAL
 from ai_assistant.evidence import LEGEND
 from ai_assistant.llm import LlmUnavailableError, ModelAnswer
 from ai_assistant.provider_payload import (
@@ -100,18 +101,20 @@ def test_the_case_chat_sends_the_role_only(live: Hosted) -> None:
 def test_an_identifier_in_case_data_or_the_question_is_removed(
     live: Hosted, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The backend's own text can name the user (a timeline line); the user can type it.
+    # The backend's own text can name the user in a timeline line.
     hosted = live
     summary = copy.deepcopy(test_hosting.SUMMARY)
     summary.setdefault("timeline", []).append(
         {"timestamp": "2026-11-12T01:00:00Z", "message": "Address reviewed by maya-lim (Maya Lim)."}
     )
     monkeypatch.setattr(test_hosting, "SUMMARY", summary)
-    status, events = hosted.ask("I am Maya Lim. Why is Garden Business blocked?")
+    status, events = hosted.ask()
     assert status == 200 and done(events)["answered_by"] == "model"
     body = hosted.claude.messages[-1]
     no_identifier(body)
-    assert REPLACEMENT in json.dumps(body)
+    # Only the canonical question is sent, with the backend's timeline prose removed.
+    assert body["messages"] == [{"role": "user", "content": CANONICAL[BLOCKERS]}]
+    assert "Address reviewed by" not in json.dumps(body)
 
 
 def test_the_server_keeps_the_identity_the_prompt_leaves_out(live: Hosted) -> None:
@@ -131,14 +134,14 @@ def test_general_support_and_try_send_no_user_identifier(live: Hosted) -> None:
     conversation = ended_conversation(hosted)
     before = len(hosted.claude.messages)
     reply, context = general(hosted, "I am maya-lim. What documents does onboarding need?")
-    assert _stream(reply)["answered_by"] == "model"
-    # A follow-up: the earlier turn (now server-held history) is checked again.
+    # D-142 R4 (R3-1): none of the three paths goes to an external model any more.
+    assert _stream(reply)["answered_by"] == "case_data"
     follow = hosted.client.post(
         "/assistant/general/chat/stream",
         headers=post_headers("rm-a"),
         json={"message": "And for the directors, Maya Lim asks?", "context_id": context},
     )
-    assert _stream(follow)["answered_by"] == "model"
+    assert _stream(follow)["answered_by"] == "case_data"
     answer = support(
         hosted,
         "What is the UBO threshold for sam-support?",
@@ -147,13 +150,10 @@ def test_general_support_and_try_send_no_user_identifier(live: Hosted) -> None:
             {"role": "assistant", "content": NOTHING_FOUND},
         ],
     ).json()
-    assert answer["answered_by"] == "model"
+    assert answer["answered_by"] == "case_data"
     tried = try_change(hosted, conversation, body="Sam Support says: ask the client for a lease.")
-    assert tried.status_code == 200 and tried.json()["answered_by"] == "model"
-    sent = hosted.claude.messages[before:]
-    assert len(sent) == 4
-    for body in sent:
-        no_identifier(body)
+    assert tried.status_code == 200 and tried.json()["answered_by"] == "case_data"
+    assert hosted.claude.messages[before:] == []
 
 
 def test_the_helpers_keep_the_role_and_remove_every_form_of_the_identifier() -> None:
@@ -190,7 +190,8 @@ def test_off_topic_support_questions_are_never_sent(live: Hosted, question: str)
     ]
     reply = support(hosted, question, history=history)
     assert reply.status_code == 200
-    assert reply.json()["answer"] == NOTHING_FOUND and reply.json()["model"] is None
+    # D-142 R4: Support never goes external; its exact-line matching answers locally.
+    assert reply.json()["model"] is None and reply.json()["answered_by"] == "case_data"
     assert hosted.claude.posts == posts
 
 
@@ -198,13 +199,15 @@ def test_off_topic_support_questions_are_never_sent(live: Hosted, question: str)
     "question",
     ["What is the UBO threshold?", "What does the registry cache setting do?"],
 )
-def test_support_questions_about_the_rules_or_policy_are_answered(
+def test_support_questions_about_the_rules_or_policy_are_answered_without_claude(
     live: Hosted, question: str
 ) -> None:
     hosted = live
     posts = hosted.claude.posts
-    assert support(hosted, question).json()["answered_by"] == "model"
-    assert hosted.claude.posts == posts + 1
+    answer = support(hosted, question).json()
+    # D-142 R4 (R3-1): the allowed lines are matched locally; nothing goes to Claude.
+    assert answer["answered_by"] == "case_data" and answer["answer"]
+    assert hosted.claude.posts == posts
 
 
 # --- OD-G5: browser history is untrusted input, never identity or authority ----------------
@@ -425,6 +428,7 @@ def test_try_sends_neither_the_owner_nor_support_by_id_or_display_name(
     status, events = hosted.ask("I am Maya Lim. Why is Garden Business blocked?")
     first = done(events)
     assert status == 200 and first["conversation_id"]
+    assert first["answered_by"] == "case_data"
     ended = hosted.client.post(
         f"/assistant/conversations/{first['conversation_id']}/end",
         headers=post_headers("rm-a"),
@@ -438,30 +442,23 @@ def test_try_sends_neither_the_owner_nor_support_by_id_or_display_name(
         title="Sam Support's address rule",
         body="Sam Support says: ask the client for a recent utility bill.",
     )
-    assert tried.status_code == 200 and tried.json()["answered_by"] == "model"
-    assert hosted.claude.posts == posts + 1
-    body = hosted.claude.messages[-1]
-    no_identifier(body)
-    assert viewers(body) == [{"role": "SUPPORT"}]
-    # The stored question went with the owner's name replaced; the server keeps it as asked.
-    assert body["messages"] == [
-        {"role": "user", "content": "I am the user. Why is Garden Business blocked?"}
-    ]
+    # D-142 R4 (R3-1): Try never goes to an external model, so neither name can leave.
+    assert tried.status_code == 200 and tried.json()["answered_by"] == "case_data"
+    assert hosted.claude.posts == posts
+    # The conversation still retains the owner's own title for the authorised viewer.
     from tests.test_hosted_claude_paths import hosted_knowledge
 
     row = hosted_knowledge(hosted).store.conversation(first["conversation_id"])
     assert row is not None and row["user_id"] == "maya-lim"
     assert row["title"] == "I am Maya Lim. Why is Garden Business blocked?"
-    knowledge = [t for t in system_texts(body) if t.startswith("KNOWLEDGE")]
-    assert knowledge and "the user says: ask the client" in knowledge[0]
 
 
 def test_every_qualification_case_call_sends_the_role_only(hosted: Hosted) -> None:
     hosted.setup_claude()
     hosted.qualify_and_activate()
     seen = [viewer for body in hosted.claude.messages for viewer in viewers(body)]
-    # P01#1, P02#0 (case chat) and H-T1 ("Try") carry case facts; general and Support do not.
-    assert len(seen) == 3
+    # P01#1 and P02#0 (case chat) carry case facts. D-142 R4: no general, Support or Try turn.
+    assert len(seen) == 2
     assert all(set(viewer) == {"role"} for viewer in seen)
     for body in hosted.claude.messages:
         no_identifier(body)
@@ -497,13 +494,13 @@ def test_support_instructions_and_allowed_lines_go_unchanged_for_a_common_word_n
     catalogue = copy.deepcopy(test_hosted_claude_paths.CATALOGUE)
     catalogue["rules"][0]["description"] = "Only a Support User may change this threshold."
     monkeypatch.setattr(test_hosted_claude_paths, "CATALOGUE", catalogue)
+    posts = hosted.claude.posts
     answer = support(hosted, "What is the UBO threshold a support user can change?", "support-user")
     assert answer.status_code == 200, answer.text
-    body = hosted.claude.messages[-1]
-    texts = system_texts(body)
-    assert texts[0] == support_chat.RULES
-    assert "Only a Support User may change this threshold." in texts[1]  # verbatim
-    assert body["messages"][-1]["content"] == "What is the UBO threshold a the user can change?"
+    # D-142 R4 (R3-1): Support never goes to an external model; the staff-written rule text
+    # and the question stay on the service, and the allowed lines are matched locally.
+    assert answer.json()["answered_by"] == "case_data" and hosted.claude.posts == posts
+    assert "Only a Support User may change this threshold." in answer.json()["answer"]
 
 
 # --- the scrub derives the owner's display name from the backend's user id rule ----------------

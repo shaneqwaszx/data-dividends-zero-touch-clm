@@ -60,8 +60,9 @@ CLAUDE_ENV = {
 }
 CONFIRMATIONS = sorted(anthropic_runtime.OWNER_ATTESTATIONS)
 QUESTION = "Why is Garden Business blocked?"
-# D-130 (OD-G6): the two case-chat questions plus one turn per hosted chat path.
-QUALIFICATION_CALLS = 5
+# D-130 (OD-G6): the two case-chat questions. D-142 R4 (Option A): the general, Support and Try
+# paths no longer go to Claude, so the run asks no turn on them.
+QUALIFICATION_CALLS = 2
 # What the mock Claude writes on a general-chat prompt (no case is open).
 GENERAL_REPLY = (
     "Onboarding usually needs the company's registry record and documents that show its "
@@ -573,12 +574,14 @@ def test_the_conversation_is_kept_rated_and_listed_for_its_owner_only(live: Host
         json={"answer_id": answer["answer_id"], "helpful": True},
     )
     assert rated.status_code in (200, 201), rated.text
-    # A follow-up in the same chat sends the earlier turn as history (multi-turn).
+    # A follow-up in the same chat is answered; D-142 R3 (OD-3): the earlier turns are kept
+    # for the conversation record but never sent to the external model.
     follow = hosted.client.post(
         f"/assistant/cases/{CASE_ID}/chat/stream",
         headers=post_headers("rm-a"),
         json={
-            "message": "What should the RM do next?",
+            # D-142 R4 (complete-question admission): a supported BLOCKERS question.
+            "message": "What should I do next?",
             "history": [
                 {"role": "user", "content": QUESTION},
                 {"role": "assistant", "content": answer["answer"]},
@@ -591,7 +594,9 @@ def test_the_conversation_is_kept_rated_and_listed_for_its_owner_only(live: Host
     final = done([json.loads(line) for line in follow.text.splitlines() if line.strip()])
     assert final["answered_by"] == "model" and final["conversation_id"] == conversation
     sent = hosted.claude.messages[-1]["messages"]
-    assert [m["role"] for m in sent][-3:] == ["user", "assistant", "user"]
+    assert [m["role"] for m in sent] == ["user"]
+    # D-142 R4 (R3-1): the follow-up's intent goes as its canonical question, never as typed.
+    assert sent[0]["content"] == "Why is this case blocked, and what should be done next?"
 
 
 # --- failures are labelled and never claimed as Claude's ------------------------------------

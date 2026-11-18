@@ -30,7 +30,7 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from typing import Any
 
-from . import anthropic_runtime, remote_test, synthetic_eligibility
+from . import anthropic_runtime, privacy_boundary, remote_test, synthetic_eligibility
 from .config import AiAssistantSettings, external_conversational
 from .llm import ChatModel, LlmUnavailableError, ModelAnswer, Piece, is_local_model_url
 from .model_admin_store import DataAccessPolicy
@@ -83,7 +83,15 @@ REFUSAL_NOTICES = (
 def model_class(model: ChatModel | None, base_url: str | None) -> str | None:
     # The provider class of the model answers use (None: no model). Only a literal loopback
     # endpoint is local; any other endpoint IT configured is not.
-    if isinstance(model, SyntheticOnlyModel):
+    # D-142 R1 (P2-3): every wrapper stack is unwrapped to the model that is actually called:
+    # the synthetic gate, the privacy boundary around an IT-configured model, and the
+    # qualification watcher (model_qualification.WatchedModel), in any order or depth.
+    from .model_qualification import WatchedModel  # deferred: it imports this module's peers
+
+    wrappers = (SyntheticOnlyModel, privacy_boundary.BoundedModel, WatchedModel)
+    for _ in range(8):
+        if not isinstance(model, wrappers):
+            break
         model = model.inner
     if model is None:
         return None

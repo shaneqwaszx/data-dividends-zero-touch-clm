@@ -13,6 +13,7 @@ content-free results are kept (no question or answer text).
 
 import hashlib
 import json
+import os
 import tempfile
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from ai_assistant.llm import ChatModel, LlmUnavailableError, ModelAnswer, Piece
 from ai_assistant.main import CUT_SHORT_NOTICE, create_app
 from ai_assistant.model_qualification import EVAL_FIXTURES
 from ai_assistant.support_chat import CUT_SHORT as SUPPORT_CUT_SHORT
+from assistant_hosting import eligibility
 
 from .runner import EVAL_NOW, ORIGIN, SESSION, Workspace, _digests
 from .variants import CaseInputs, case_inputs, verified_fixture_documents
@@ -126,11 +128,29 @@ def _list_item(case: CaseInputs) -> dict[str, Any]:
 
 
 class _FixtureGate:
-    """The hosted service's case policy object (D-139), here for the one synthetic fixture case."""
+    """The hosted service's case policy object (D-139), here for the one synthetic fixture case.
 
-    def __init__(self, case_id: str) -> None:
+    D-142 R1 (P2-3): it carries the deployment's own per-provider data policies (the same
+    ``ASSISTANT_HOSTING_*_DATA_POLICY`` settings, read the same way), so a qualification runs
+    under exactly the policy the service will use: synthetic_only qualifies the D-095 check,
+    pseudonymised the POC admission and the privacy boundary. An unusable setting fails closed
+    to synthetic_only (the service itself would not have started with it)."""
+
+    def __init__(self, case_id: str, environ: dict[str, str] | None = None) -> None:
         self.case_id = case_id
         self.refs = frozenset({hashlib.sha256(case_id.encode("utf-8")).hexdigest()[:12]})
+        try:
+            self._policy = eligibility.CasePolicy.from_env(
+                dict(os.environ) if environ is None else environ
+            )
+        except ValueError:
+            self._policy = eligibility.CasePolicy()
+
+    def data_policy(self, provider: str) -> str:
+        return self._policy.data_policy(provider)
+
+    def record(self, case_id: object, reason: str) -> None:
+        return None  # the harness keeps no refusal counts
 
     def __call__(self, case_id: object, summary: object) -> str | None:
         return None if str(case_id) == self.case_id else "NOT_THE_FIXTURE_CASE"

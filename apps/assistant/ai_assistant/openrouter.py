@@ -32,7 +32,7 @@ import json
 import re
 import threading
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
@@ -274,8 +274,11 @@ class OpenRouterChatModel:
         reasoning_allowance_tokens: int,
         max_prompt_bytes: int,
         transport: object,
+        wire_check: Callable[[list[dict[str, str]], bytes], None] | None = None,
     ) -> None:
         self._transport = require_allowed_transport(transport)
+        # D-142: the privacy boundary's check of the exact HTTP body (privacy_boundary.py).
+        self._wire_check = wire_check
         self._live = transport is LIVE_NETWORK
         max_tokens = answer_tokens + reasoning_allowance_tokens
         if reasoning_allowance_tokens < MIN_REASONING_ALLOWANCE or max_tokens > min(
@@ -424,6 +427,12 @@ class OpenRouterChatModel:
                     json=payload,
                     headers={**self._headers(), "Accept-Encoding": "identity"},
                 )
+                if self._wire_check is not None:
+                    # D-142: the exact serialised body, checked again before it is sent.
+                    try:
+                        self._wire_check(messages, request.content)
+                    except LlmUnavailableError:
+                        raise ModelCallError("not_allowed") from None
                 response = client.send(request, stream=True)
                 try:
                     status = response.status_code
@@ -518,6 +527,12 @@ class OpenRouterChatModel:
                     json=payload,
                     headers={**self._headers(), "Accept-Encoding": "identity"},
                 )
+                if self._wire_check is not None:
+                    # D-142: the exact serialised body, checked again before it is sent.
+                    try:
+                        self._wire_check(messages, request.content)
+                    except LlmUnavailableError:
+                        raise ModelCallError("not_allowed") from None
                 with anyio.fail_after(max(0.0, deadline - time.monotonic())):
                     reply = await client.send(request, stream=True)
                 try:

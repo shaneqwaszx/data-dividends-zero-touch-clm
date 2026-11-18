@@ -520,31 +520,32 @@ class LocalModel(FakeModel):
     name = "local-model"
 
 
-def test_an_api_key_model_writes_insights_with_a_ticket_when_external_answers_are_on() -> None:
+def test_an_api_key_model_never_writes_insights_even_when_external_answers_are_on() -> None:
+    # D-142 I-4 (P2-1): the browser's findings may name staff, so the API-key path is closed;
+    # the local model writes them instead.
     request = InsightsRequest.model_validate(FINDINGS)
     paid, local = PaidModel(), LocalModel(answer=reply())
     result = DashboardInsights().write(
         "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
     )
-    assert result.model == "paid-model"
-    assert paid.ticketed == [True] and local.calls == []
+    assert result.model == "local-model"
+    assert paid.calls == [] and len(local.calls) == 1
 
 
-def test_a_refused_or_rejected_api_key_call_falls_back_to_the_local_model_once() -> None:
+def test_with_an_api_key_model_active_the_local_answer_is_written_once_and_reused() -> None:
     request = InsightsRequest.model_validate(FINDINGS)
     insights = DashboardInsights()
     paid, local = PaidModel(refuse=True), LocalModel(answer=reply())
     first = insights.write(
         "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
     )
-    assert first.model == "local-model" and len(paid.calls) == 1 and len(local.calls) == 1
-    # The local answer is reused: the paid model is not tried again for the same figures.
+    assert first.model == "local-model" and paid.calls == [] and len(local.calls) == 1
+    # The local answer is reused for the same figures.
     again = insights.write(
         "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
     )
-    assert again == first and len(paid.calls) == 1 and len(local.calls) == 1
+    assert again == first and paid.calls == [] and len(local.calls) == 1
 
-    # An unusable paid reply gets one try only (it costs money); the local model is the retry.
     unusable = PaidModel(answer="not json")
     local = LocalModel(answer=reply())
     result = DashboardInsights().write(
@@ -555,7 +556,7 @@ def test_a_refused_or_rejected_api_key_call_falls_back_to_the_local_model_once()
         fallback=(local, LOCAL_URL),
         external=True,
     )
-    assert result.model == "local-model" and unusable.ticketed == [True]
+    assert result.model == "local-model" and unusable.calls == []
 
 
 def test_without_external_answers_or_a_local_model_the_api_key_model_is_not_enough() -> None:

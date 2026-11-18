@@ -14,6 +14,7 @@ import os
 import secrets
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -359,3 +360,184 @@ def test_a_frozen_applicability_basis_is_write_once_in_mongo(store: MongoWorkflo
     changed = same.model_copy(update={"applicability_basis": None, "revision": same.revision + 1})
     with pytest.raises(PersistenceConflictError):
         runs.update(changed, expected_revision=same.revision)
+
+
+# --- Owner-approved apply mode (2026-11-18): the CLI against the readWrite-only user ----
+
+
+class _Borrowed:
+    """Hands the fixture's authenticated client to the CLI without letting it close it."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getitem__(self, name: str) -> Any:
+        return self._client[name]
+
+    def close(self) -> None:
+        return None
+
+
+def _cli(store: MongoWorkflowStore, argv: list[str], capsys: Any) -> tuple[int, dict[str, Any]]:
+    import json
+
+    from scripts import p2_1_migration as cli
+    from test_p2_1_migration import APPLY_NOW
+
+    name = store.definitions.database.name
+    code = cli.main(
+        ["--database", name, *argv],
+        client_factory=lambda _uri: _Borrowed(store.definitions.database.client),
+        seed_baseline=Seeder(),
+        now=APPLY_NOW,
+        # A synthetic URI that only names the database; the real connection is the fixture's.
+        environ={cli.URI_ENVIRONMENT_KEY: f"mongodb://localhost/{name}"},
+    )
+    return code, json.loads(capsys.readouterr().out)
+
+
+def _approval(store: MongoWorkflowStore, folder: Any) -> str:
+    from test_p2_1_migration import write_approval
+
+    return str(write_approval(folder, database=store.definitions.database.name))
+
+
+def test_physical_cli_apply_verifies_releases_the_lock_and_reruns_as_a_no_op(
+    store: MongoWorkflowStore, tmp_path: Any, capsys: Any
+) -> None:
+    from app.persistence.p2_1_migration import MIGRATION_LOCK_COLLECTION
+
+    store.definitions.insert_one(p2_0_raw())
+    approval = _approval(store, tmp_path)
+    code, dry = _cli(store, ["--dry-run"], capsys)
+    assert code == 0
+    apply = ["--apply", "--window-approval", approval, "--expect-plan-hash"]
+    code, report = _cli(store, [*apply, str(dry["plan_hash"])], capsys)
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED" and report["lock_released"]
+    database = store.definitions.database
+    assert database[MIGRATION_LOCK_COLLECTION].count_documents({}) == 0
+    stored = store.definitions.find_one({"_id": "refresh"})
+    assert stored is not None and "p2_1_migration_marker" in stored
+    code, again = _cli(store, ["--dry-run"], capsys)
+    code, report = _cli(store, [*apply, str(again["plan_hash"])], capsys)
+    assert code == 0 and report["applied"] == 0
+    assert store.definitions.find_one({"_id": "refresh"}) == stored
+
+
+def test_physical_interrupted_apply_resumes_with_its_lock(
+    store: MongoWorkflowStore, tmp_path: Any, capsys: Any
+) -> None:
+    """A run that died after its cold copies (lock held, no marker) is resumed by lock id
+    inside the same window and converges."""
+
+    from test_p2_1_migration import APPLY_NOW
+
+    from app.persistence.p2_1_migration import (
+        MIGRATION_LOCK_COLLECTION,
+        acquire_migration_lock,
+        load_window_approval,
+        read_migration_lock,
+        store_cold_inserts,
+    )
+
+    store.definitions.insert_one(p2_0_raw())
+    approval_path = _approval(store, tmp_path)
+    database = store.definitions.database
+    locks = database[MIGRATION_LOCK_COLLECTION]
+    approval = load_window_approval(Path(approval_path), database=database.name, now=APPLY_NOW)
+    lock_id = acquire_migration_lock(locks, approval=approval, now=APPLY_NOW)
+    plan = plan_p2_1_migration(
+        store.definitions.find({}), seed_baseline=Seeder(), now=APPLY_NOW, cold=store.cold
+    )
+    store_cold_inserts(plan.migrations[0], store.cold, now=APPLY_NOW)  # then the crash
+    assert read_migration_lock(locks) is not None
+    code, dry = _cli(store, ["--dry-run"], capsys)
+    apply = ["--apply", "--window-approval", approval_path, "--expect-plan-hash"]
+    code, report = _cli(store, [*apply, str(dry["plan_hash"])], capsys)
+    assert code == 2 and report["reason"] == "MIGRATION_LOCK_HELD"
+    code, report = _cli(store, [*apply, str(dry["plan_hash"]), "--resume-lock", lock_id], capsys)
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED"
+    assert read_migration_lock(locks) is None
+    stored = store.definitions.find_one({"_id": "refresh"})
+    assert stored is not None
+    assert verify_p2_1_definition_document(stored, cold=store.cold) is None
+
+
+def test_physical_migration_lock_is_insert_only_and_released_by_id(
+    store: MongoWorkflowStore, tmp_path: Any
+) -> None:
+    from test_p2_1_migration import APPLY_NOW
+
+    from app.persistence.p2_1_migration import (
+        MIGRATION_LOCK_COLLECTION,
+        MigrationLockHeldError,
+        acquire_migration_lock,
+        load_window_approval,
+        release_migration_lock,
+    )
+
+    database = store.definitions.database
+    locks = database[MIGRATION_LOCK_COLLECTION]
+    approval = load_window_approval(
+        Path(_approval(store, tmp_path)), database=database.name, now=APPLY_NOW
+    )
+    lock_id = acquire_migration_lock(locks, approval=approval, now=APPLY_NOW)
+    with pytest.raises(MigrationLockHeldError):
+        acquire_migration_lock(locks, approval=approval, now=APPLY_NOW)
+    assert not release_migration_lock(locks, "0" * 32)
+    assert release_migration_lock(locks, lock_id)
+    assert locks.count_documents({}) == 0
+
+
+def test_backend_refuses_to_start_while_a_migration_lock_is_held(store: MongoWorkflowStore) -> None:
+    """Integrator hook: MongoWorkflowStore.initialize fails closed under a held P2-1 lock."""
+    from app.persistence.mongo_workflow_store import MigrationInProgressError
+    from app.persistence.p2_1_migration import MIGRATION_LOCK_COLLECTION, MIGRATION_LOCK_ID
+
+    locks = store._db[MIGRATION_LOCK_COLLECTION]
+    locks.insert_one({"_id": MIGRATION_LOCK_ID, "lock_id": "test", "state": "HELD"})
+    try:
+        with pytest.raises(MigrationInProgressError):
+            store.initialize()
+    finally:
+        locks.delete_one({"_id": MIGRATION_LOCK_ID})
+    store.initialize()  # released: starts again
+
+
+def test_physical_refused_resume_keeps_the_lock(
+    store: MongoWorkflowStore, tmp_path: Any, capsys: Any
+) -> None:
+    """QG P1: a resumed run that is refused never releases the lock of a run that wrote."""
+
+    from test_p2_1_migration import APPLY_NOW
+
+    from app.persistence.p2_1_migration import (
+        MIGRATION_LOCK_COLLECTION,
+        acquire_migration_lock,
+        load_window_approval,
+        read_migration_lock,
+        store_cold_inserts,
+    )
+
+    store.definitions.insert_one(p2_0_raw())
+    approval_path = _approval(store, tmp_path)
+    database = store.definitions.database
+    locks = database[MIGRATION_LOCK_COLLECTION]
+    approval = load_window_approval(Path(approval_path), database=database.name, now=APPLY_NOW)
+    lock_id = acquire_migration_lock(locks, approval=approval, now=APPLY_NOW)
+    plan = plan_p2_1_migration(
+        store.definitions.find({}), seed_baseline=Seeder(), now=APPLY_NOW, cold=store.cold
+    )
+    store_cold_inserts(plan.migrations[0], store.cold, now=APPLY_NOW)  # then the crash
+    apply = ["--apply", "--window-approval", approval_path, "--expect-plan-hash"]
+    code, report = _cli(store, [*apply, "0" * 64, "--resume-lock", lock_id], capsys)
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    assert report["lock_released"] is False and "fresh dry run" in report["next_step"]
+    held = read_migration_lock(locks)
+    assert held is not None and held["lock_id"] == report["lock_id"]
+    code, dry = _cli(store, ["--dry-run"], capsys)
+    code, report = _cli(
+        store, [*apply, str(dry["plan_hash"]), "--resume-lock", str(held["lock_id"])], capsys
+    )
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED"
+    assert read_migration_lock(locks) is None

@@ -51,8 +51,13 @@ def run_bounded_process(
     unavailable_code: str,
     timeout_code: str,
     failed_code: str,
+    failed_codes: Mapping[int, str] | None = None,
 ) -> bytes:
-    """Arguments are constructed by backend adapters; no shell or user filenames."""
+    """Arguments are constructed by backend adapters; no shell or user filenames.
+
+    ``failed_codes`` maps a child's fixed exit code to an application-owned error code;
+    any other non-zero exit (including signals, which are negative) uses ``failed_code``.
+    """
 
     try:
         process = subprocess.Popen(
@@ -102,5 +107,7 @@ def run_bounded_process(
     if exceeded.is_set() or reader.is_alive():
         raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
     if process.returncode != 0:
-        raise LocalDocumentProcessingError(failed_code)
+        raise LocalDocumentProcessingError(
+            (failed_codes or {}).get(process.returncode, failed_code)
+        )
     return bytes(output)

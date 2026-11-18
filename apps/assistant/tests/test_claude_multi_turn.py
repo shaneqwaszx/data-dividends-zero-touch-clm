@@ -239,7 +239,8 @@ def test_the_runtime_sends_follow_ups_once_reserved_settled_and_verified(
     assert [r.method for r in claude.requests] == ["GET", "POST"]
     system, conversation = _expected(messages)
     assert claude.messages[0]["system"] == [{"type": "text", "text": t} for t in system]
-    assert claude.messages[0]["messages"] == conversation
+    # D-142 R3 (OD-3): the history is never forwarded; the final question goes alone.
+    assert claude.messages[0]["messages"] == conversation[-1:]
     (call,) = _ledger(settings).closed_calls_after(0)
     assert call.state == "settled" and call.verification == "verified"
     assert call.charged_micro_usd < call.reserved_micro_usd
@@ -449,7 +450,8 @@ def test_an_rm_conversation_on_the_activated_claude_model_is_answered(
     before = journey.claude.posts
     history: list[dict[str, str]] = []
     journey.client.cookies.set("clm_session", "rm-session")
-    for question in (FIRST, SECOND, "What should I do next?"):
+    # D-142 R4 (complete-question admission): each turn is a supported case question.
+    for question in ("Is this case ready for GoldTier?", SECOND, "What should I do next?"):
         reply = journey.client.post(
             f"/assistant/cases/{CASE_ID}/chat/stream",
             json={"message": question, "history": history},
@@ -463,7 +465,8 @@ def test_an_rm_conversation_on_the_activated_claude_model_is_answered(
     assert journey.claude.posts == before + 3 and journey.openrouter.chats == []
     assert journey.baseline.calls == 0
     bodies = journey.claude.messages[-3:]
-    assert [len(body["messages"]) for body in bodies] == [1, 3, 5]
+    # D-142 R3 (OD-3): no history reaches the external model; each turn goes alone.
+    assert [len(body["messages"]) for body in bodies] == [1, 1, 1]
     assert all(m["role"] in ("user", "assistant") for b in bodies for m in b["messages"])
     calls = _ledger(journey.settings).closed_calls_after(0)
     assert [c.verification for c in calls] == ["verified"] * len(calls)
