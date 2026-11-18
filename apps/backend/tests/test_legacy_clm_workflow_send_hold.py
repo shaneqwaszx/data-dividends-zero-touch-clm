@@ -23,9 +23,9 @@ from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
 from scripts.zero_touch_happy_path_fixtures import SHARE_COMPANIES
 from test_clm_orchestration import make_ready_case
 from test_slice_b_registry_demo import confirm
-from test_workflow_manager import STAGE, case_url, director_actor, login, onboarding_run
+from test_workflow_manager import STAGE, case_url, login, onboarding_run
 from test_zero_touch_database_happy_path import NoAcra, RecordingTarget, prepare, sandbox_settings
-from workflow_publication_seed import publish_draft
+from workflow_publication_seed import publish_governed
 
 from app.config import Settings
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID, WorkflowStage
@@ -64,7 +64,6 @@ class CorruptDefinitions(InMemoryWorkflowDefinitionRepository):
 def activate(store: WorkflowPersistence, stage: dict[str, Any]) -> None:
     """Activate one onboarding stage in the given store, as a Director would."""
 
-    actor = director_actor()
     service = WorkflowManagementService(
         definitions=store.definitions,
         runs=store.runs,
@@ -72,16 +71,8 @@ def activate(store: WorkflowPersistence, stage: dict[str, Any]) -> None:
         clock=lambda: datetime(2020, 1, 1, tzinfo=UTC),
     )
     service.provision_onboarding()
-    baseline = service.get_workflow(actor, ONBOARDING_WORKFLOW_ID)
-    saved = service.save_draft(
-        lambda: actor,
-        ONBOARDING_WORKFLOW_ID,
-        expected_revision=baseline.revision,
-        stages=(WorkflowStage.model_validate(stage),),
-    )
-    del saved
-    # Activation is frozen (ADR-017); publish as governed publication will.
-    publish_draft(store.definitions, ONBOARDING_WORKFLOW_ID)
+    # P2-1 retired the draft route; HR proposes and a Director approves the stage.
+    publish_governed(store, ONBOARDING_WORKFLOW_ID, (WorkflowStage.model_validate(stage),))
 
 
 def storage(

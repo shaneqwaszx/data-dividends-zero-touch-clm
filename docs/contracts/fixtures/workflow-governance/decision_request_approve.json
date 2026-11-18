@@ -1,0 +1,21 @@
+{
+  "acknowledged_permanent_obligations": [
+    {
+      "field_id": null,
+      "stage_id": "sanctions-attestation"
+    },
+    {
+      "field_id": "screened-by",
+      "stage_id": "sanctions-attestation"
+    },
+    {
+      "field_id": "outcome",
+      "stage_id": "sanctions-attestation"
+    }
+  ],
+  "content_hash": "306a1db210e1ad991884effd8f68275018c8e1530cb5248a72eefc2aac72dc9f",
+  "expected_proposal_revision": 3,
+  "expected_workflow_revision": 7,
+  "outcome": "APPROVE",
+  "reason": "Required by the sanctions screening procedure."
+}

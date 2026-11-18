@@ -70,6 +70,64 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/workflows/onboarding/execution-plan", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PUT", "/api/workflows/{workflow_id}/draft", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/activate", RouteAccess.ACTOR_ONLY),
+    # P2-1 (ADR-017 section 6): the governance service checks HR or Director inside the lock.
+    RoutePolicy("GET", "/api/workflows/simulation-scenarios", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/workflow-approvals", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/workflows/{workflow_id}/proposals", RouteAccess.ACTOR_ONLY),
+    RoutePolicy(
+        "PUT", "/api/workflows/{workflow_id}/proposals/{proposal_id}", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/validate",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/simulate",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/submit",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/withdraw",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/decision",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "GET",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/comparison",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    # M2 (contract CC-4): recovery and administration; checked inside the lock.
+    RoutePolicy(
+        "POST", "/api/workflows/{workflow_id}/emergency-fallback", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/release",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/copy",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "GET", "/api/workflows/{workflow_id}/versions/{version}", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy("GET", "/api/workflows/notices", RouteAccess.ACTOR_ONLY),
+    RoutePolicy(
+        "POST", "/api/workflows/notices/{notice_id}/acknowledge", RouteAccess.ACTOR_ONLY
+    ),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/new-cases", RouteAccess.ACTOR_ONLY),

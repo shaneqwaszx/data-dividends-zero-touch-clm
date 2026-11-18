@@ -1,0 +1,41 @@
+{
+  "active_version": 1,
+  "base_version": 1,
+  "content_hash": "306a1db210e1ad991884effd8f68275018c8e1530cb5248a72eefc2aac72dc9f",
+  "encoded_bytes": 612,
+  "issues": [],
+  "max_encoded_bytes": 1048576,
+  "permanent_obligations": [
+    {
+      "change": "NEW_REQUIRED_STAGE",
+      "detail": "New required stage; it will hold the send until confirmed.",
+      "field_label": null,
+      "key": {
+        "field_id": null,
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    },
+    {
+      "change": "NEW_REQUIRED_FIELD",
+      "detail": "New required text field.",
+      "field_label": "Screened by",
+      "key": {
+        "field_id": "screened-by",
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    },
+    {
+      "change": "NEW_REQUIRED_FIELD",
+      "detail": "New required choice: Clear, Escalated.",
+      "field_label": "Screening outcome",
+      "key": {
+        "field_id": "outcome",
+        "stage_id": "sanctions-attestation"
+      },
+      "stage_name": "Sanctions attestation"
+    }
+  ],
+  "valid": true
+}

@@ -1,12 +1,14 @@
-"""Test-only stand-in for governed publication while legacy activation is frozen (ADR-017).
+"""Test-only workflow publication helpers (ADR-017; no production caller).
 
-P2-0 freezes ``POST /api/workflows/{id}/activate`` (409 WORKFLOW_PUBLICATION_FROZEN) and
-governed publication arrives only in P2-1. Tests that need an active version publish it
-the way governed publication will: one write that appends version ``latest_version + 1``
-and sets ``active_version`` and ``latest_version`` to it. ``publish_draft`` writes only
-process-local (memory) repositories. ``publish_stored_draft_mongo`` writes only a freshly
-generated, allowlisted disposable test database (``scripts.mongo_test_safety``). Neither has
-a production caller.
+``publish_governed`` publishes through the real P2-1 path (HR proposes and submits, a
+Director approves) and is the helper for any test that later starts an application.
+
+``publish_draft`` is a raw test seed kept ONLY for service-level rebase tests that build a
+``WorkflowManagementService`` directly: it writes a memory repository's payload without
+provenance, baseline or history, so the P2-1 startup verification would refuse the result.
+It must never be used before ``create_app`` or any other startup verification.
+``publish_stored_draft_mongo`` writes only a freshly generated, allowlisted disposable test
+database (``scripts.mongo_test_safety``) and is kept for its safety-guard test.
 """
 
 from __future__ import annotations
@@ -64,7 +66,8 @@ def publish_draft(
     stages: tuple[WorkflowStage, ...] | None = None,
     now: datetime | None = None,
 ) -> Any:
-    """Publish the stored draft (or ``stages``) as the next governed version."""
+    """Raw test seed: append ``stages`` as version ``latest_version + 1``, bypassing
+    governance. Service-level rebase tests only; never before startup verification."""
 
     if not isinstance(definitions, InMemoryWorkflowDefinitionRepository):
         raise TypeError("test publication writes memory repositories only")
@@ -90,6 +93,81 @@ def publish_draft(
         )
         definitions._items[workflow_id] = published  # noqa: SLF001
         return published
+
+
+def publish_governed(
+    store: WorkflowPersistence,
+    workflow_id: str,
+    stages: tuple[WorkflowStage, ...],
+    *,
+    now: datetime | None = None,
+) -> Any:
+    """Publish ``stages`` through the real P2-1 path (memory stores): HR proposes and
+    submits, a Director approves with the exact permanent-obligation acknowledgement."""
+
+    from threading import RLock
+
+    from app.api_workflow_governance_models import (
+        CreateProposalRequest,
+        DecisionRequest,
+        SubmitProposalRequest,
+    )
+    from app.domain.access import AuthenticatedActor, Role, UserProfile
+    from app.domain.workflow_governance import DecisionOutcome
+    from app.services.workflow_governance import WorkflowGovernanceService
+    from app.services.workflow_management import governance_store
+
+    repository = governance_store(store.definitions)
+    if repository is None:
+        raise TypeError("governed publication needs a governance repository")
+    moment = now or datetime.now(UTC)
+    service = WorkflowGovernanceService(
+        repository=repository, runs=store.runs, lock=RLock(), clock=lambda: moment
+    )
+
+    def actor(user_id: str, role: Role) -> Any:
+        profile = UserProfile(user_id=user_id, display_name=user_id, role=role, team_id=None)
+        return AuthenticatedActor.model_construct(profile=profile)
+
+    hr, director = actor("hr-admin", Role.HR), actor("olivia-koh", Role.DIRECTOR)
+    revision = store.definitions.get(workflow_id).revision
+    created = service.create_proposal(
+        lambda: hr,
+        workflow_id,
+        CreateProposalRequest(expected_workflow_revision=revision, stages=stages),
+    )
+    report = service.validate(hr, workflow_id, created.proposal_id, _empty_validation())
+    submitted = service.submit_proposal(
+        lambda: hr,
+        workflow_id,
+        created.proposal_id,
+        SubmitProposalRequest(
+            expected_workflow_revision=store.definitions.get(workflow_id).revision,
+            expected_proposal_revision=created.revision,
+            content_hash=report.content_hash,
+        ),
+    )
+    return service.decide(
+        lambda: director,
+        workflow_id,
+        created.proposal_id,
+        DecisionRequest(
+            outcome=DecisionOutcome.APPROVE,
+            reason="Approved for this test run.",
+            expected_workflow_revision=store.definitions.get(workflow_id).revision,
+            expected_proposal_revision=submitted.revision,
+            content_hash=report.content_hash,
+            acknowledged_permanent_obligations=tuple(
+                item.key for item in report.permanent_obligations
+            ),
+        ),
+    )
+
+
+def _empty_validation() -> Any:
+    from app.api_workflow_governance_models import ValidateProposalRequest
+
+    return ValidateProposalRequest()
 
 
 def publish_stored_draft_mongo(

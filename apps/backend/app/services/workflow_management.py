@@ -3,22 +3,29 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+import weakref
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from threading import RLock
-from typing import Literal, Protocol
+from threading import Lock, RLock
+from typing import Literal, Protocol, cast
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from app.connectors.idp import LocalDocumentProcessingError
 from app.connectors.local_document_runtime import isolated_document_pages
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability, Role
 from app.domain.models import OnboardingCase
+from app.domain.workflow_governance import (
+    GovernanceErrorCode,
+    GovernanceEvent,
+    GovernanceEventKind,
+    MigrationMarker,
+    WorkflowGovernanceState,
+)
 from app.domain.workflows import (
     MAX_ANSWER_LENGTH,
-    MAX_WORKFLOW_AUDIT_EVENTS,
-    ONBOARDING_ANCHOR_STAGES,
     ONBOARDING_USE_CASE,
     ONBOARDING_WORKFLOW_ID,
     WorkflowAnswer,
@@ -34,22 +41,39 @@ from app.domain.workflows import (
     WorkflowStageConfirmation,
     WorkflowVersion,
 )
-from app.persistence.errors import PersistenceConflictError
+from app.persistence.errors import PersistenceConflictError, PersistenceError
+from app.persistence.workflow_governance_store import outbox_for_event
 from app.services.workflow_autofill import (
     find_labelled_value,
     match_option,
     normalize_date,
     normalize_number,
 )
-from app.services.workflow_repository import WorkflowDefinitionRepository, WorkflowRunRepository
+from app.services.workflow_repository import (
+    WorkflowDefinitionRepository,
+    WorkflowGovernanceNotMigratedError,
+    WorkflowGovernanceRepository,
+    WorkflowRunRepository,
+)
 
 LOGGER = logging.getLogger(__name__)
 HOLD_INCOMPLETE = "WORKFLOW_STAGE_INCOMPLETE"
 HOLD_UNAVAILABLE = "WORKFLOW_STAGE_CHECK_UNAVAILABLE"
 _FIELD_FILLER_ROLES = frozenset({Role.CLIENT_ONBOARDER, Role.RELATIONSHIP_MANAGER})
-_ANCHOR_NODE_IDS = frozenset(node_id for node_id, _ in ONBOARDING_ANCHOR_STAGES)
 
 _NEVER_SAVED = 0
+# The marker of a definition created already governed (no legacy data to migrate, D-7).
+BORN_GOVERNED_TOOL_VERSION = "p2-1-born-governed"
+_GOVERNANCE_METHODS = (
+    "get_governed",
+    "list_governed",
+    "create_governed",
+    "write_governance",
+    "drain_outbox",
+    "drain_all",
+    "get_version",
+    "verify_governance_state",
+)
 
 Reauthorize = Callable[[], AuthenticatedActor]
 
@@ -58,8 +82,10 @@ class WorkflowForbiddenError(Exception):
     pass
 
 
-class WorkflowPublicationFrozenError(Exception):
-    """ADR-017 section 3.5: legacy activation is frozen; governed publication is P2-1."""
+class WorkflowRouteRetiredError(Exception):
+    """ADR-017 section 6: a retired legacy route (410 ``WORKFLOW_ROUTE_RETIRED``)."""
+
+    code = GovernanceErrorCode.ROUTE_RETIRED.value
 
 
 class WorkflowNotFoundError(Exception):
@@ -77,6 +103,112 @@ class WorkflowValidationError(Exception):
         self.public_message = message
 
 
+class ConfirmationGate:
+    """ADR-017 section 4 (R1-9, R2-5): the per-workflow confirmation gate.
+
+    A stage confirmation takes the workflow's gate lock briefly to increment its in-progress
+    counter before it enters the run's lock, and again to decrement it afterwards. The
+    deactivation decision holds the same lock from checking the counter until its own
+    compare-and-set completes, so no confirmation can begin between the check and the
+    decision. Valid under the single-backend-process deployment (ADR-017 3.4).
+    """
+
+    def __init__(self) -> None:
+        self._registry = Lock()
+        # workflow id -> its gate entry; pruned once no caller uses it (QG P3-1).
+        self._entries: dict[str, _GateEntry] = {}
+
+    def _enter(self, workflow_id: str) -> _GateEntry:
+        with self._registry:
+            entry = self._entries.get(workflow_id)
+            if entry is None:
+                entry = self._entries[workflow_id] = _GateEntry()
+            entry.users += 1
+            return entry
+
+    def _leave(self, workflow_id: str, entry: _GateEntry) -> None:
+        with self._registry:
+            entry.users -= 1
+            if entry.users == 0 and entry.confirming == 0:
+                self._entries.pop(workflow_id, None)
+
+    @contextmanager
+    def confirming(self, workflow_id: str) -> Iterator[None]:
+        entry = self._enter(workflow_id)
+        try:
+            with entry.lock:
+                entry.confirming += 1
+            try:
+                yield
+            finally:
+                with entry.lock:
+                    entry.confirming -= 1
+        finally:
+            self._leave(workflow_id, entry)
+
+    @contextmanager
+    def holding(self, workflow_id: str) -> Iterator[None]:
+        """Hold the workflow's gate (the deactivation decision, until its CAS completes)."""
+
+        entry = self._enter(workflow_id)
+        try:
+            with entry.lock:
+                yield
+        finally:
+            self._leave(workflow_id, entry)
+
+    def in_progress(self, workflow_id: str) -> int:
+        """The current count; meaningful to a caller inside ``holding(workflow_id)``."""
+
+        with self._registry:
+            entry = self._entries.get(workflow_id)
+            return 0 if entry is None else entry.confirming
+
+    def tracked(self) -> int:
+        """How many workflows have a live gate entry (bounded by callers in flight)."""
+
+        with self._registry:
+            return len(self._entries)
+
+
+class _GateEntry:
+    __slots__ = ("confirming", "lock", "users")
+
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.users = 0
+        self.confirming = 0
+
+
+_GATES: weakref.WeakKeyDictionary[object, ConfirmationGate] = weakref.WeakKeyDictionary()
+_GATES_LOCK = Lock()
+
+
+def confirmation_gate_for(definition_lock: object) -> ConfirmationGate:
+    """The one gate shared by every service built on the same definition lock."""
+
+    with _GATES_LOCK:
+        gate = _GATES.get(definition_lock)
+        if gate is None:
+            gate = _GATES[definition_lock] = ConfirmationGate()
+        return gate
+
+
+def stored_active_version(definition: WorkflowDefinition) -> WorkflowVersion | None:
+    """The version new runs use: the stored top-level ``active_version`` (ADR-017 3.5).
+
+    0 means none (an empty or deactivated workflow). A definition that was never
+    backfilled keeps the P2-0 rule (the newest version).
+    """
+
+    number = definition.stored_active_version
+    if number is None:
+        return definition.active_version
+    if number == 0:
+        return None
+    return next((item for item in definition.versions if item.version == number), None)
+
+
 class WorkflowCaseReader(Protocol):
     def get_case(self, case_id: UUID) -> OnboardingCase | None: ...
 
@@ -91,6 +223,42 @@ class CaseWorkflowView:
 
 def stage_blocks_send(stage: WorkflowStage) -> bool:
     return any(field.required for field in stage.fields)
+
+
+def governance_store(
+    definitions: WorkflowDefinitionRepository,
+) -> WorkflowGovernanceRepository | None:
+    """The P2-1 governance port of a definition store, or None when it has none."""
+
+    if all(callable(getattr(definitions, name, None)) for name in _GOVERNANCE_METHODS):
+        return cast(WorkflowGovernanceRepository, definitions)
+    return None
+
+
+def born_governed_state(
+    workflow_id: str, *, now: datetime, actor_id: str | None
+) -> WorkflowGovernanceState:
+    """The governance fields of a definition created governed: no versions, an empty
+    baseline, and its creation event awaiting archival (ADR-017 section 5, D-7)."""
+
+    event = GovernanceEvent(
+        sequence=1,
+        occurred_at=now,
+        actor_id=actor_id,
+        kind=GovernanceEventKind.WORKFLOW_CREATED,
+        summary="Created workflow; unpublished until a proposal is approved",
+    )
+    return WorkflowGovernanceState(
+        migration_marker=MigrationMarker(
+            migrated_at=now,
+            tool_version=BORN_GOVERNED_TOOL_VERSION,
+            legacy_versions=0,
+            legacy_draft_converted=False,
+        ),
+        governance_events=(event,),
+        outbox=(outbox_for_event(workflow_id, event),),
+        governance_sequence=1,
+    )
 
 
 @dataclass(frozen=True)
@@ -124,11 +292,24 @@ class WorkflowManagementService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
         self._lock = RLock()
+        self._gate = confirmation_gate_for(self._lock)
 
-    # Director: definitions.
+    @property
+    def definition_lock(self) -> RLock:
+        """The one lock that orders every definition write (governance shares it)."""
+
+        return self._lock
+
+    @property
+    def confirmation_gate(self) -> ConfirmationGate:
+        """The confirmation gate shared with the deactivation decision (ADR-017 4)."""
+
+        return self._gate
+
+    # HR and Director: definitions (HR authors, a Director decides; both read).
 
     def list_workflows(self, actor: AuthenticatedActor) -> list[WorkflowDefinition]:
-        self._require_director(actor)
+        self._require_reader(actor)
         with self._lock:
             # A read never creates a definition (ADR-017 R1-2); provisioning is at startup.
             return self._definitions.list()
@@ -141,7 +322,7 @@ class WorkflowManagementService:
         return [
             item
             for item in self._definitions.list()
-            if not item.is_onboarding and item.active_version is not None
+            if not item.is_onboarding and stored_active_version(item) is not None
         ]
 
     def runs_for_workflow(
@@ -175,7 +356,7 @@ class WorkflowManagementService:
             actor = reauthorize()
             self._require_filler(actor)
             definition = self._require_definition(workflow_id)
-            version = definition.active_version
+            version = stored_active_version(definition)
             team_id = actor.profile.team_id
             if (
                 version is None
@@ -231,7 +412,10 @@ class WorkflowManagementService:
         stage_id: str,
         expected_revision: int,
     ) -> WorkflowRun:
-        with self._cases.case_lock(run_id):
+        # Authorize and resolve the run first, so only a real, owned run's workflow id
+        # ever reaches the gate (QG P3-1); then re-check inside the run's lock.
+        self._owned_run(reauthorize(), workflow_id, run_id, None)
+        with self._gate.confirming(workflow_id), self._cases.case_lock(run_id):
             actor = reauthorize()
             run = self._owned_run(actor, workflow_id, run_id, expected_revision)
             return self._with_confirmation(run, stage_id, actor)
@@ -271,7 +455,7 @@ class WorkflowManagementService:
             self._runs.delete(run_id)
 
     def get_workflow(self, actor: AuthenticatedActor, workflow_id: str) -> WorkflowDefinition:
-        self._require_director(actor)
+        self._require_reader(actor)
         with self._lock:
             return self._require_definition(workflow_id)
 
@@ -284,27 +468,44 @@ class WorkflowManagementService:
         country: str,
         case_source: WorkflowCaseSource = WorkflowCaseSource.EXISTING_CASE,
     ) -> WorkflowDefinition:
+        """HR creates an empty non-onboarding workflow, born governed (D-7).
+
+        It has no version (``active_version: 0``), starts no run and stays a draft until an
+        approved proposal publishes its first version. A store that is not migrated refuses
+        (503 ``WORKFLOW_GOVERNANCE_NOT_MIGRATED``) instead of creating an ungoverned document.
+        """
+
         with self._lock:
             actor = reauthorize()
-            self._require_director(actor)
+            self._require_author(actor)
             if use_case.strip().casefold() == ONBOARDING_USE_CASE.casefold():
                 raise WorkflowValidationError(
                     "WORKFLOW_USE_CASE_RESERVED",
                     "Onboarding has one workflow. Add stages to it instead.",
                 )
+            store = self._governed_store()
+            if store is None:
+                raise WorkflowGovernanceNotMigratedError
             now = self._clock()
-            return self._definitions.create(
-                WorkflowDefinition(
-                    workflow_id=str(self._uuid_factory()),
-                    name=name,
-                    use_case=use_case,
-                    country=country,
-                    case_source=case_source,
-                    audit=(self._audit(actor, now, "CREATED", "Created workflow"),),
-                    created_at=now,
-                    updated_at=now,
+            workflow_id = str(self._uuid_factory())
+            try:
+                created = store.create_governed(
+                    WorkflowDefinition(
+                        workflow_id=workflow_id,
+                        name=name,
+                        use_case=use_case,
+                        country=country,
+                        case_source=case_source,
+                        audit=(self._audit(actor, now, "CREATED", "Created workflow"),),
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    born_governed_state(workflow_id, now=now, actor_id=actor.profile.user_id),
                 )
-            )
+            except PersistenceConflictError:
+                raise WorkflowConflictError from None
+            _drain_after_commit(store, workflow_id, now)
+            return created.definition
 
     def save_draft(
         self,
@@ -314,35 +515,25 @@ class WorkflowManagementService:
         expected_revision: int,
         stages: tuple[WorkflowStage, ...],
     ) -> WorkflowDefinition:
+        """Retired (ADR-017 section 6, PR-5): HR edits a proposal instead. Writes nothing."""
+
+        del workflow_id, expected_revision, stages
         with self._lock:
-            actor = reauthorize()
-            self._require_director(actor)
-            current = self._current_for_write(workflow_id, expected_revision)
-            self._validate_structure(current, stages)
-            now = self._clock()
-            return self._update(
-                current,
-                actor,
-                now,
-                "DRAFT_SAVED",
-                f"Saved draft with {len(stages)} stages",
-                draft_stages=stages,
-            )
+            reauthorize()
+            raise WorkflowRouteRetiredError
 
     def activate(
         self, reauthorize: Reauthorize, workflow_id: str, *, expected_revision: int
     ) -> WorkflowDefinition:
-        """Frozen (ADR-017 P2-0 transition step 1); governed publication returns in P2-1.
+        """Retired (ADR-017 section 6, PR-4): a Director's approval publishes a version.
 
-        The actor is still reauthorized so an unauthorized caller keeps its 403. Nothing is
-        read for writing and nothing is written.
+        The caller is still reauthorized. Nothing is read for writing and nothing is written.
         """
 
         del workflow_id, expected_revision
         with self._lock:
-            actor = reauthorize()
-            self._require_director(actor)
-            raise WorkflowPublicationFrozenError
+            reauthorize()
+            raise WorkflowRouteRetiredError
 
     def start_run(
         self, reauthorize: Reauthorize, workflow_id: str, *, case_id: UUID
@@ -351,7 +542,8 @@ class WorkflowManagementService:
             actor = reauthorize()
             self._require_filler(actor)
             definition = self._require_definition(workflow_id)
-            version = definition.active_version
+            # The stored active version: a deactivated workflow (0) starts no run.
+            version = stored_active_version(definition)
             if definition.is_onboarding or version is None:
                 raise WorkflowValidationError(
                     "WORKFLOW_NOT_STARTABLE", "Only an active non-onboarding workflow can start."
@@ -418,7 +610,10 @@ class WorkflowManagementService:
         stage_id: str,
         expected_revision: int,
     ) -> WorkflowRun:
-        with self._cases.case_lock(case_id):
+        stored = self._runs.get(run_id)
+        # An unsaved onboarding run has no stored record; onboarding is never deactivated.
+        gated = stored.workflow_id if stored is not None else ONBOARDING_WORKFLOW_ID
+        with self._gate.confirming(gated), self._cases.case_lock(case_id):
             actor = reauthorize()
             self._require_filler(actor)
             run = self._open_run(case_id, run_id, expected_revision)
@@ -765,57 +960,47 @@ class WorkflowManagementService:
             if current is not None:
                 return current
             now = self._clock()
+            definition = WorkflowDefinition(
+                workflow_id=ONBOARDING_WORKFLOW_ID,
+                name="Corporate onboarding",
+                use_case=ONBOARDING_USE_CASE,
+                country="Singapore",
+                created_at=now,
+                updated_at=now,
+            )
             try:
-                return self._definitions.create(
-                    WorkflowDefinition(
-                        workflow_id=ONBOARDING_WORKFLOW_ID,
-                        name="Corporate onboarding",
-                        use_case=ONBOARDING_USE_CASE,
-                        country="Singapore",
-                        created_at=now,
-                        updated_at=now,
-                    )
+                # Born governed in a fresh or migrated store; otherwise the P2-0 shape, which
+                # the reviewed migration tool later migrates (Mongo never auto-migrates).
+                store = self._governed_store()
+                if store is None:
+                    return self._definitions.create(definition)
+                created = store.create_governed(
+                    definition,
+                    born_governed_state(ONBOARDING_WORKFLOW_ID, now=now, actor_id=None),
                 )
+                _drain_after_commit(store, ONBOARDING_WORKFLOW_ID, now)
+                return created.definition
             except PersistenceConflictError:
                 current = self._definitions.get(ONBOARDING_WORKFLOW_ID)
                 if current is None:
                     raise WorkflowConflictError from None
                 return current
 
+    def _governed_store(self) -> WorkflowGovernanceRepository | None:
+        """The governance port when every stored definition is migrated (or none exists)."""
+
+        store = governance_store(self._definitions)
+        if store is None:
+            return None
+        if all(item.governance.migrated for item in store.list_governed()):
+            return store
+        return None
+
     def _require_definition(self, workflow_id: str) -> WorkflowDefinition:
         definition = self._definitions.get(workflow_id)
         if definition is None:
             raise WorkflowNotFoundError
         return definition
-
-    def _current_for_write(self, workflow_id: str, expected_revision: int) -> WorkflowDefinition:
-        current = self._require_definition(workflow_id)
-        if current.revision != expected_revision:
-            raise WorkflowConflictError
-        return current
-
-    def _update(
-        self,
-        current: WorkflowDefinition,
-        actor: AuthenticatedActor,
-        now: datetime,
-        action: str,
-        summary: str,
-        **changes: object,
-    ) -> WorkflowDefinition:
-        audit = (*current.audit, self._audit(actor, now, action, summary))
-        candidate = current.model_copy(
-            update={
-                **changes,
-                "audit": audit[-MAX_WORKFLOW_AUDIT_EVENTS:],
-                "revision": current.revision + 1,
-                "updated_at": now,
-            }
-        )
-        try:
-            return self._definitions.update(candidate, expected_revision=current.revision)
-        except PersistenceConflictError:
-            raise WorkflowConflictError from None
 
     @staticmethod
     def _audit(
@@ -826,8 +1011,14 @@ class WorkflowManagementService:
         )
 
     @staticmethod
-    def _require_director(actor: AuthenticatedActor) -> None:
-        if Capability.POLICY_APPROVE not in ROLE_CAPABILITIES[actor.profile.role]:
+    def _require_reader(actor: AuthenticatedActor) -> None:
+        capabilities = ROLE_CAPABILITIES[actor.profile.role]
+        if not capabilities & {Capability.POLICY_MUTATE, Capability.POLICY_APPROVE}:
+            raise WorkflowForbiddenError
+
+    @staticmethod
+    def _require_author(actor: AuthenticatedActor) -> None:
+        if Capability.POLICY_MUTATE not in ROLE_CAPABILITIES[actor.profile.role]:
             raise WorkflowForbiddenError
 
     @staticmethod
@@ -835,52 +1026,16 @@ class WorkflowManagementService:
         if actor.profile.role not in _FIELD_FILLER_ROLES:
             raise WorkflowForbiddenError
 
-    @staticmethod
-    def _validate_structure(
-        definition: WorkflowDefinition, stages: tuple[WorkflowStage, ...]
-    ) -> None:
-        stage_ids = [stage.stage_id for stage in stages]
-        if len(set(stage_ids)) != len(stage_ids) or any(
-            len({field.field_id for field in stage.fields}) != len(stage.fields)
-            for stage in stages
-        ):
-            raise WorkflowValidationError(
-                "WORKFLOW_DUPLICATE_ID", "Stage and field identifiers must be unique."
-            )
-        for stage in stages:
-            anchored = stage.after_node_id is not None
-            if definition.is_onboarding and stage.after_node_id not in _ANCHOR_NODE_IDS:
-                raise WorkflowValidationError(
-                    "WORKFLOW_STAGE_POSITION_INVALID",
-                    "Choose which onboarding stage this stage follows.",
-                )
-            if not definition.is_onboarding and anchored:
-                raise WorkflowValidationError(
-                    "WORKFLOW_STAGE_POSITION_INVALID",
-                    "Only onboarding stages follow an existing stage.",
-                )
 
-    @staticmethod
-    def _validate_activation(definition: WorkflowDefinition) -> None:
-        stages = definition.draft_stages
-        if not stages and not definition.is_onboarding:
-            raise WorkflowValidationError(
-                "WORKFLOW_STAGE_REQUIRED", "Add at least one stage before activating."
-            )
-        for stage in stages:
-            if not stage.fields:
-                raise WorkflowValidationError(
-                    "WORKFLOW_FIELD_REQUIRED", "Add at least one field to every stage."
-                )
-            for field in stage.fields:
-                if field.kind == WorkflowFieldKind.CHOICE and not field.options:
-                    raise WorkflowValidationError(
-                        "WORKFLOW_OPTIONS_REQUIRED", "Add options to every dropdown field."
-                    )
-                if field.autofill and not field.document_label:
-                    raise WorkflowValidationError(
-                        "WORKFLOW_AUTOFILL_INVALID", "Autofill needs a document label."
-                    )
+def _drain_after_commit(
+    store: WorkflowGovernanceRepository, workflow_id: str, now: datetime
+) -> None:
+    """Archive after a committed write. A failure leaves the outbox for the next drain."""
+
+    try:
+        store.drain_outbox(workflow_id, now=now)
+    except PersistenceError:
+        LOGGER.warning("workflow history archival deferred", extra={"workflow_id": workflow_id})
 
 
 def _owns(actor: AuthenticatedActor, run: WorkflowRun) -> bool:

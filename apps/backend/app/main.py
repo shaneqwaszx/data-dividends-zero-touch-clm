@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -194,7 +194,12 @@ from app.services.ownership_errors import (
 from app.services.policy_management import PolicyManagementService
 from app.services.reconciliation import ReconciliationService
 from app.services.workflow_case_data import onboarded_case_values
-from app.services.workflow_management import WorkflowManagementService
+from app.services.workflow_governance import (
+    LedgerReader,
+    WorkflowGovernanceService,
+    start_governance,
+)
+from app.services.workflow_management import WorkflowManagementService, governance_store
 from app.services.zero_touch_errors import (
     ZeroTouchInfrastructureError,
     ZeroTouchRequestError,
@@ -688,6 +693,49 @@ def _build_dispatch_fence(
     )
 
 
+def _ledger_reader(service: OnboardingService, persistence: PersistenceBundle) -> LedgerReader:
+    """Read-only case ledger rows for the publication report (ADR-017 1.1): the existing
+    automation index and the existing per-case ledger read. Never the D3 counter."""
+
+    ledger = service.target_execution_repository
+
+    def rows() -> list[tuple[UUID, Sequence[GoldTierExecutionLedgerEntry]]]:
+        return [
+            (record.case_id, ledger.list_for_case(record.case_id))
+            for record in persistence.automation.list_records()
+        ]
+
+    return rows
+
+
+def _build_workflow_governance(
+    settings: Settings,
+    workflows: WorkflowManagementService,
+    persistence: WorkflowPersistence,
+    ledger: LedgerReader | None,
+    clock: Callable[[], datetime],
+) -> WorkflowGovernanceService | None:
+    """Startup after provisioning (ADR-017 3.4, 3.5): memory-mode migration only, then
+    ``drain_all`` and ``verify_governance_state``. A failure makes governance mutations
+    unavailable (503) without failing reads or the rest of the application. Mongo mode never
+    auto-migrates."""
+
+    repository = governance_store(persistence.definitions)
+    if repository is None:
+        return None
+    startup = start_governance(
+        repository, memory_mode=settings.clm_persistence_mode == "memory", now=clock()
+    )
+    return WorkflowGovernanceService(
+        repository=repository,
+        runs=persistence.runs,
+        lock=workflows.definition_lock,
+        ledger=ledger,
+        startup=startup,
+        clock=clock,
+    )
+
+
 def create_app(
     settings: Settings | None = None,
     onboarding_service: OnboardingService | None = None,
@@ -789,6 +837,13 @@ def create_app(
         service.bind_dispatch_fence(
             _build_dispatch_fence(service, workflow_enforcement, workflow_persistence)
         )
+    workflow_governance = _build_workflow_governance(
+        active_settings,
+        workflow_enforcement,
+        workflow_persistence,
+        _ledger_reader(service, persistence) if isinstance(service, OnboardingService) else None,
+        active_clock,
+    )
     active_acra_diagnostics = acra_diagnostic_service or (
         build_acra_diagnostic_service(active_acra_connector, active_settings)
         if active_acra_connector is not None
@@ -916,6 +971,7 @@ def create_app(
             service,
             active_settings.idp_max_upload_bytes,
             _read_bounded_body,
+            governance=workflow_governance if workflows is not None else None,
         )
     )
     # P1: read-only view of what actually runs; outside the manager switch (D-136 E4).

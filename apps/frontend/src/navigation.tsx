@@ -31,6 +31,8 @@ export const routePatterns = {
   policy: "/policy",
   workflowDesigner: "/policy/workflow-designer",
   workflows: "/workflows",
+  workflowApprovals: "/workflow-approvals",
+  workflowCompare: "/workflow-approvals/:workflowId/proposals/:proposalId",
   workflowTab: "/workflow-tabs/:workflowId",
   workflowCases: "/workflow-tabs/:workflowId/cases",
   workflowRun: "/workflow-tabs/:workflowId/runs/:runId",
@@ -73,6 +75,9 @@ export const paths = {
   policy: routePatterns.policy,
   workflowDesigner: routePatterns.workflowDesigner,
   workflows: routePatterns.workflows,
+  workflowApprovals: routePatterns.workflowApprovals,
+  workflowCompare: (workflowId: string, proposalId: string) =>
+    `/workflow-approvals/${encodeURIComponent(workflowId)}/proposals/${encodeURIComponent(proposalId)}`,
   workflowTab: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}`,
   workflowCases: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}/cases`,
   workflowRun: (workflowId: string, runId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
@@ -91,6 +96,7 @@ export type AppTab =
   | "audit"
   | "policy"
   | "workflows"
+  | "workflow-approvals"
   | "users"
   | "teams"
   | "goldtier-sandbox"
@@ -98,11 +104,21 @@ export type AppTab =
   | "ai-models"
   | "knowledge-review";
 
+/** One capability, or any one of several (the backend still decides every request). */
+export type CapabilityRequirement = Capability | readonly Capability[];
+
+/** Workflows editor: HR authors (POLICY_MUTATE) and Directors read (POLICY_APPROVE). */
+export const WORKFLOW_EDITOR_CAPABILITIES = ["POLICY_MUTATE", "POLICY_APPROVE"] as const satisfies readonly Capability[];
+
+export function hasCapability(held: readonly Capability[], required: CapabilityRequirement): boolean {
+  return typeof required === "string" ? held.includes(required) : required.some((item) => held.includes(item));
+}
+
 interface NavigationItem {
   tab: AppTab;
   label: string;
   path: string;
-  capability: Capability;
+  capability: CapabilityRequirement;
   end: boolean;
 }
 
@@ -113,7 +129,8 @@ const navigationItems: NavigationItem[] = [
   { tab: "audit", label: "Audit", path: paths.audit, capability: "CASE_ACCESS", end: false },
   { tab: "knowledge-review", label: "Knowledge Review", path: paths.knowledgeReview, capability: "KNOWLEDGE_REVIEW", end: true },
   { tab: "policy", label: "Policy", path: paths.policy, capability: "POLICY_VIEW", end: true },
-  { tab: "workflows", label: "Workflows", path: paths.workflows, capability: "POLICY_APPROVE", end: true },
+  { tab: "workflows", label: "Workflows", path: paths.workflows, capability: WORKFLOW_EDITOR_CAPABILITIES, end: true },
+  { tab: "workflow-approvals", label: "Workflow approvals", path: paths.workflowApprovals, capability: "POLICY_APPROVE", end: false },
   { tab: "users", label: "Users", path: paths.adminUsers, capability: "IDENTITY_ADMIN", end: true },
   { tab: "teams", label: "Teams", path: paths.adminTeams, capability: "TEAM_ADMIN", end: true },
   { tab: "goldtier-sandbox", label: "GoldTier Sandbox", path: paths.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST", end: true },
@@ -121,7 +138,7 @@ const navigationItems: NavigationItem[] = [
   { tab: "ai-models", label: "AI Models", path: paths.aiModels, capability: "MODEL_CONFIG_MANAGE", end: true },
 ];
 
-const routeCapabilities: Array<{ pattern: string; capability: Capability; caseParam?: boolean }> = [
+const routeCapabilities: Array<{ pattern: string; capability: CapabilityRequirement; caseParam?: boolean }> = [
   { pattern: routePatterns.dashboard, capability: "CASE_ACCESS" },
   { pattern: routePatterns.gtcDashboard, capability: "CASE_ACCESS" },
   { pattern: routePatterns.periodicReviewDashboard, capability: "CASE_ACCESS" },
@@ -136,7 +153,9 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.policy, capability: "POLICY_VIEW" },
   // The page shows HR and Directors the plan; the backend refuses every other role.
   { pattern: routePatterns.workflowDesigner, capability: "POLICY_VIEW" },
-  { pattern: routePatterns.workflows, capability: "POLICY_APPROVE" },
+  { pattern: routePatterns.workflows, capability: WORKFLOW_EDITOR_CAPABILITIES },
+  { pattern: routePatterns.workflowApprovals, capability: "POLICY_APPROVE" },
+  { pattern: routePatterns.workflowCompare, capability: "POLICY_APPROVE" },
   { pattern: routePatterns.workflowTab, capability: "CASE_ACCESS" },
   { pattern: routePatterns.workflowCases, capability: "CASE_ACCESS" },
   { pattern: routePatterns.workflowRun, capability: "CASE_ACCESS" },
@@ -148,7 +167,7 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.knowledgeReview, capability: "KNOWLEDGE_REVIEW" },
 ];
 
-export function requiredCapabilityForPath(pathname: string): Capability | null {
+export function requiredCapabilityForPath(pathname: string): CapabilityRequirement | null {
   for (const route of routeCapabilities) {
     const match = matchPath({ path: route.pattern, end: true }, pathname);
     if (match && (!route.caseParam || parseCaseId(match.params.caseId))) {
@@ -187,10 +206,10 @@ function CapabilityRoute({
   children,
 }: {
   actor: AuthenticatedProfile;
-  capability: Capability;
+  capability: CapabilityRequirement;
   children: ReactNode;
 }) {
-  return actor.capabilities.includes(capability)
+  return hasCapability(actor.capabilities, capability)
     ? children
     : <UnavailableRoute actor={actor} />;
 }
@@ -234,6 +253,11 @@ function WorkflowRunRoute({ render }: { render?: (workflowId: string, runId: str
   return workflowId && runId && render ? render(workflowId, runId) : null;
 }
 
+function WorkflowCompareRoute({ render }: { render?: (workflowId: string, proposalId: string) => ReactNode }) {
+  const { workflowId, proposalId } = useParams();
+  return workflowId && proposalId && render ? render(workflowId, proposalId) : null;
+}
+
 function NewOnboardingLanding({ retainedCaseId, render }: {
   retainedCaseId: string | null;
   render: () => ReactNode;
@@ -266,8 +290,8 @@ export function WorkspaceTabs({
       <span className="nav-sep" />
       <div className="nav-tabs">
         {navigationItems
-          .filter(item => item.tab !== "workflows" || workflowManagerEnabled())
-          .filter((item) => actor.capabilities.includes(item.capability))
+          .filter(item => (item.tab !== "workflows" && item.tab !== "workflow-approvals") || workflowManagerEnabled())
+          .filter((item) => hasCapability(actor.capabilities, item.capability))
           .map((item) => (
             <Fragment key={item.tab}>
               <NavLink
@@ -306,6 +330,8 @@ export interface WorkspaceRoutesProps {
   acraDiagnostics: ReactNode;
   aiModels: ReactNode;
   workflows?: ReactNode;
+  workflowApprovals?: ReactNode;
+  workflowCompare?: (workflowId: string, proposalId: string) => ReactNode;
   workflowTab?: (workflowId: string) => ReactNode;
   workflowCases?: (workflowId: string) => ReactNode;
   workflowRun?: (workflowId: string, runId: string) => ReactNode;
@@ -330,6 +356,8 @@ export function WorkspaceRoutes({
   acraDiagnostics,
   aiModels,
   workflows,
+  workflowApprovals,
+  workflowCompare,
   workflowTab,
   workflowCases,
   workflowRun,
@@ -404,8 +432,20 @@ export function WorkspaceRoutes({
       <Route path={routePatterns.workflowRun} element={caseAccess(<WorkflowRunRoute render={workflowRun} />)} />
       <Route
         path={routePatterns.workflows}
-        element={<CapabilityRoute actor={actor} capability="POLICY_APPROVE">{workflows}</CapabilityRoute>}
+        element={<CapabilityRoute actor={actor} capability={WORKFLOW_EDITOR_CAPABILITIES}>{workflows}</CapabilityRoute>}
       />
+      {workflowApprovals && (
+        <Route
+          path={routePatterns.workflowApprovals}
+          element={<CapabilityRoute actor={actor} capability="POLICY_APPROVE">{workflowApprovals}</CapabilityRoute>}
+        />
+      )}
+      {workflowCompare && (
+        <Route
+          path={routePatterns.workflowCompare}
+          element={<CapabilityRoute actor={actor} capability="POLICY_APPROVE"><WorkflowCompareRoute render={workflowCompare} /></CapabilityRoute>}
+        />
+      )}
       <Route
         path={routePatterns.aiModels}
         element={<CapabilityRoute actor={actor} capability="MODEL_CONFIG_MANAGE">{aiModels}</CapabilityRoute>}

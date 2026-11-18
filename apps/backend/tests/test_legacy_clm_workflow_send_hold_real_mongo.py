@@ -15,9 +15,8 @@ from test_final_review_editing_real_mongo import prepare_final
 from test_synthetic_company_pack import settings
 from test_synthetic_company_pack_real_mongo import MONGO_URI, pytestmark  # noqa: F401
 from test_synthetic_company_pack_real_mongo import database as disposable_database
-from test_workflow_manager import STAGE, login
+from test_workflow_manager import STAGE, governed_publish, login
 from test_zero_touch_orchestration import RecordingMockGoldTier
-from workflow_publication_seed import publish_stored_draft_mongo
 
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID
 from app.main import create_app
@@ -37,28 +36,18 @@ def physical(database, *, enabled):
 
 
 def activate_onboarding_physical(director, configured):
-    """Save the draft through the API, then publish it on the Mongo path (F-6).
+    """Publish the stage the governed way on the Mongo path (ADR-017 P2-1).
 
-    Activation is frozen by ADR-017 P2-0, and the shared ``activate_onboarding`` helper publishes
-    into a memory store only. This physical test needs the version in its disposable database.
+    The fresh disposable store provisions a born-governed onboarding definition, so HR
+    proposes and submits and the Director approves through the API; the version, its
+    provenance and the stricter baseline are written to the disposable database in one
+    governance compare-and-set. The retired draft and activate routes are never used.
     """
 
-    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    saved = director.put(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
-        json={"expected_revision": baseline["revision"], "stages": [STAGE]},
-    )
-    assert saved.status_code == 200, saved.json()
-    publish_stored_draft_mongo(
-        MONGO_URI,
-        configured.mongo_database,
-        configured.mongo_workflow_definitions_collection,
-        ONBOARDING_WORKFLOW_ID,
-        actor_id="olivia-koh",
-    )
-    active = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
-    assert active.status_code == 200, active.json()
-    assert active.json()["active_version"] is not None, active.json()
+    del configured  # the app's own composition already targets the disposable database
+    active = governed_publish(director, ONBOARDING_WORKFLOW_ID, [STAGE])
+    assert active["active_version"] == 1, active
+    assert active["governance"]["version_provenance"][-1]["origin"] == "GOVERNED_APPROVAL"
 
 
 def legacy_body(client, case_id):

@@ -1,0 +1,9 @@
+[
+  {
+    "description": "A synthetic Singapore company with a clear screening outcome.",
+    "label": "Company, clear screening",
+    "legal_form": "COMPANY",
+    "scenario_id": "company-clear",
+    "synthetic": true
+  }
+]

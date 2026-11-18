@@ -1,0 +1,85 @@
+{
+  "content_hash": "306a1db210e1ad991884effd8f68275018c8e1530cb5248a72eefc2aac72dc9f",
+  "outcomes": [
+    {
+      "held_before_send": true,
+      "scenario": {
+        "description": "A synthetic Singapore company with a clear screening outcome.",
+        "label": "Company, clear screening",
+        "legal_form": "COMPANY",
+        "scenario_id": "company-clear",
+        "synthetic": true
+      },
+      "steps": [
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Case created",
+          "node_id": "CASE_START",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Initial identity",
+          "node_id": "INITIAL_IDENTITY",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Jurisdiction",
+          "node_id": "JURISDICTION",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Existing-customer search",
+          "node_id": "GOLDTIER_SEARCH",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Registry verification",
+          "node_id": "ACRA_REGISTRY",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Document verification",
+          "node_id": "DOCUMENT_IDP",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Data reconciliation",
+          "node_id": "RECONCILIATION",
+          "required_field_labels": []
+        },
+        {
+          "added": false,
+          "blocks_send": false,
+          "name": "Ownership & UBO",
+          "node_id": "OWNERSHIP_UBO",
+          "required_field_labels": []
+        },
+        {
+          "added": true,
+          "blocks_send": true,
+          "name": "Sanctions attestation",
+          "node_id": "sanctions-attestation",
+          "required_field_labels": [
+            "Screened by",
+            "Screening outcome"
+          ]
+        }
+      ],
+      "summary": "The send is held until 'Sanctions attestation' is confirmed."
+    }
+  ],
+  "synthetic": true
+}
