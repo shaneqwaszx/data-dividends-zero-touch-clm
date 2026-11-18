@@ -11,7 +11,7 @@ import { AiAssistantError, DASHBOARD_INSIGHTS_MODE_TIMEOUT_MS, fetchDashboardIns
 import { caseQueryKeys, dashboardQueryOptions } from "../caseQueries";
 import { createSessionQueryClient } from "../queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardSnapshot } from "../types";
-import AiInsights from "./AiInsights";
+import AiInsights, { RULE_BASED_LABEL, RULE_BASED_SCOPE, RULE_TOPIC_LABELS } from "./AiInsights";
 import { STAGE_LABELS } from "./Dashboard";
 import { buildInsightFindings } from "./aiInsightFindings";
 import { SAMPLE_ATTENTION_POLICY, withOnboardingSample } from "./mockDashboards/onboardingSample";
@@ -287,7 +287,15 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
     const notice = panel.querySelector('[data-testid="external-ai-notice"]')!;
     expect(notice.getAttribute("data-surface")).toBe("insights");
     expect(notice.textContent).toContain("sent to Anthropic");
-    const button = panel.querySelector("button")!;
+    // Compact notice: collapsed by default, and the visible summary still carries the binding facts.
+    const summary = notice.querySelector<HTMLElement>('[data-testid="external-ai-notice-summary"]')!;
+    expect(summary.closest("[hidden]")).toBeNull();
+    expect(summary.textContent).toContain(
+      "counts and status labels from the eligible cases on this dashboard (no names, teams or case identifiers) are sent to Anthropic, even if no Claude answer is shown.",
+    );
+    expect(summary.textContent).toContain("replaced with placeholders first, but this is not complete.");
+    expect(notice.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe("false");
+    const button = panel.querySelector<HTMLButtonElement>("button.btn")!;
     expect(button.textContent).toBe("Generate AI Insights");
     expect(button.getAttribute("aria-describedby")).toBe(notice.id);
     expect(panel.textContent).toContain("3 left today");
@@ -316,7 +324,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_LIMIT", message: "limit" } }, 429),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(host.textContent).toContain("The daily limit for AI insights has been reached.");
     expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
@@ -324,7 +332,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
 
     serve({ "GET /dashboard/insights/mode": mode("generate", 0) });
     const exhausted = await mount(olivia);
-    expect(exhausted.querySelector("button")!.disabled).toBe(true);
+    expect(exhausted.querySelector<HTMLButtonElement>("button.btn")!.disabled).toBe(true);
   });
 
   it("says insights are unavailable when the service refuses, without retrying", async () => {
@@ -333,7 +341,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(host.textContent).toContain("AI insights are unavailable right now.");
     expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
@@ -356,7 +364,16 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
 
   // c2r1 (P3-3): a failed, malformed or unrecognised mode check fails closed. Nothing is
   // generated, no dashboard figures are sent, and no other AI mode is used: the only request is
-  // the mode check itself, and the panel shows a controlled unavailable state with a retry.
+  // the mode check itself. F-2: the panel then shows this dashboard's rule-based findings, labelled
+  // as not written by AI, with a retry of the mode check.
+  function expectRuleBased(panel: Element) {
+    expect(panel.getAttribute("data-source")).toBe("rules");
+    expect(panel.textContent).toContain(RULE_BASED_LABEL);
+    expect(panel.textContent).toContain("AI wording is not available on this deployment.");
+    expect(panel.querySelectorAll(".ai-list li").length).toBeGreaterThan(0);
+    expect(panel.querySelector('[data-testid="external-ai-notice"]')).toBeNull();
+    expect(Array.from(panel.querySelectorAll("button")).map((item) => item.textContent)).toEqual(["Check for AI insights again"]);
+  }
   const text = (body: string, status = 200) => () => new Response(body, { status, headers: { "Content-Type": "application/json" } });
   it.each([
     ["not found (404)", json({ detail: "not found" }, 404)],
@@ -376,11 +393,126 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
     serve({ "GET /dashboard/insights/mode": answer, "POST /dashboard/insights": json(REPLY), "POST /dashboard/insights/generate": json(HOSTED_REPLY) });
     const host = await mount(olivia);
     expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    expectRuleBased(host.querySelector('[aria-label="AI insights"]')!);
+  });
+
+  it("F-2: shows the dashboard's own rule-based findings, in rule order, with their evidence", async () => {
+    serve({ "GET /dashboard/insights/mode": json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503) });
+    const host = await mount(maya);
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
     const panel = host.querySelector('[aria-label="AI insights"]')!;
-    expect(panel.textContent).toContain("AI insights are unavailable right now.");
-    expect(panel.querySelector(".ai-list")).toBeNull();
-    expect(panel.querySelector('[data-testid="external-ai-notice"]')).toBeNull();
-    expect(Array.from(panel.querySelectorAll("button")).map((item) => item.textContent)).toEqual(["Try again"]);
+    expectRuleBased(panel);
+    const expected = buildInsightFindings(withOnboardingSample(emptyLive(maya), maya), { isDirector: false, dateRange: "all", stageLabels: STAGE_LABELS })!;
+    const items = Array.from(panel.querySelectorAll(".ai-list li"));
+    expect(items).toHaveLength(expected.request.findings.length);
+    expected.request.findings.forEach((finding, index) => {
+      expect(items[index].textContent).toContain(RULE_TOPIC_LABELS[finding.topic]);
+      expect(items[index].textContent).toContain(expected.views[finding.id].evidence);
+    });
+    // Nothing on screen claims to be written by a model.
+    expect(panel.textContent).not.toContain("What to do");
+  });
+
+  it("F-2: with nothing to describe, keeps the unavailable state and asks nothing more", async () => {
+    serve({ "GET /dashboard/insights/mode": json({ detail: "not found" }, 404) });
+    const host = document.createElement("div");
+    document.body.append(host);
+    container = host;
+    root = createRoot(host);
+    await act(async () => root!.render(
+      <QueryClientProvider client={createSessionQueryClient()}><MemoryRouter>
+        <AiInsights dashboard={emptyLive(maya)} actor={maya} dateRange="all" teamFilter="all" stageLabels={STAGE_LABELS} />
+      </MemoryRouter></QueryClientProvider>,
+    ));
+    await settle();
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    expect(host.textContent).toContain("AI insights are unavailable right now.");
+    expect(host.textContent).not.toContain(RULE_BASED_LABEL);
+  });
+
+  // F-2 fix (b): with a date range other than "All time" on screen, the rule-based findings still
+  // cover all the data in scope. After the failed mode check the panel reads the same dashboard
+  // endpoint once more with date_range=all, for the same user and team scope, and nothing else.
+  async function mountRange(actor: AuthenticatedProfile, shown: DashboardSnapshot, dateRange: string, teamFilter: string): Promise<HTMLDivElement> {
+    const host = document.createElement("div");
+    document.body.append(host);
+    container = host;
+    root = createRoot(host);
+    await act(async () => root!.render(
+      <QueryClientProvider client={createSessionQueryClient()}><MemoryRouter>
+        <AiInsights dashboard={shown} actor={actor} dateRange={dateRange} teamFilter={teamFilter} stageLabels={STAGE_LABELS} />
+      </MemoryRouter></QueryClientProvider>,
+    ));
+    await settle();
+    return host;
+  }
+  const UNAVAILABLE = json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503);
+  const expectFindingsFrom = (panel: Element, expected: NonNullable<ReturnType<typeof buildInsightFindings>>) => {
+    const items = Array.from(panel.querySelectorAll(".ai-list li"));
+    expect(items).toHaveLength(expected.request.findings.length);
+    expected.request.findings.forEach((finding, index) => {
+      expect(items[index].textContent).toContain(RULE_TOPIC_LABELS[finding.topic]);
+      expect(items[index].textContent).toContain(expected.views[finding.id].evidence);
+    });
+  };
+
+  it("F-2: with 30 days shown, sends the mode check and exactly one all-time dashboard read, and shows those findings", async () => {
+    // The dashboard on screen has nothing to describe; only the all-time read has findings, so
+    // findings on screen can only have come from the all-time data.
+    const allTime = emptyLive(maya);
+    serve({
+      "GET /dashboard/insights/mode": UNAVAILABLE,
+      "GET /api/clm/zero-touch/dashboard?date_range=all": json(allTime),
+      "POST /dashboard/insights": json(REPLY),
+      "POST /dashboard/insights/generate": json(HOSTED_REPLY),
+    });
+    const host = await mountRange(maya, emptyLive(maya), "30d", "all");
+    expect(paths()).toEqual(["GET /dashboard/insights/mode", "GET /api/clm/zero-touch/dashboard?date_range=all"]);
+    expect(calls.every((call) => call.method === "GET" && call.body === undefined)).toBe(true);
+    const panel = host.querySelector('[aria-label="AI insights"]')!;
+    expectRuleBased(panel);
+    expect(panel.querySelector('[role="note"]')!.textContent).toContain(RULE_BASED_LABEL);
+    expect(panel.textContent).toContain(RULE_BASED_SCOPE);
+    expectFindingsFrom(panel, buildInsightFindings(withOnboardingSample(allTime, maya), { isDirector: false, dateRange: "all", stageLabels: STAGE_LABELS })!);
+    expect(panel.textContent).not.toContain("What to do");
+  });
+
+  it("F-2: a Director's all-time read keeps the team scope, and reads policies only with POLICY_APPROVE", async () => {
+    const allTime = emptyLive(olivia);
+    const dashboardPath = "GET /api/clm/zero-touch/dashboard?team_filter=TEAM_B&date_range=all";
+    const catalogue = {
+      catalogue_id: "GLOBAL_POLICY_CATALOGUE", version: 2, active_version: 1, rules: [], superseded_versions: [],
+      created_at: "2026-11-05T03:00:00Z", updated_at: "2026-11-05T03:00:00Z", updated_by: "system-bootstrap",
+      proposals: [{ proposal_id: "P1", version: 2, base_active_version: 1, proposer_id: "someone-else", status: "PENDING_APPROVAL", rules: [], reason: "r",
+        created_at: "2026-11-05T03:00:00Z", updated_at: "2026-11-05T03:00:00Z", decided_by: null, decided_at: null, decision_reason: null }],
+    };
+    const routes = {
+      "GET /dashboard/insights/mode": UNAVAILABLE,
+      [dashboardPath]: json(allTime),
+      "GET /api/policies": json(catalogue),
+    };
+    // Without POLICY_APPROVE: the mode check and the all-time read only.
+    serve(routes);
+    let host = await mountRange(olivia, emptyLive(olivia), "30d", "TEAM_B");
+    expect(paths()).toEqual(["GET /dashboard/insights/mode", dashboardPath]);
+    let panel = host.querySelector('[aria-label="AI insights"]')!;
+    expectRuleBased(panel);
+    expectFindingsFrom(panel, buildInsightFindings(withOnboardingSample(allTime, olivia), { isDirector: true, dateRange: "all", stageLabels: STAGE_LABELS, pendingPolicyChanges: null })!);
+    expect(panel.textContent).not.toContain(RULE_TOPIC_LABELS.DIRECTOR_POLICY);
+    await unmount();
+
+    // With POLICY_APPROVE: also the policy catalogue read, and its waiting change is a finding.
+    const approver: AuthenticatedProfile = { ...olivia, capabilities: [...olivia.capabilities, "POLICY_APPROVE"] };
+    serve(routes);
+    host = await mountRange(approver, emptyLive(approver), "30d", "TEAM_B");
+    expect([...paths()].sort()).toEqual(["GET /api/policies", "GET /dashboard/insights/mode", dashboardPath].sort());
+    expect(paths()[0]).toBe("GET /dashboard/insights/mode");
+    expect(paths()).toHaveLength(3);
+    panel = host.querySelector('[aria-label="AI insights"]')!;
+    expectRuleBased(panel);
+    const expected = buildInsightFindings(withOnboardingSample(allTime, approver), { isDirector: true, dateRange: "all", stageLabels: STAGE_LABELS, pendingPolicyChanges: 1 })!;
+    expect(expected.request.findings.map((item) => item.topic)).toContain("DIRECTOR_POLICY");
+    expectFindingsFrom(panel, expected);
   });
 
   it("fails closed when the mode check cannot reach the service", async () => {
@@ -391,18 +523,18 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
     }));
     const host = await mount(olivia);
     expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
-    expect(host.textContent).toContain("AI insights are unavailable right now.");
+    expectRuleBased(host.querySelector('[aria-label="AI insights"]')!);
   });
 
   it("retries only the mode check, and then follows the confirmed mode", async () => {
     serve({ "GET /dashboard/insights/mode": text("{bad") });
     const host = await mount(olivia);
     serve({ "GET /dashboard/insights/mode": mode("generate") });
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
     expect(host.querySelector('[data-testid="external-ai-notice"]')!.getAttribute("data-surface")).toBe("insights");
-    expect(host.querySelector("button")!.textContent).toBe("Generate AI Insights");
+    expect(host.querySelector<HTMLButtonElement>("button.btn")!.textContent).toBe("Generate AI Insights");
   });
 
   it("never switches to the automatic route when the re-check after a generation fails", async () => {
@@ -413,7 +545,7 @@ describe("AI insights panel: hosted generation (fifth path)", () => {
       "POST /dashboard/insights": json(REPLY),
     });
     const host = await mount(olivia);
-    await act(async () => host.querySelector("button")!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>("button.btn")!.click());
     await settle();
     expect(paths()).toEqual(["GET /dashboard/insights/mode", "POST /dashboard/insights/generate", "GET /dashboard/insights/mode"]);
     expect(paths()).not.toContain("POST /dashboard/insights");
