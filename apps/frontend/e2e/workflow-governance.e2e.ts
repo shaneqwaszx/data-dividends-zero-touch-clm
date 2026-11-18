@@ -523,8 +523,9 @@ test("Governance 10: Director emergency fallback is never approved; HR acknowled
   await expect(notices).toContainText("— not approved");
   await expect(notices).toContainText("Reason: E2E synthetic emergency fallback to version 1");
   await notices.getByRole("button", { name: `Acknowledge notice for Corporate onboarding version ${next}` }).click();
-  await expect(notices.getByRole("status")).toHaveText("Notice acknowledged.");
-  await expect(notices.getByRole("listitem")).toHaveCount(0);
+  // Nothing left to acknowledge: the alert is replaced by a polite, dismissible status (703a0057).
+  await expect(page.getByTestId("workflow-notices-cleared")).toContainText("All notices acknowledged.");
+  await expect(notices).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Workflows", level: 1 })).toBeVisible();
   await expect(page.getByTestId("workflow-notices")).toHaveCount(0);
