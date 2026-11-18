@@ -577,9 +577,17 @@ class MongoWorkflowRunRepository:
 
     def update(self, run: WorkflowRun, *, expected_revision: int) -> WorkflowRun:
         try:
+            payload = run.model_dump(mode="json")
+            # ADR-018 3.5: a frozen applicability basis is write-once. The update matches
+            # only when the stored basis is not frozen, or is carried over unchanged.
+            keep_basis: list[dict[str, Any]] = [
+                {"payload.applicability_basis.frozen": {"$ne": True}}
+            ]
+            if "applicability_basis" in payload:
+                keep_basis.append({"payload.applicability_basis": payload["applicability_basis"]})
             result = self._collection.update_one(
-                {"_id": str(run.run_id), "revision": expected_revision},
-                {"$set": {"revision": run.revision, "payload": run.model_dump(mode="json")}},
+                {"_id": str(run.run_id), "revision": expected_revision, "$or": keep_basis},
+                {"$set": {"revision": run.revision, "payload": payload}},
             )
         except PyMongoError:
             raise PersistenceUnavailableError from None
