@@ -161,7 +161,7 @@ def test_the_existing_node_fields_are_identical_with_and_without_the_verdict() -
 # Matrix rows: generic states ----------------------------------------------------------------
 
 
-def test_not_started_waiting_for_earlier_steps_does_not_block_or_count() -> None:
+def test_not_started_with_a_retained_blocker_still_blocks_send() -> None:
     nodes = project(
         status=AutomationStatus.RUNNING, current=S.REGISTRY, completed=(),
         registry="IN_PROGRESS", document="MISSING", ownership_readiness="MISSING",
@@ -169,10 +169,24 @@ def test_not_started_waiting_for_earlier_steps_does_not_block_or_count() -> None
     )
     assert nodes["OWNERSHIP_UBO"].status == "BLOCKED"
     assert verdict(nodes["OWNERSHIP_UBO"]) == (
-        "NOT_STARTED", "WAITING_FOR_EARLIER_STEPS", False, False
+        "NOT_STARTED", "WAITING_FOR_EARLIER_STEPS", False, True
     )
-    assert verdict(nodes["DOCUMENT_IDP"])[0] == "NOT_STARTED"
+    assert verdict(nodes["DOCUMENT_IDP"]) == (
+        "NOT_STARTED", "WAITING_FOR_EARLIER_STEPS", False, True
+    )
+    # Nothing retained against it: not reached and not itself holding the send.
     assert verdict(nodes["FINAL_REVIEW_SEND"]) == ("NOT_STARTED", None, False, False)
+
+
+def test_a_mid_run_case_never_shows_send_unblocked_everywhere() -> None:
+    nodes = project(
+        status=AutomationStatus.RUNNING, current=S.REGISTRY, completed=(),
+        registry="IN_PROGRESS", document="MISSING", ownership_readiness="MISSING",
+        blockers=("REGISTRY_NOT_READY", "DOCUMENT_REQUIRED", "OWNERSHIP_REQUIRED"),
+    )
+    assert any(node.presentation.blocks_send for node in nodes.values())
+    assert not any(node.presentation.counts_as_done for node in nodes.values()
+                   if node.node_id not in {"CASE_START", "INITIAL_IDENTITY"})
 
 
 def test_running_is_not_done() -> None:
@@ -181,6 +195,25 @@ def test_running_is_not_done() -> None:
         document="IN_PROGRESS", blockers=("DOCUMENT_PROCESSING",),
     )
     assert verdict(nodes["DOCUMENT_IDP"]) == ("RUNNING", None, False, True)
+
+
+def test_running_without_a_blocker_or_exception_still_blocks_send() -> None:
+    nodes = project(
+        status=AutomationStatus.RUNNING, current=S.DOCUMENT, completed=(S.REGISTRY,),
+        document="IN_PROGRESS",
+    )
+    assert verdict(nodes["DOCUMENT_IDP"]) == ("RUNNING", None, False, True)
+
+
+def test_a_complete_stage_with_a_retained_blocker_is_not_complete() -> None:
+    nodes = project(blockers=("REGISTRY_NOT_READY",))
+    assert nodes["ACRA_REGISTRY"].status == "COMPLETE"  # execution status unchanged
+    assert verdict(nodes["ACRA_REGISTRY"]) == (
+        "ACTION_REQUIRED", "REGISTRY_NOT_READY", False, True
+    )
+    document = project(blockers=("DOCUMENT_REVIEW_INCOMPLETE",))["DOCUMENT_IDP"]
+    assert document.status == "COMPLETE"
+    assert verdict(document) == ("ACTION_REQUIRED", "DOCUMENT_REVIEW_INCOMPLETE", False, True)
 
 
 def test_complete_counts_and_does_not_block() -> None:
@@ -220,6 +253,19 @@ def test_final_confirmation_is_an_action_but_neither_an_issue_nor_a_send_blocker
     assert final.status == "REVIEW_REQUIRED"
     assert verdict(final) == ("ACTION_REQUIRED", "FINAL_CONFIRMATION_REQUIRED", False, False)
     assert all(not node.presentation.owned_exception_ids for node in nodes.values())
+
+
+def test_the_final_confirmation_never_masks_another_open_send_exception() -> None:
+    partial = exception(S.MOCK_GOLDTIER, "TARGET_PARTIAL_REVIEW_REQUIRED")
+    nodes = project(exceptions=(
+        exception(S.READINESS, "TARGET_CONFIRMATION_REQUIRED"), partial,
+    ))
+    final = nodes["FINAL_REVIEW_SEND"].presentation
+    assert final.owned_exception_ids == (str(partial.exception_id),)
+    assert final.reason_code != "FINAL_CONFIRMATION_REQUIRED"
+    assert (final.state, final.counts_as_done, final.blocks_send) == (
+        "ACTION_REQUIRED", False, True
+    )
 
 
 # Matrix rows: Registry verification ----------------------------------------------------------
@@ -287,7 +333,7 @@ def test_uen_conflict_is_owned_by_document_and_linked_from_registry_once() -> No
     owned = [item for node in nodes.values() for item in node.presentation.owned_exception_ids]
     assert sorted(owned) == sorted([str(conflict_id), str(other_id)])
     assert verdict(nodes["OWNERSHIP_UBO"]) == (
-        "NOT_STARTED", "WAITING_FOR_EARLIER_STEPS", False, False
+        "NOT_STARTED", "WAITING_FOR_EARLIER_STEPS", False, True
     )
 
 
