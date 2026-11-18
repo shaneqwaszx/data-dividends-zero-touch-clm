@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.registry_legal_form import RegistryLegalForm
+from app.domain.registry_legal_form import ConditionalLegalForm, RegistryLegalForm
 from app.domain.workflow_governance import ProposalKind, proposal_content_hash
 from app.domain.workflows import (
     ONBOARDING_ANCHOR_STAGES,
@@ -34,13 +34,15 @@ SECOND = stage("second", "Second check", field("s", "Checked"), after="ADVISORY"
 
 
 def test_catalogue_is_fixed_synthetic_and_uses_registry_legal_forms() -> None:
+    # ADR-018 §7 (M3): one scenario per selectable legal form, plus UNVERIFIED and OTHER.
     items = scenarios()
-    assert 3 <= len(items) <= 5
+    assert len(items) == len(ConditionalLegalForm) + 2
     assert items == scenarios()
     assert all(item.synthetic for item in items)
     forms = [item.legal_form for item in items]
     assert len(set(forms)) == len(forms)
-    assert set(forms) <= {form.value for form in RegistryLegalForm}
+    assert set(forms) == {form.value for form in ConditionalLegalForm} | {"UNVERIFIED", "OTHER"}
+    assert set(forms) <= {form.value for form in RegistryLegalForm} | {"UNVERIFIED"}
     assert all("synthetic" in item.description.lower() for item in items)
 
 
@@ -76,11 +78,13 @@ def test_held_before_send_only_when_an_added_stage_blocks_the_send() -> None:
     ]
 
 
-def test_summary_states_that_legal_form_does_not_change_the_m1_outcome() -> None:
+def test_unconditional_content_gives_every_scenario_the_same_outcome() -> None:
+    # ADR-018 §7: the M1 "does not depend on legal form" note became the truthful statement
+    # that no step of this unconditional candidate depends on legal form.
     result = simulate((BLOCKING,), is_onboarding=True, scenario_ids=())
     outcomes = result.outcomes
     assert len({(o.steps, o.held_before_send, o.summary) for o in outcomes}) == 1
-    assert all("does not depend on legal form" in o.summary for o in outcomes)
+    assert all("no step depends on legal form" in o.summary for o in outcomes)
     assert all(len(o.summary) <= 240 for o in outcomes)
 
 
