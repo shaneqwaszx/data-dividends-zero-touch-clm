@@ -182,6 +182,7 @@ def _remote(
     environ: Mapping[str, str] | None,
     budget_ledger: Path | None,
     allow_live_network: bool,
+    wire_check: Callable[[list[dict[str, str]], bytes], None] | None = None,
 ) -> ChatModel:
     # L1: an in-memory mock transport, or the Phase B live gate (both halves, never both modes).
     transport = _live_or_mock(settings, transport, allow_live_network)
@@ -256,6 +257,7 @@ def _remote(
         reasoning_allowance_tokens=allowance,
         max_prompt_bytes=settings.remote_max_prompt_bytes,
         transport=transport,
+        wire_check=wire_check,
     )
     # A remote model is never returned without its budget guard.
     return BudgetedChatModel(
@@ -276,6 +278,7 @@ def build_chat_model(
     registry: Mapping[str, ModelProfile] = APPROVED_PROFILES,
     budget_ledger: Path | None = None,
     allow_live_network: bool = False,
+    wire_check: Callable[[list[dict[str, str]], bytes], None] | None = None,
 ) -> ChatModel:
     """The configured chat model. Validation runs here, not only in pydantic, because some
     callers build settings without validators (``model_construct``).
@@ -298,6 +301,7 @@ def build_chat_model(
         environ=environ,
         budget_ledger=budget_ledger,
         allow_live_network=allow_live_network,
+        wire_check=wire_check,
     )
 
 

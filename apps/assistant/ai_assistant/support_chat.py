@@ -44,6 +44,8 @@ from .knowledge_answers import (
     tag_hits,
 )
 from .llm import ChatModel, LlmUnavailableError, collect_stream
+from .privacy_boundary import admit as privacy_admit
+from .privacy_boundary import trusted_text as _privacy_trusted
 from .provider_payload import scrub
 from .remote_test import is_remote_test_model
 from .synthetic_boundary import approved_entry
@@ -82,9 +84,39 @@ RULES = """You answer questions from a Support reviewer about the AI Assistant's
 _WORD = re.compile(r"[a-z0-9]+")
 _STOP = frozenset(
     {
-        "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from",
-        "how", "i", "if", "in", "is", "it", "of", "on", "or", "the", "this", "to", "what",
-        "when", "where", "which", "who", "why", "with", "you",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "do",
+        "does",
+        "for",
+        "from",
+        "how",
+        "i",
+        "if",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "the",
+        "this",
+        "to",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "with",
+        "you",
     }
 )
 _MARKER = re.compile(r"^(?:[-*•]|\d{1,3}[.)])\s+")
@@ -238,9 +270,11 @@ def answer_support_question(
     hosted: bool = False,
     lead: str | None = None,
     names: tuple[str, ...] | None = None,
+    external: bool = False,
 ) -> SupportAnswer:
     """``hosted``: D-130 hosted Claude answers (main.support_chat decides); ``lead``: the
-    notice naming that model, on its own answers only."""
+    notice naming that model, on its own answers only. ``external``: the active model's prompt
+    would leave this machine; D-142 R4 (Option A): Support's question then never goes to it."""
 
     tagged: list[TaggedHit] = []
     if retriever is not None:
@@ -254,9 +288,7 @@ def answer_support_question(
         except Exception:  # knowledge is optional: never let it break an answer
             log.exception("support chat retrieval failed")
     rules = knowledge_lines({}, [(item.tag, item.hit.entry.body) for item in tagged])
-    shown = ShownKnowledge(
-        lines=rules, titles={item.tag: item.hit.entry.title for item in tagged}
-    )
+    shown = ShownKnowledge(lines=rules, titles={item.tag: item.hit.entry.title for item in tagged})
     allowed = [*rules, *policy_lines(catalogue), NOTHING_FOUND]
     if hosted and not in_scope(question, allowed):
         # Not about the rules or the policy: nothing is sent to the model.
@@ -284,8 +316,11 @@ def answer_support_question(
 
     if model is None:
         return without_model(NO_MODEL_NOTICE)
-    if is_remote_test_model(model) and not hosted:
+    if (is_remote_test_model(model) or external) and not hosted:
         return without_model(REMOTE_NOTICE)
+    # D-142 R1: one single-use privacy admission for exactly these messages (the user's
+    # identifiers; memory only). Any external model consumes it once.
+    messages = privacy_admit(messages, [("PERSON", name) for name in names or ()], source="support")
     try:
         if hosted:
             approve_messages(messages)
@@ -315,3 +350,8 @@ def answer_support_question(
         sources=sources_for(tagged, text, shown),
         left_out=left_out,
     )
+
+
+# D-142 R3: the service's fixed wording, trusted by origin where it is defined (a system
+# role alone never makes text trusted: privacy_boundary.trusted_text).
+_privacy_trusted(RULES)

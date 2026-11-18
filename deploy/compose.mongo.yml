@@ -20,7 +20,7 @@ services:
         condition: service_healthy
 
   mongo:
-    image: mongo@sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b
+    image: mongo@sha256:fb8e0773cddc25d3450171301e3fa0e7398c3e6b02afc3dc6e2780196b62726a
     platform: linux/amd64
     command:
       - mongod

@@ -207,14 +207,17 @@ def test_stream_partial_or_fallback_on_model_failure(prefix: str, failure: str) 
     events = [
         json.loads(line)
         for line in client.post(
-            f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Tell me about this case."}
+            # D-142 R4: a supported intent, so the external endpoint is called at all.
+            f"/assistant/cases/{CASE_ID}/chat/stream",
+            json={"message": "Why is this case blocked?"},
         ).text.splitlines()
     ]
     assert events[-1]["type"] == "done"
     assert "private diagnostic" not in json.dumps(events)
     if prefix:
         assert events[0]["type"] == "text"
-        assert events[-1]["answer"] == prefix.strip()
+        # R4: the canonical topic's required lines come first, then the model's checked text.
+        assert events[-1]["answer"].endswith(prefix.strip())
         assert "cut short" in events[-1]["notice"]
     else:
         assert events[-1]["answered_by"] == "case_data"

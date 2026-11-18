@@ -37,11 +37,23 @@ from collections import Counter
 from collections.abc import Mapping
 from uuid import UUID
 
+from ai_assistant import config as assistant_config
+from ai_assistant.privacy_boundary import DATA_POLICIES, PSEUDONYMISED, SYNTHETIC_ONLY
+
 RETIRED_VARIABLES = (
     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
     "ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE",
 )
 RETIRED = "CASE_ALLOWLIST_RETIRED"
+# D-142 Q3: each hosted provider's data-handling policy (privacy_boundary.DATA_POLICIES).
+# Unset is synthetic_only, the D-139 R3 check. pseudonymised starts only once the owner's D-142
+# adoption is recorded in config.HOSTED_PRIVACY_DECISION.
+DATA_POLICY_VARIABLES = {
+    "anthropic": "ASSISTANT_HOSTING_ANTHROPIC_DATA_POLICY",
+    "openrouter": "ASSISTANT_HOSTING_OPENROUTER_DATA_POLICY",
+}
+DATA_POLICY_INVALID = "DATA_POLICY_INVALID"
+PRIVACY_DECISION_REQUIRED = "PRIVACY_DECISION_REQUIRED"
 # The fifth path (dashboard insights) reads many cases at once and has no per-answer check, so
 # it admits no case until its own eligibility design is reviewed (HOSTED_INSIGHTS_DECISION is
 # None and the guard refuses the route as well).
@@ -62,15 +74,21 @@ class CasePolicy:
 
     refs: frozenset[str] = frozenset()
 
-    def __init__(self) -> None:
+    def __init__(self, policies: Mapping[str, str] | None = None) -> None:
         self._lock = threading.Lock()
         self._refusals: Counter[tuple[str, str]] = Counter()
+        self._policies = dict(policies or {})
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "CasePolicy":
         if any((environ.get(name) or "").strip() for name in RETIRED_VARIABLES):
             raise ValueError(RETIRED)
-        return cls()
+        return cls(_policies(environ))
+
+    def data_policy(self, provider: str) -> str:
+        """This provider's data-handling policy (synthetic_only unless set)."""
+
+        return self._policies.get(provider, SYNTHETIC_ONLY)
 
     def record(self, case_id: UUID, reason: str) -> None:
         ref = case_ref(case_id)
@@ -91,11 +109,26 @@ class CasePolicy:
         return INSIGHTS_REFUSAL
 
 
+def _policies(environ: Mapping[str, str]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for provider, name in DATA_POLICY_VARIABLES.items():
+        value = (environ.get(name) or "").strip()
+        if not value:
+            continue
+        if value not in DATA_POLICIES:
+            raise ValueError(DATA_POLICY_INVALID)
+        if value == PSEUDONYMISED and assistant_config.HOSTED_PRIVACY_DECISION is None:
+            raise ValueError(PRIVACY_DECISION_REQUIRED)
+        found[provider] = value
+    return found
+
+
 def config_codes(environ: Mapping[str, str]) -> list[str]:
-    """The startup refusal for retired D-132 settings, if any (for profile.refusals)."""
+    """The startup refusal for retired D-132 settings or an unusable D-142 data policy, if any
+    (for profile.refusals)."""
 
     try:
         CasePolicy.from_env(environ)
-    except ValueError:
-        return [RETIRED]
+    except ValueError as error:
+        return [str(error)]
     return []

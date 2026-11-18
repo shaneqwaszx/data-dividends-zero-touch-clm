@@ -34,6 +34,10 @@ class CaseSnapshot:
     # False when the document list could not be read (it is then empty). Answers carry on
     # without documents; the D-094 synthetic boundary refuses remote use.
     documents_loaded: bool = True
+    # D-142 R2: the case as external inference may receive it under the pseudonymised policy
+    # (synthetic_eligibility.PocView: unverified uploads withheld), set by the hosted service
+    # when it is read; None otherwise. Memory only.
+    poc_view: Any = None
 
 
 class ClmBackendClient:

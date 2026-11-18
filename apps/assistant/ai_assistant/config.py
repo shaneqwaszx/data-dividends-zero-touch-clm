@@ -72,6 +72,11 @@ HOSTED_TRANSMISSION_DECISION: str | None = "D-129"
 # D-129A ACCEPTED (owner): OpenRouter transmission and the A1-R3 residual. The mode still
 # starts only with its daily cap, proxy, settings and egress install in place.
 HOSTED_OPENROUTER_TRANSMISSION_DECISION: str | None = "D-129A"
+# D-142 (proposed): the pseudonymised data policy (privacy_boundary.py) on a hosted provider.
+# None until the owner adopts D-142; a service set to that policy then refuses to start
+# (PRIVACY_DECISION_REQUIRED). The privacy boundary itself applies to every external call
+# whatever this says. Set only in a reviewed change.
+HOSTED_PRIVACY_DECISION: str | None = None
 
 
 def conversational(settings: "AiAssistantSettings") -> bool:

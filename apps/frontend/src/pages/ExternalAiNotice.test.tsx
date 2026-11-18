@@ -18,6 +18,7 @@ describe("ExternalAiNotice (P2-3)", () => {
       expect(text).toContain("Use synthetic test data only.");
       expect(text).toContain("Do not enter real names, contact details, ID numbers or any other personal or confidential information.");
       expect(text).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+      expect(text).toContain("replaced with placeholders, and restored only here (D-142)");
     }
   });
 
@@ -71,6 +72,7 @@ describe("ExternalAiNotice (P2-3)", () => {
       expect(text).toContain("They are sent even if no GPT-OSS-120B answer is shown to you.");
       expect(text).toContain("Use synthetic test data only.");
       expect(text).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+      expect(text).toContain("replaced with placeholders, and restored only here (D-142)");
       expect(text).not.toContain("Anthropic");
       const either = externalAiNoticeText(surface, "either");
       expect(either).toContain("Anthropic for Claude, or OpenRouter (routed to the one approved GPT-OSS-120B endpoint)");
