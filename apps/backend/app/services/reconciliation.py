@@ -2,6 +2,7 @@
 
 import hmac
 import json
+import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -327,7 +328,7 @@ class ReconciliationService:
                     message="The proposed decision could not be validated safely.",
                 ) from None
             try:
-                return self._unit_of_work.commit_resolution(
+                committed = self._unit_of_work.commit_resolution(
                     onboarding_candidate=onboarding_candidate,
                     reconciliation_candidate=validated,
                     expected_reconciliation_version=record.version,
@@ -344,6 +345,17 @@ class ReconciliationService:
                     code="RECONCILIATION_COMMIT_FAILED",
                     message="The decisions and canonical value were not committed.",
                 ) from None
+            if onboarding_candidate is not None:
+                # ADR-018 3.5 F5: the committed legal-name change is an entity change, so the
+                # applicability basis hook runs now (under the same reentrant case lock). It
+                # fails safe; the send-time recompute still holds a send if it cannot run.
+                try:
+                    self._cases.notify_registry_entity_changed(case_id)
+                except Exception:  # noqa: BLE001 - the decision is already committed
+                    logging.getLogger(__name__).warning(
+                        "workflow basis notification failed", extra={"case_id": str(case_id)}
+                    )
+            return committed
 
     @staticmethod
     def _validate_resolution_candidate(

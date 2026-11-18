@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
+import proposalConditionalDraft from "../../../docs/contracts/fixtures/workflow-governance/proposal_conditional_draft.json";
+import runApplicabilityView from "../../../docs/contracts/fixtures/workflow-governance/run_applicability_view.json";
 import { governanceFixtures, rawGovernanceFixtures } from "./test-fixtures/workflowGovernance";
+import type { WorkflowStage } from "./workflowApi";
 import {
+  CONDITIONAL_LEGAL_FORMS,
   COMPARISON_RESPONSE_KEYS,
   DECISION_RESPONSE_KEYS,
   GOVERNANCE_ERROR_CODES,
   GOVERNANCE_VIEW_KEYS,
   PERMANENT_OBLIGATION_WARNING,
   PROPOSAL_RESPONSE_KEYS,
+  RUN_APPLICABILITY_VIEW_KEYS,
   VALIDATION_REPORT_KEYS,
+  type ProposalResponse,
+  type RunApplicabilityView,
 } from "./workflowGovernanceTypes";
 
 // The same synthetic fixtures the backend contract test validates against the Pydantic models.
@@ -45,6 +52,28 @@ describe("workflow governance contract (C0)", () => {
       governanceFixtures.errorHistoryUnavailable(),
     ]) {
       expect(GOVERNANCE_ERROR_CODES).toContain(body.code);
+    }
+  });
+
+  it("types the CC-8 conditional fixtures (ADR-018)", () => {
+    const proposal = proposalConditionalDraft as unknown as ProposalResponse;
+    expect(keys(proposal)).toEqual([...PROPOSAL_RESPONSE_KEYS].sort());
+    const stage = (proposal as unknown as { stages: WorkflowStage[] }).stages[0];
+    expect(stage.applies_to).toEqual(["LLP", "LP"]);
+    for (const form of [...(stage.applies_to ?? []), ...stage.fields.flatMap((f) => f.applies_to ?? [])]) {
+      expect(CONDITIONAL_LEGAL_FORMS).toContain(form);
+    }
+    expect(stage.fields[0]).not.toHaveProperty("applies_to");
+    const view = runApplicabilityView as unknown as RunApplicabilityView;
+    expect(keys(view)).toEqual([...RUN_APPLICABILITY_VIEW_KEYS].sort());
+    expect(view.effective_legal_form).toBeNull();
+  });
+
+  it("keeps M1 stages unconditional (no applies_to key)", () => {
+    const draft = governanceFixtures.proposalDraft() as unknown as { stages: WorkflowStage[] };
+    for (const stage of draft.stages) {
+      expect(stage).not.toHaveProperty("applies_to");
+      for (const field of stage.fields) expect(field).not.toHaveProperty("applies_to");
     }
   });
 

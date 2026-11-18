@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
@@ -13,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api_auth import SESSION_COOKIE_NAME
 from app.api_workflow_governance_models import (
     AcknowledgeNoticeRequest,
+    ApplicabilityEscalationRequest,
     ApprovalInboxResponse,
     ComparisonResponse,
     CopyProposalRequest,
@@ -25,6 +27,7 @@ from app.api_workflow_governance_models import (
     NoticeListResponse,
     ProposalResponse,
     ReleaseDraftRequest,
+    RunApplicabilityView,
     SimulateProposalRequest,
     SimulationResult,
     SimulationScenario,
@@ -38,7 +41,10 @@ from app.api_workflow_governance_models import (
 )
 from app.domain.access import AuthenticatedActor
 from app.domain.models import OnboardingCase
-from app.domain.workflow_governance import GovernanceErrorCode
+from app.domain.workflow_governance import (
+    CASE_EVENT_APPLICABILITY_ESCALATED,
+    GovernanceErrorCode,
+)
 from app.domain.workflows import (
     ONBOARDING_LOCKED_STAGES,
     WorkflowAnswerSource,
@@ -174,6 +180,10 @@ class RunResponse(BaseModel):
     is_complete: bool
     started_by: str | None
     stages: tuple[RunStageResponse, ...]
+    # ADR-018 (CC-8): what the stage copy was resolved with; absent for unconditional runs.
+    applicability: RunApplicabilityView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @classmethod
     def from_domain(cls, run: WorkflowRun) -> RunResponse:
@@ -227,6 +237,7 @@ class RunResponse(BaseModel):
             is_complete=run.is_complete,
             started_by=run.started_by,
             stages=tuple(stages),
+            applicability=RunApplicabilityView.from_run(run),
         )
 
 
@@ -756,7 +767,45 @@ def build_workflow_router(
             )
         )
 
+    # ADR-018 §3.5 F6, §10 8c: "Apply all conditional steps" (filler roles, add-only).
+    @router.post(
+        "/api/clm/cases/{case_id}/workflow/applicability-escalation",
+        response_model=RunResponse,
+    )
+    def escalate_applicability(
+        case_id: UUID, body: ApplicabilityEscalationRequest, request: Request
+    ) -> RunResponse:
+        def escalate() -> RunResponse:
+            try:
+                run = active().escalate_applicability(
+                    fresh_case_actor(request, case_id),
+                    case_id=case_id,
+                    run_id=UUID(body.run_id),
+                    expected_revision=body.expected_revision,
+                    reason=body.reason,
+                )
+            except WorkflowValidationError as error:
+                if error.code == ESCALATION_NOT_IN_CONFLICT:
+                    raise _error(
+                        status.HTTP_409_CONFLICT, error.code, error.public_message
+                    ) from None
+                raise
+            try:
+                # The run record is the audit authority; the case event follows it.
+                cases.record_applicability_event(case_id, CASE_EVENT_APPLICABILITY_ESCALATED)
+            except Exception:  # noqa: BLE001 - the committed escalation stands
+                logging.getLogger(__name__).warning(
+                    "applicability escalation event deferred", extra={"case_id": str(case_id)}
+                )
+            return RunResponse.from_domain(run)
+
+        return _call(escalate)
+
     return router
+
+
+# Provisional code (ADR-018 F6): an escalation needs an applicability conflict.
+ESCALATION_NOT_IN_CONFLICT = "WORKFLOW_APPLICABILITY_NOT_IN_CONFLICT"
 
 
 def _run_item(run: WorkflowRun, case: OnboardingCase | None) -> WorkflowRunListItem:

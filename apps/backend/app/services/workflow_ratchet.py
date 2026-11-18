@@ -10,6 +10,12 @@ Obligations (ADR-017 §2):
 
 Every candidate is checked against **both** the active version **and** the required
 baseline. An identical violation found against both is reported once.
+
+ADR-018 (M3, CC-8): an obligation's applicability ``A`` is its stage's ``applies_to`` (a
+stage) or its effective ``applies_to`` (a field: stage ∩ field). ``None`` is ALL, the top
+element. RR-8 refuses narrowing, the baseline keeps the broadest ``A`` ever published, and a
+safe target renders exactly the baseline ``A``. Unconditional content (every ``A`` is ALL)
+behaves exactly as in M1/M2.
 """
 
 from __future__ import annotations
@@ -30,7 +36,13 @@ from app.api_workflow_governance_models import (
     ValidationIssue,
     ValidationReport,
 )
+from app.domain.registry_legal_form import ConditionalLegalForm
 from app.domain.workflow_governance import (
+    CONDITIONAL_BEFORE_REGISTRY_ISSUE,
+    CONDITIONAL_FIELD_OUTSIDE_STAGE_ISSUE,
+    CONDITIONAL_FULL_SET_ISSUE,
+    CONDITIONAL_NON_ONBOARDING_MINIMUM_ISSUE,
+    CONDITIONAL_OPTIONAL_TO_REQUIRED_ISSUE,
     MAX_ENCODED_VERSION_BYTES,
     BaselineField,
     BaselineStage,
@@ -47,12 +59,17 @@ from app.domain.workflow_governance import (
     ratchet_error_code,
 )
 from app.domain.workflows import (
+    CONDITIONAL_ONBOARDING_ANCHORS,
     ONBOARDING_ANCHOR_STAGES,
     ONBOARDING_LOCKED_STAGES,
+    AppliesTo,
     WorkflowField,
     WorkflowFieldKind,
     WorkflowStage,
     WorkflowVersion,
+    applies_to_includes,
+    effective_applies_to,
+    field_within_stage,
 )
 from app.services.workflow_management import stage_blocks_send
 
@@ -129,11 +146,54 @@ def _options(field: WorkflowField) -> frozenset[str]:
     return frozenset(normalise_label(option) for option in field.options)
 
 
+# --- Applicability (ADR-018 §2.1, §4.1; None = ALL, the top element) ---
+
+
+def _union(left: AppliesTo | None, right: AppliesTo | None) -> AppliesTo | None:
+    """The broader of two applicabilities. ALL absorbs every set; the full set is ALL."""
+
+    if left is None or right is None:
+        return None
+    forms = set(left) | set(right)
+    if len(forms) >= len(ConditionalLegalForm):
+        return None
+    return tuple(sorted(forms, key=lambda item: item.value))
+
+
+def _broader(candidate: AppliesTo | None, recorded: AppliesTo | None) -> bool:
+    """``candidate`` covers ``recorded`` and more."""
+
+    return applies_to_includes(candidate, recorded) and candidate != recorded
+
+
+def _field_applicability(stage: WorkflowStage, field: WorkflowField) -> AppliesTo | None:
+    return effective_applies_to(stage.applies_to, field.applies_to)
+
+
+def _applies_text(value: AppliesTo | None) -> str:
+    if value is None:
+        return "Applies to all entities."
+    forms = ", ".join(item.value for item in value)
+    return f"Applies to: {forms}, and any entity whose legal form is not verified."
+
+
+def _field_applies_to(effective: AppliesTo | None, stage: AppliesTo | None) -> AppliesTo | None:
+    """The field-level ``applies_to`` that renders ``effective`` inside a stage of ``stage``."""
+
+    return None if effective == stage else effective
+
+
 # --- Signatures and the baseline ---
 
 
-def field_signature(field: WorkflowField) -> FieldSignature:
-    """The semantic signature of one field (ADR-017 §2). Applicability is None until M3."""
+def field_signature(
+    field: WorkflowField, *, stage_applies_to: AppliesTo | None = None
+) -> FieldSignature:
+    """The semantic signature of one field (ADR-017 §2, ADR-018 §2.3).
+
+    ``applicability`` is the field's effective applicability within a stage whose
+    ``applies_to`` is ``stage_applies_to`` (ALL when omitted).
+    """
 
     return FieldSignature(
         kind=field.kind,
@@ -142,58 +202,92 @@ def field_signature(field: WorkflowField) -> FieldSignature:
             tuple(sorted(_options(field))) if field.kind == WorkflowFieldKind.CHOICE else None
         ),
         has_case_data_key=field.case_data_key is not None,
+        applicability=effective_applies_to(stage_applies_to, field.applies_to),
     )
 
 
-def _representative(field: WorkflowField, signature: FieldSignature) -> WorkflowField:
-    """R1-12: the latest published definition, restricted to the baseline signature."""
+def _representative(
+    field: WorkflowField, signature: FieldSignature, stage_applicability: AppliesTo | None
+) -> WorkflowField:
+    """R1-12: the latest published definition, restricted to the baseline signature.
+
+    It carries the baseline (broadest) applicability, relative to the baseline stage.
+    """
 
     options = field.options
     if signature.choice_options is not None:
         allowed = frozenset(signature.choice_options)
         options = tuple(option for option in field.options if normalise_label(option) in allowed)
-    return WorkflowField.model_validate(
-        {
-            **field.model_dump(),
-            "required": True,
-            "options": options,
-            "case_data_key": field.case_data_key if signature.has_case_data_key else None,
-        }
-    )
+    data = {
+        **field.model_dump(),
+        "required": True,
+        "options": options,
+        "case_data_key": field.case_data_key if signature.has_case_data_key else None,
+    }
+    data.pop("applies_to", None)
+    applies_to = _field_applies_to(signature.applicability, stage_applicability)
+    if applies_to is not None:
+        data["applies_to"] = applies_to
+    return WorkflowField.model_validate(data)
 
 
-def _stricter_signature(old: FieldSignature, field: WorkflowField) -> FieldSignature:
-    """Kind and label fixed; CHOICE options intersected; ``case_data_key`` absent once absent."""
+def _stricter_signature(
+    old: FieldSignature, field: WorkflowField, applicability: AppliesTo | None
+) -> FieldSignature:
+    """Kind and label fixed; CHOICE options intersected; ``case_data_key`` absent once absent;
+    applicability the broadest ever published (ADR-018 §4.2)."""
 
     options = old.choice_options
     if options is not None and field.kind == WorkflowFieldKind.CHOICE:
         options = tuple(sorted(frozenset(options) & _options(field)))
-    return old.model_copy(
-        update={
-            "choice_options": options,
-            "has_case_data_key": old.has_case_data_key and field.case_data_key is not None,
-        }
+    return FieldSignature(
+        kind=old.kind,
+        normalised_label=old.normalised_label,
+        choice_options=options,
+        has_case_data_key=old.has_case_data_key and field.case_data_key is not None,
+        applicability=_union(old.applicability, applicability),
     )
 
 
-def _new_baseline_field(field: WorkflowField) -> BaselineField:
-    signature = field_signature(field)
+def _new_baseline_field(
+    field: WorkflowField, stage: WorkflowStage, stage_applicability: AppliesTo | None
+) -> BaselineField:
+    signature = field_signature(field, stage_applies_to=stage.applies_to)
     return BaselineField(
         field_id=field.field_id,
         signature=signature,
-        representative=_representative(field, signature),
+        representative=_representative(field, signature, stage_applicability),
+    )
+
+
+def _rerendered(item: BaselineField, stage_applicability: AppliesTo | None) -> BaselineField:
+    """Keep a field's broadest applicability exact after its baseline stage broadened."""
+
+    applies_to = _field_applies_to(item.signature.applicability, stage_applicability)
+    if item.representative.applies_to == applies_to:
+        return item
+    data = item.representative.model_dump()
+    data.pop("applies_to", None)
+    if applies_to is not None:
+        data["applies_to"] = applies_to
+    return BaselineField(
+        field_id=item.field_id,
+        signature=item.signature,
+        representative=WorkflowField.model_validate(data),
     )
 
 
 def _advanced_stage(existing: BaselineStage, stage: WorkflowStage, version: int) -> BaselineStage:
     if normalise_label(stage.name) != existing.normalised_name:
         raise BaselineIntegrityError("a published version cannot rename a required stage")
+    stage_applicability = _union(existing.applicability, stage.applies_to)
     by_id = {field.field_id: field for field in stage.fields if field.required}
     fields: list[BaselineField] = []
     for item in existing.fields:
         published = by_id.get(item.field_id)
         if published is None:
-            fields.append(item)  # not published as required here: unchanged (never weaker)
+            # Not published as required here: unchanged (never weaker), rendered exactly.
+            fields.append(_rerendered(item, stage_applicability))
             continue
         if (
             published.kind != item.signature.kind
@@ -202,27 +296,31 @@ def _advanced_stage(existing: BaselineStage, stage: WorkflowStage, version: int)
             raise BaselineIntegrityError(
                 "a published version cannot change a required field's kind or label"
             )
-        signature = _stricter_signature(item.signature, published)
+        signature = _stricter_signature(
+            item.signature, published, _field_applicability(stage, published)
+        )
         fields.append(
             BaselineField(
                 field_id=item.field_id,
                 signature=signature,
-                representative=_representative(published, signature),
+                representative=_representative(published, signature, stage_applicability),
             )
         )
     known = {item.field_id for item in existing.fields}
     fields.extend(
-        _new_baseline_field(field)
+        _new_baseline_field(field, stage, stage_applicability)
         for field in stage.fields
         if field.required and field.field_id not in known
     )
-    return existing.model_copy(
-        update={
-            "representative_name": stage.name,
-            "representative_after_node_id": stage.after_node_id,
-            "fields": tuple(fields),
-            "last_published_version": version,
-        }
+    return BaselineStage(
+        stage_id=existing.stage_id,
+        normalised_name=existing.normalised_name,
+        representative_name=stage.name,
+        representative_after_node_id=stage.after_node_id,
+        fields=tuple(fields),
+        first_published_version=existing.first_published_version,
+        last_published_version=version,
+        applicability=stage_applicability,
     )
 
 
@@ -248,9 +346,14 @@ def advance_baseline(baseline: RequiredBaseline, version: WorkflowVersion) -> Re
                 normalised_name=normalise_label(stage.name),
                 representative_name=stage.name,
                 representative_after_node_id=stage.after_node_id,
-                fields=tuple(_new_baseline_field(f) for f in stage.fields if f.required),
+                fields=tuple(
+                    _new_baseline_field(f, stage, stage.applies_to)
+                    for f in stage.fields
+                    if f.required
+                ),
                 first_published_version=version.version,
                 last_published_version=version.version,
+                applicability=stage.applies_to,
             )
         )
     return baseline.model_copy(
@@ -268,10 +371,35 @@ def seed_baseline(version: WorkflowVersion) -> RequiredBaseline:
 # --- Structure (ports _validate_structure and _validate_activation as issues) ---
 
 
+def _applies_to_issue(value: AppliesTo | None) -> str | None:
+    """A canonical-form check for content built without validation (``model_copy``)."""
+
+    if value is None:
+        return None
+    if len(set(value)) >= len(ConditionalLegalForm):
+        return CONDITIONAL_FULL_SET_ISSUE
+    if not value or len(set(value)) != len(value):
+        return "A condition names one or more different legal forms."
+    return None
+
+
+def _has_minimum_for_all(stages: tuple[WorkflowStage, ...]) -> bool:
+    return any(
+        stage.applies_to is None and any(field.applies_to is None for field in stage.fields)
+        for stage in stages
+    )
+
+
 def structure_issues(
-    stages: tuple[WorkflowStage, ...], *, is_onboarding: bool
+    stages: tuple[WorkflowStage, ...],
+    *,
+    is_onboarding: bool,
+    active: WorkflowVersion | None = None,
 ) -> tuple[ValidationIssue, ...]:
+    """Structure rules as issues. ``active`` enables the B9 check (ADR-018 §2.1)."""
+
     issues: list[ValidationIssue] = []
+    invalid = GovernanceErrorCode.PROPOSAL_INVALID.value
 
     def add(
         code: str, message: str, stage_id: str | None = None, field_id: str | None = None
@@ -287,11 +415,16 @@ def structure_issues(
             GovernanceErrorCode.PROPOSAL_EMPTY.value,
             "Add at least one stage. An empty workflow stays unpublished and inactive.",
         )
+    conditional = any(stage.is_conditional for stage in stages)
+    if stages and not is_onboarding and conditional and not _has_minimum_for_all(stages):
+        # ADR-018 §2.1, B6: an extension of WORKFLOW_PROPOSAL_EMPTY.
+        add(GovernanceErrorCode.PROPOSAL_EMPTY.value, CONDITIONAL_NON_ONBOARDING_MINIMUM_ISSUE)
     if len(stages) > MAX_STAGES:
         add(
             GovernanceErrorCode.PROPOSAL_INVALID.value,
             f"A workflow can have at most {MAX_STAGES} stages; this one has {len(stages)}.",
         )
+    active_stages = {stage.stage_id: stage for stage in active.stages} if active else {}
     seen_stages: set[str] = set()
     for stage in stages:
         if len(stage.fields) > MAX_FIELDS_PER_STAGE:
@@ -332,8 +465,46 @@ def structure_issues(
                 "Add at least one field to every stage.",
                 stage_id=stage.stage_id,
             )
+        stage_problem = _applies_to_issue(stage.applies_to)
+        if stage_problem:
+            add(invalid, stage_problem, stage_id=stage.stage_id)
+        if (
+            is_onboarding
+            and stage.is_conditional
+            and stage.after_node_id not in CONDITIONAL_ONBOARDING_ANCHORS
+        ):
+            add(invalid, CONDITIONAL_BEFORE_REGISTRY_ISSUE, stage_id=stage.stage_id)
+        before = active_stages.get(stage.stage_id)
+        earlier_fields = {f.field_id: f for f in before.fields} if before else {}
         seen_fields: set[str] = set()
         for field in stage.fields:
+            field_problem = _applies_to_issue(field.applies_to)
+            if field_problem:
+                add(invalid, field_problem, stage_id=stage.stage_id, field_id=field.field_id)
+            elif not field_within_stage(stage.applies_to, field.applies_to):
+                add(
+                    invalid,
+                    CONDITIONAL_FIELD_OUTSIDE_STAGE_ISSUE,
+                    stage_id=stage.stage_id,
+                    field_id=field.field_id,
+                )
+            earlier = earlier_fields.get(field.field_id)
+            if (
+                before is not None
+                and earlier is not None
+                and not earlier.required
+                and _field_applicability(before, earlier) is None
+                and field.required
+                and not field_problem
+                and _field_applicability(stage, field) is not None
+            ):
+                # ADR-018 §2.1, B9: optional ALL -> conditional required is refused.
+                add(
+                    invalid,
+                    CONDITIONAL_OPTIONAL_TO_REQUIRED_ISSUE,
+                    stage_id=stage.stage_id,
+                    field_id=field.field_id,
+                )
             if field.field_id in seen_fields:
                 add(
                     CODE_DUPLICATE_ID,
@@ -415,6 +586,7 @@ class _FieldObligation:
     normalised_label: str
     options: frozenset[str] | None
     has_case_data_key: bool
+    applicability: AppliesTo | None = None  # effective (stage ∩ field); None = ALL
 
 
 @dataclass(frozen=True)
@@ -423,6 +595,7 @@ class _StageObligation:
     name: str
     normalised_name: str
     fields: tuple[_FieldObligation, ...]
+    applicability: AppliesTo | None = None  # the stage's applies_to; None = ALL
 
 
 def _active_obligations(active: WorkflowVersion | None) -> tuple[_StageObligation, ...]:
@@ -441,10 +614,12 @@ def _active_obligations(active: WorkflowVersion | None) -> tuple[_StageObligatio
                     normalised_label=normalise_label(field.label),
                     options=(_options(field) if field.kind == WorkflowFieldKind.CHOICE else None),
                     has_case_data_key=field.case_data_key is not None,
+                    applicability=_field_applicability(stage, field),
                 )
                 for field in stage.fields
                 if field.required
             ),
+            applicability=stage.applies_to,
         )
         for stage in active.stages
         if stage_blocks_send(stage)
@@ -469,9 +644,11 @@ def _baseline_obligations(baseline: RequiredBaseline) -> tuple[_StageObligation,
                         else frozenset(item.signature.choice_options)
                     ),
                     has_case_data_key=item.signature.has_case_data_key,
+                    applicability=item.signature.applicability,
                 )
                 for item in stage.fields
             ),
+            applicability=stage.applicability,
         )
         for stage in baseline.stages
     )
@@ -612,19 +789,69 @@ def _obligation_issues(
     return issues
 
 
-def applicability_issues(
-    candidate: tuple[WorkflowStage, ...], baseline: RequiredBaseline
-) -> tuple[ValidationIssue, ...]:
-    """RR-8 HOOK (inert until ADR-018 / M3).
+def _narrowed_issues(obligation: _StageObligation, stage: WorkflowStage) -> list[ValidationIssue]:
+    """RR-8a/b/c for one required stage obligation present in the candidate."""
 
-    Conditional steps do not exist yet: every obligation is unconditional and every
-    ``FieldSignature.applicability`` is None, so nothing can be narrowed. When ADR-018 adds
-    applicability, this hook must refuse a narrowed applicability or an unconditional
-    obligation made conditional, against both the active version and the baseline.
+    sid = stage.stage_id
+    issues: list[ValidationIssue] = []
+    if not applies_to_includes(stage.applies_to, obligation.applicability):
+        unconditional = obligation.applicability is None
+        issues.append(
+            _issue(
+                RatchetRule.RR_8,
+                f"The required stage '{obligation.name}' applies to all entities and cannot "
+                "become conditional."
+                if unconditional
+                else f"The required stage '{obligation.name}' cannot apply to fewer legal forms.",
+                sid,
+            )
+        )
+    for item in obligation.fields:
+        found = next((f for f in stage.fields if f.field_id == item.field_id), None)
+        if found is None or not found.required:
+            continue  # RR-3 reports it
+        effective = _field_applicability(stage, found)
+        if applies_to_includes(effective, item.applicability):
+            continue
+        where = f"'{item.label}' in '{obligation.name}'"
+        if applies_to_includes(found.applies_to, item.applicability):
+            message = f"The required field {where} would apply to fewer legal forms because its "
+            message += "step's legal forms narrowed."  # RR-8c
+        elif item.applicability is None:
+            message = f"The required field {where} applies to all entities and cannot become "
+            message += "conditional."  # RR-8b
+        else:
+            message = f"The required field {where} cannot apply to fewer legal forms."  # RR-8a
+        issues.append(_issue(RatchetRule.RR_8, message, sid, item.field_id))
+    return issues
+
+
+def applicability_issues(
+    candidate: tuple[WorkflowStage, ...],
+    baseline: RequiredBaseline,
+    *,
+    active: WorkflowVersion | None = None,
+) -> tuple[ValidationIssue, ...]:
+    """RR-8 (ADR-018 §4.1), against the active version and the baseline.
+
+    - RR-8a: a required obligation's applicability narrowed;
+    - RR-8b: an ALL obligation made conditional;
+    - RR-8c: a required field narrowed through its stage's ``applies_to``.
+
+    Missing or optional obligations are RR-1 / RR-3, not RR-8.
     """
 
-    del candidate, baseline
-    return ()
+    by_id: dict[str, WorkflowStage] = {}
+    for stage in candidate:
+        by_id.setdefault(stage.stage_id, stage)
+    from_active = _active_obligations(active)
+    from_baseline = _with_display_names(_baseline_obligations(baseline), from_active)
+    issues: list[ValidationIssue] = []
+    for obligation in (*from_active, *from_baseline):
+        present = by_id.get(obligation.stage_id)
+        if present is not None:
+            issues.extend(_narrowed_issues(obligation, present))
+    return tuple(issues)
 
 
 def _engine_order_issues(
@@ -685,7 +912,11 @@ def ratchet_issues(
     baseline: RequiredBaseline,
     is_onboarding: bool,
 ) -> tuple[ValidationIssue, ...]:
-    """RR-1 to RR-10 against both the active version and the baseline; every violation."""
+    """RR-1 to RR-10 against both the active version and the baseline; every violation.
+
+    RR-9 is unchanged by ADR-018: code-owned stages are not ``WorkflowStage`` records, so they
+    can never carry ``applies_to``, and an added stage still cannot impersonate one.
+    """
 
     by_id: dict[str, WorkflowStage] = {}
     for stage in candidate:
@@ -695,7 +926,7 @@ def ratchet_issues(
     found = [
         *_obligation_issues(from_active, by_id),
         *_obligation_issues(from_baseline, by_id),
-        *applicability_issues(candidate, baseline),
+        *applicability_issues(candidate, baseline, active=active),
         *_engine_order_issues(candidate, is_onboarding=is_onboarding),
     ]
     # The same violation found against both sources has the same text and is kept once;
@@ -749,6 +980,10 @@ def permanent_obligations(
             )
         )
 
+    def conditional(text: str, applicability: AppliesTo | None) -> str:
+        # ADR-018 §4.4: a new conditional obligation is listed with its applicability.
+        return text if applicability is None else f"{text} {_applies_text(applicability)}"
+
     for stage in candidate:
         if not stage_blocks_send(stage):
             continue
@@ -760,15 +995,23 @@ def permanent_obligations(
                     ObligationKey(stage_id=stage.stage_id),
                     PermanentObligationChange.TIGHTENED,
                     stage,
-                    f"The stage '{stage.name}' becomes required.",
+                    conditional(f"The stage '{stage.name}' becomes required.", stage.applies_to),
                 )
             else:
                 add(
                     ObligationKey(stage_id=stage.stage_id),
                     PermanentObligationChange.NEW_REQUIRED_STAGE,
                     stage,
-                    f"New required stage '{stage.name}'.",
+                    conditional(f"New required stage '{stage.name}'.", stage.applies_to),
                 )
+        elif _broader(stage.applies_to, recorded.applicability):
+            add(
+                ObligationKey(stage_id=stage.stage_id),
+                PermanentObligationChange.APPLICABILITY_BROADENED,
+                stage,
+                f"The required stage '{stage.name}' applies to more entities. "
+                f"{_applies_text(stage.applies_to)}",
+            )
         recorded_fields = {item.field_id: item for item in recorded.fields} if recorded else {}
         before_fields = {f.field_id: f for f in before.fields} if before else {}
         for field in stage.fields:
@@ -776,6 +1019,7 @@ def permanent_obligations(
                 continue
             key = ObligationKey(stage_id=stage.stage_id, field_id=field.field_id)
             item = recorded_fields.get(field.field_id)
+            effective = _field_applicability(stage, field)
             if item is None:
                 earlier = before_fields.get(field.field_id)
                 if earlier is not None and not earlier.required:
@@ -783,7 +1027,7 @@ def permanent_obligations(
                         key,
                         PermanentObligationChange.TIGHTENED,
                         stage,
-                        f"The field '{field.label}' becomes required.",
+                        conditional(f"The field '{field.label}' becomes required.", effective),
                         field,
                     )
                 else:
@@ -791,10 +1035,11 @@ def permanent_obligations(
                         key,
                         PermanentObligationChange.NEW_REQUIRED_FIELD,
                         stage,
-                        f"New required field '{field.label}'.",
+                        conditional(f"New required field '{field.label}'.", effective),
                         field,
                     )
                 continue
+            broadened = _broader(effective, item.signature.applicability)
             reasons: list[str] = []
             allowed = item.signature.choice_options
             if (
@@ -809,11 +1054,22 @@ def permanent_obligations(
                     "no longer starts from case data; the case data key can never be added back"
                 )
             if reasons:
+                if broadened:
+                    reasons.append(f"applies to more entities ({_applies_text(effective)[:-1]})")
                 add(
                     key,
                     PermanentObligationChange.TIGHTENED,
                     stage,
                     f"The field '{field.label}' " + "; it ".join(reasons) + ".",
+                    field,
+                )
+            elif broadened:
+                add(
+                    key,
+                    PermanentObligationChange.APPLICABILITY_BROADENED,
+                    stage,
+                    f"The required field '{field.label}' applies to more entities. "
+                    f"{_applies_text(effective)}",
                     field,
                 )
     return tuple(result)
@@ -834,7 +1090,7 @@ def validate_candidate(
 ) -> ValidationReport:
     encoded = encoded_version_bytes(candidate)
     issues = (
-        *structure_issues(candidate, is_onboarding=is_onboarding),
+        *structure_issues(candidate, is_onboarding=is_onboarding, active=active),
         *budget_issues(encoded),
         *ratchet_issues(candidate, active=active, baseline=baseline, is_onboarding=is_onboarding),
     )
@@ -937,7 +1193,25 @@ def change_counts(diffs: tuple[StageDiff, ...]) -> ChangeCounts:
     )
 
 
-# --- Safe target (ADR-017 §2, §4; used by M2 recovery publications) ---
+# --- Safe target (ADR-017 §2, §4; ADR-018 §4.3; used by M2 recovery publications) ---
+
+
+def _target_mismatch(target: tuple[WorkflowStage, ...], baseline: RequiredBaseline) -> str | None:
+    """Every baseline obligation must render with exactly its baseline applicability."""
+
+    by_id = {stage.stage_id: stage for stage in target}
+    for item in baseline.stages:
+        stage = by_id.get(item.stage_id)
+        if stage is None or stage.applies_to != item.applicability:
+            return item.stage_id
+        fields = {field.field_id: field for field in stage.fields}
+        for entry in item.fields:
+            field = fields.get(entry.field_id)
+            if field is None or not field.required:
+                return item.stage_id
+            if _field_applicability(stage, field) != entry.signature.applicability:
+                return item.stage_id
+    return None
 
 
 def safe_target(
@@ -945,32 +1219,64 @@ def safe_target(
 ) -> tuple[WorkflowStage, ...]:
     """``base ∪ required_baseline``: baseline obligations use their representative content.
 
-    Every stage is built through the validated model constructor. Raises ``SafeTargetError``
-    (fail closed) when the union would exceed a model limit, instead of returning it.
+    Every stage is built through the validated model constructor. Each baseline obligation
+    renders with exactly its baseline (broadest) applicability (ADR-018 §4.3): a narrower
+    ``base`` stage is widened to the baseline stage applicability. A safe target never
+    broadens beyond the baseline and never silently narrows ``base`` content, so when ``base``
+    is broader than the baseline (content that was only optional when ``base`` was published),
+    or the union cannot satisfy field ⊆ stage, it raises ``SafeTargetError`` (fail closed).
+    It also raises when the union would exceed a model limit, instead of returning it.
     """
 
     recorded = {stage.stage_id: stage for stage in baseline.stages}
     present_stages = {stage.stage_id for stage in base_stages}
-    planned: list[tuple[str, str, str | None, tuple[WorkflowField, ...]]] = []
+    planned: list[tuple[str, str, str | None, AppliesTo | None, tuple[WorkflowField, ...]]] = []
     for stage in base_stages:
         item = recorded.get(stage.stage_id)
         if item is None:
-            planned.append((stage.stage_id, stage.name, stage.after_node_id, stage.fields))
+            planned.append(
+                (stage.stage_id, stage.name, stage.after_node_id, stage.applies_to, stage.fields)
+            )
             continue
-        representatives = {field.field_id: field.representative for field in item.fields}
+        if not applies_to_includes(item.applicability, stage.applies_to):
+            raise SafeTargetError(
+                f"The safe target stage '{stage.stage_id}' applies to more entities in the "
+                "earlier version than its required baseline."
+            )
+        representatives = {field.field_id: field for field in item.fields}
+        fields: list[WorkflowField] = []
+        for field in stage.fields:
+            entry = representatives.get(field.field_id)
+            if entry is None:
+                fields.append(field)
+                continue
+            if not applies_to_includes(
+                entry.signature.applicability, _field_applicability(stage, field)
+            ):
+                raise SafeTargetError(
+                    f"The safe target field '{field.field_id}' applies to more entities in the "
+                    "earlier version than its required baseline."
+                )
+            fields.append(entry.representative)
         present = {field.field_id for field in stage.fields}
-        fields = [representatives.get(field.field_id, field) for field in stage.fields]
         fields.extend(
             field.representative for field in item.fields if field.field_id not in present
         )
         planned.append(
-            (stage.stage_id, item.representative_name, stage.after_node_id, tuple(fields))
+            (
+                stage.stage_id,
+                item.representative_name,
+                stage.after_node_id,
+                item.applicability,
+                tuple(fields),
+            )
         )
     planned.extend(
         (
             item.stage_id,
             item.representative_name,
             item.representative_after_node_id,
+            item.applicability,
             tuple(field.representative for field in item.fields),
         )
         for item in baseline.stages
@@ -981,25 +1287,30 @@ def safe_target(
             f"The safe target would have {len(planned)} stages; the limit is {MAX_STAGES}."
         )
     result: list[WorkflowStage] = []
-    for stage_id, name, after_node_id, stage_fields in planned:
+    for stage_id, name, after_node_id, applies_to, stage_fields in planned:
         if len(stage_fields) > MAX_FIELDS_PER_STAGE:
             raise SafeTargetError(
                 f"The safe target stage '{stage_id}' would have {len(stage_fields)} fields; the "
                 f"limit is {MAX_FIELDS_PER_STAGE}."
             )
+        data: dict[str, object] = {
+            "stage_id": stage_id,
+            "name": name,
+            "after_node_id": after_node_id,
+            "fields": [field.model_dump() for field in stage_fields],
+        }
+        if applies_to is not None:
+            data["applies_to"] = applies_to
         try:
-            result.append(
-                WorkflowStage.model_validate(
-                    {
-                        "stage_id": stage_id,
-                        "name": name,
-                        "after_node_id": after_node_id,
-                        "fields": [field.model_dump() for field in stage_fields],
-                    }
-                )
-            )
+            result.append(WorkflowStage.model_validate(data))
         except ValidationError as error:
             raise SafeTargetError(
                 f"The safe target stage '{stage_id}' is not a valid stage."
             ) from error
-    return tuple(result)
+    target = tuple(result)
+    mismatch = _target_mismatch(target, baseline)
+    if mismatch is not None:
+        raise SafeTargetError(
+            f"The safe target stage '{mismatch}' does not render its required baseline exactly."
+        )
+    return target

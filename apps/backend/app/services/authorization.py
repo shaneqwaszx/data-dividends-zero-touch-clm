@@ -156,6 +156,12 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/clm/zero-touch/cases/{case_id}/workflows/runs/{run_id}/stages/{stage_id}/confirm",
         RouteAccess.CASE_SCOPED,
     ),
+    # ADR-018 §10 8c: the applicability escalation; filler role and lock checked by the owner.
+    RoutePolicy(
+        "POST",
+        "/api/clm/cases/{case_id}/workflow/applicability-escalation",
+        RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("GET", "/api/admin/goldtier-sandbox/status", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/search", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/dry-run", RouteAccess.ACTOR_ONLY),

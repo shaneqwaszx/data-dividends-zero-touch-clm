@@ -139,6 +139,100 @@ retired in PR-5 with the editor that replaces "Save draft".
   `PRE_GOVERNANCE_DIRECTOR_ACTIVATION` with the fixed note and are never shown or counted as
   approved.
 
+### 3.3 M3: conditional applicability (ADR-018, CC-8)
+
+Authority: ADR-018 (ACCEPTED 2026-11-18, owner decisions B1–B11). This section freezes the
+models only. The ratchet, the evaluation, the freeze, the simulation catalogue and the UI are
+built by the M3 workstreams against it.
+
+- **Legal forms.** `ConditionalLegalForm` (`domain/registry_legal_form.py`) is exactly
+  `RegistryLegalForm` without `OTHER`: `BUSINESS_PARTNERSHIP`, `COMPANY`, `GOVERNMENT`, `LLP`
+  and `LP`. No new classification is introduced.
+- **`applies_to`** on `WorkflowStage` and `WorkflowField` (`domain/workflows.py`):
+  - Absent or `null` means **All entities**.
+  - When it is set, it is non-empty and duplicate-free, and the validator sorts it.
+  - Naming every form is refused; use All entities instead.
+  - A field that names forms must stay within its stage's forms. A field without
+    `applies_to` inherits its stage.
+  - Helpers: `canonical_applies_to`, `applies_to_includes`, `field_within_stage` and
+    `effective_applies_to` (stage ∩ field).
+- **Hashes are unchanged.** `applies_to` is left out of dumps while it is `None`. Every M1/M2
+  stage therefore serialises byte-identically, and every existing content hash and fixture is
+  unchanged (CT-21 golden test).
+- **Onboarding anchors.** `CONDITIONAL_ONBOARDING_ANCHORS` holds `ACRA_REGISTRY` and every
+  later anchor (B2). Earlier anchors are refused by the service.
+- **Baseline.**
+  - `FieldSignature.applicability` is typed (`AppliesTo | None`). It still dumps as `null`, so
+    stored M1/M2 baselines encode byte-identically.
+  - `BaselineStage.applicability` is added, and left out of dumps while `None`.
+  - `PermanentObligationChange.APPLICABILITY_BROADENED` is added.
+  - `RatchetRule.RR_8` is active.
+- **Run fields** (`WorkflowRun`; each is left out of dumps while unset, so M1/M2 runs are
+  unchanged):
+  - `applicability_basis: ApplicabilityBasis | None`, with these fields: `legal_form`,
+    `status` (`REGISTRY_BOUND` / `UNVERIFIED`), `reason` (9 values), `source_environment`,
+    `evaluated_at`, `evaluated_from_version`, `frozen` and `binding_ref`.
+    - `binding_ref` is a `BindingRef`: `cache_id`, `cache_revision` and `bound_to_case_at`.
+      It never carries source text.
+  - `basis_conflict: BasisConflict | None`, with `escalated_by`, `escalated_at` and
+    `escalation_reason` (10–240 characters), set all together or not at all. Only a frozen
+    `REGISTRY_BOUND` basis can carry a conflict.
+  - `ever_touched: tuple[RunItemKey, ...]` is monotonic and unique, bounded at
+    `MAX_RUN_TOUCHED_KEYS` (32 × 33).
+  - `WorkflowRun.effective_legal_form` is the effective basis. `None` (`UNVERIFIED`) applies
+    before the freeze and, permanently, after an escalation.
+- **Hold and events** (`domain/workflow_governance.py`):
+  - `HOLD_APPLICABILITY_BASIS_CONFLICT = "WORKFLOW_APPLICABILITY_BASIS_CONFLICT"` is a send
+    hold, not a `GovernanceErrorCode`. The frozen error-code set is unchanged.
+  - The case event `code` strings are `CASE_EVENT_APPLICABILITY_BASIS_CONFLICT` and
+    `CASE_EVENT_APPLICABILITY_ESCALATED`. Adding values to `WorkflowState` or `EventOutcome`
+    is **forbidden**, and the contract test freezes both enums.
+- **Enablement gate.** `CONDITIONAL_APPLICABILITY_ENABLED_ENV =
+  "CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED"`, and
+  `CONDITIONAL_APPLICABILITY_ENABLED_DEFAULT = False`. While the gate is off, any
+  `applies_to` is refused with `422 WORKFLOW_PROPOSAL_INVALID` and
+  `CONDITIONAL_NOT_ENABLED_ISSUE`. The gate covers every authoring path: create, update,
+  copy, validate, submit and decide.
+  - **Recorded exception: the emergency fallback.** A Director's fallback is not gated. It
+    already refuses any new or broadened condition (CT-30). Any `applies_to` it publishes
+    was therefore published under governance earlier, and its baseline must be kept. If the
+    fallback were gated, turning the gate off after conditional content was published would
+    block emergency recovery.
+  - The other structure issue texts are frozen as constants:
+    - `CONDITIONAL_BEFORE_REGISTRY_ISSUE`
+    - `CONDITIONAL_FULL_SET_ISSUE`
+    - `CONDITIONAL_FIELD_OUTSIDE_STAGE_ISSUE`
+    - `CONDITIONAL_OPTIONAL_TO_REQUIRED_ISSUE`
+    - `CONDITIONAL_NON_ONBOARDING_MINIMUM_ISSUE`
+- **API** (`api_workflow_governance_models.py`):
+  - `SimulationScenario.legal_form` is typed `SimulationLegalForm`: a conditional form,
+    `UNVERIFIED` or `OTHER`.
+  - `RunApplicabilityView` (built with `.from_run`) and `RunBasisConflictView` are the run's
+    `applicability` view. The view is always shown with its environment, and never contains
+    raw source values.
+  - `ApplicabilityEscalationRequest` has `run_id`, `expected_revision` and `reason`
+    (10–240 characters), for
+    `POST /api/clm/cases/{id}/workflow/applicability-escalation`: the filler role,
+    `CASE_SCOPED` (another team, HR and Support get the safe 404; a Director gets 403),
+    reauthorized inside the case lock.
+- **TypeScript.**
+  - `workflowApi.ts` adds the optional `applies_to` to stages and fields, and the optional
+    `applicability` to `WorkflowRun`.
+  - `workflowGovernanceTypes.ts` adds:
+    - `CONDITIONAL_LEGAL_FORMS` and `ConditionalLegalForm`
+    - `SimulationLegalForm` and `CONDITIONAL_ONBOARDING_ANCHORS`
+    - `HOLD_APPLICABILITY_BASIS_CONFLICT`
+    - `RunApplicabilityView`, `RunBasisConflictView` and `RUN_APPLICABILITY_VIEW_KEYS`
+    - `ApplicabilityEscalationRequest`
+  - `APPLICABILITY_BROADENED` is exported as `PermanentObligationChangeM3`. It joins
+    `PermanentObligationChange` in the WS-D PR that adds its label to `WorkflowCompare.tsx`,
+    whose exhaustive `Record` would otherwise stop compiling.
+- **Pre-M3 reader break.** The domain models use `extra="forbid"`. Code that predates CC-8
+  refuses any document carrying `applies_to`, a non-null baseline `applicability`, or the new
+  run fields. That is why the enablement gate stays off until the M3 rollout (ADR-018 §9, B7).
+- **Schema.** Case snapshot schema stays **21**, and **22 stays reserved for D-117**. Run and
+  definition payload shapes grow only by optional, omitted-when-unset fields.
+
 ## 4. Error codes (frozen)
 
 `GOVERNANCE_ERROR_STATUS` in the domain module is authoritative. The body is
@@ -229,3 +323,19 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
     therefore does not advance on a fallback.
   - Fallback to `DEFAULT`, or to a version within the baseline, stays available. Additional
     permanent obligations go through a normal proposal and one Director's approval.
+- **CC-8 (2026-11-18, integrator). M3 contract freeze (additive), per ADR-018 (ACCEPTED).**
+  - The full contract is §3.3. It covers:
+    - `ConditionalLegalForm` and the `applies_to` model on stages and fields
+    - typed baseline applicability and `APPLICABILITY_BROADENED`
+    - the run's `applicability_basis`, `basis_conflict` (with `escalation_reason`) and the
+      bounded `ever_touched`
+    - the effective basis
+    - the `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` send hold and the case event `code` strings
+    - the typed simulation `legal_form`
+    - `RunApplicabilityView` and `ApplicabilityEscalationRequest`
+    - the enablement gate (default off)
+  - **Unchanged:** no new `GovernanceErrorCode`, no new `WorkflowState` or `EventOutcome`
+    value, and no case schema change.
+  - **Fixtures.** Two new fixtures: `proposal_conditional_draft.json` and
+    `run_applicability_view.json`. The 15 existing fixtures are byte-identical, guarded by CT-21
+    golden hashes recorded on the M1/M2 final candidate (703a0057).

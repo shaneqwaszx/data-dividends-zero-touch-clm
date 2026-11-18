@@ -8,6 +8,7 @@ import type { WorkflowStage } from "./workflowApi";
 import {
   DRAFT_RELEASE_AFTER_DAYS,
   type AcknowledgeNoticeRequest,
+  type ApplicabilityEscalationRequest,
   type CopyProposalRequest,
   type DecidedProposalSummary,
   type EmergencyFallbackRequest,
@@ -191,3 +192,16 @@ export function provenanceText(item: VersionProvenance): string {
       return `Emergency fallback by ${item.activated_by ?? "a Director"} — not approved`;
   }
 }
+
+/**
+ * POST /api/clm/cases/{case_id}/workflow/applicability-escalation (ADR-018 §3.5 F6): the audited
+ * "Apply all conditional steps". Add-only; the backend reauthorizes inside the case lock. Never retried.
+ */
+export async function escalateApplicability(caseId: string, body: ApplicabilityEscalationRequest): Promise<unknown> {
+  return parseResponse(await authenticatedFetch(
+    `${API_BASE_URL}/api/clm/cases/${segment(caseId)}/workflow/applicability-escalation`, jsonRequest("POST", body),
+  ));
+}
+
+export const ESCALATION_REASON_MIN = 10;
+export const ESCALATION_REASON_MAX = 240;

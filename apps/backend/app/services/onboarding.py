@@ -1,6 +1,7 @@
 """Synchronous onboarding across configured ACRA and Mock GoldTier boundaries."""
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -123,6 +124,10 @@ from app.domain.target_submission import (
     SubmissionRegisteredAddress,
 )
 from app.domain.uen_route import UenRoute, UenRouteDecision, route_change_message, route_uen
+from app.domain.workflow_governance import (
+    CASE_EVENT_APPLICABILITY_BASIS_CONFLICT,
+    CASE_EVENT_APPLICABILITY_ESCALATED,
+)
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.services.canonical_validation import validate_entity
 from app.services.dispatch_fence import DispatchFence, default_memory_fence
@@ -464,6 +469,9 @@ class OnboardingService:
         self._target_executions = target_execution_repository or InMemoryTargetExecutionRepository()
         # ADR-017: the dispatch fence is the only path to a first GoldTier write.
         self._dispatch_fence: DispatchFence | None = None
+        # ADR-018 §3.5 F1/F5: the workflow owner's basis hook, called after a committed
+        # registry binding write under the case lock. Unset: nothing is frozen (UNVERIFIED).
+        self._registry_binding_hook: Callable[[UUID], str] | None = None
         self._policy_snapshot_provider = policy_snapshot_provider or legacy_phase13_policy_snapshot
 
     def case_lock(self, case_id: UUID) -> RLock:
@@ -1105,6 +1113,9 @@ class OnboardingService:
                 )
             )
             self._repository.save(OnboardingCase.model_validate(requested.model_dump()))
+            if changed_identity or verify_registry:
+                # ADR-018 §3.5 F5: the committed write cleared the entity and binding.
+                self._after_registry_binding(requested)
 
             if verified is not None:
                 requested = self._acquire_registry_after_identity_recheck(
@@ -2486,6 +2497,8 @@ class OnboardingService:
                 else "Project-owned ACRA registry acquisition returned partial results."
             ),
         )
+        # ADR-018 §3.5 F1: the binding write is committed; freeze (or flag) the basis.
+        self._after_registry_binding(case)
         if acquisition.status == RegistryAcquisitionStatus.FAILED:
             failed_operation = next(
                 result
@@ -3930,6 +3943,74 @@ class OnboardingService:
             if event.code == "TARGET_DISPATCH_CONFIRMED":
                 return False
         return False
+
+    def bind_registry_binding_hook(self, hook: Callable[[UUID], str]) -> None:
+        """Bind ``WorkflowManagementService.freeze_onboarding_basis`` (ADR-018 §3.5)."""
+
+        self._registry_binding_hook = hook
+
+    def record_applicability_event(self, case_id: UUID, code: str) -> OnboardingCase:
+        """ADR-018 §3.5 F6: append one case event through ``_record`` (revision-and-nonce
+        compare-and-set) with a ``code`` string only. ``stage`` stays ``case.state``, the
+        outcome is an existing value, and no case field changes. The run is the audit
+        authority; this only makes it visible in case history."""
+
+        messages = {
+            CASE_EVENT_APPLICABILITY_BASIS_CONFLICT: (
+                "Workflow applicability changed after the registry basis was frozen; "
+                "an operator must apply all conditional steps before sending."
+            ),
+            CASE_EVENT_APPLICABILITY_ESCALATED: (
+                "All conditional workflow steps now apply to this case."
+            ),
+        }
+        if code not in messages:
+            raise ValueError("unknown workflow applicability event")
+        with self.case_lock(case_id):
+            case = self._repository.get(case_id)
+            if case is None:
+                raise ValueError("Onboarding case was not found")
+            outcome = (
+                EventOutcome.SUCCEEDED
+                if code == CASE_EVENT_APPLICABILITY_ESCALATED
+                else EventOutcome.REVIEW_REQUIRED
+            )
+            self._record(case, case.state, outcome, messages[code], code)
+            return case.model_copy(deep=True)
+
+    def notify_registry_entity_changed(self, case_id: UUID) -> None:
+        """ADR-018 §3.5 F5: for an owner that commits an entity or binding change itself
+        (the reconciliation legal-name decision commits ``prepare_reconciled_value``'s
+        candidate in its own unit of work). Run after that commit, under the case lock."""
+
+        with self.case_lock(case_id):
+            case = self._repository.get(case_id)
+            if case is not None:
+                self._after_registry_binding(case)
+
+    def _after_registry_binding(self, case: OnboardingCase) -> None:
+        """Run the basis hook after the committed REGISTRY_FETCHED write (F1, F5). A newly
+        persisted conflict is also appended to case history (code string only)."""
+
+        hook = self._registry_binding_hook
+        if hook is None:
+            return
+        try:
+            outcome = hook(case.case_id)
+        except Exception:  # noqa: BLE001 - the hook fails safe (UNVERIFIED); never the case
+            logging.getLogger(__name__).warning(
+                "workflow basis hook failed", extra={"case_id": str(case.case_id)}
+            )
+            return
+        if outcome == "CONFLICT_RECORDED":
+            self._record(
+                case,
+                case.state,
+                EventOutcome.REVIEW_REQUIRED,
+                "Workflow applicability changed after the registry basis was frozen; "
+                "an operator must apply all conditional steps before sending.",
+                CASE_EVENT_APPLICABILITY_BASIS_CONFLICT,
+            )
 
     def bind_dispatch_fence(self, fence: DispatchFence) -> None:
         """Bind the application's fence (its workflow store, send hold and health)."""

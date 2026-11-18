@@ -1220,7 +1220,8 @@ def test_every_current_application_route_is_deliberately_classified(
     assert actual == expected
     # ADR-017 P2-0 retires the legacy CLM target confirmation route.
     # P2-1 (ADR-017 section 6) adds the ten governance routes; M2 (CC-4) adds six more.
-    assert len(expected) == len(ROUTE_POLICIES) == 122
+    # ADR-018 adds the case-scoped applicability escalation.
+    assert len(expected) == len(ROUTE_POLICIES) == 123
     assert counts == {
         RouteAccess.PUBLIC: 2,
         # Includes the C9 HR self-service password change.
@@ -1228,7 +1229,7 @@ def test_every_current_application_route_is_deliberately_classified(
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
-        RouteAccess.CASE_SCOPED: 47,
+        RouteAccess.CASE_SCOPED: 48,
         # D-103: the summary and document list GETs also admit the Support redaction read.
         RouteAccess.CASE_READ: 2,
     }

@@ -1,0 +1,66 @@
+{
+  "author_id": "hr-synthetic-1",
+  "base_version": 1,
+  "can_decide": false,
+  "can_edit": true,
+  "can_submit": true,
+  "can_withdraw": true,
+  "content_hash": null,
+  "copied_from": null,
+  "created_at": "2026-11-17T09:00:00Z",
+  "decided_at": null,
+  "decided_by": null,
+  "decision_reason": null,
+  "kind": "CHANGE",
+  "last_activity_at": "2026-11-17T09:30:00Z",
+  "legacy_editor": null,
+  "note": "Add a partnership agreement step for LLPs and LPs.",
+  "origin": "GOVERNED",
+  "proposal_id": "0b6f7c2e-1d3a-4c5b-9e8f-7a6b5c4d3e2f",
+  "published_version": null,
+  "release_reason": null,
+  "released_by": null,
+  "restore_target_version": null,
+  "revision": 3,
+  "stages": [
+    {
+      "after_node_id": "DOCUMENT_IDP",
+      "applies_to": [
+        "LLP",
+        "LP"
+      ],
+      "fields": [
+        {
+          "autofill": false,
+          "case_data_key": null,
+          "document_label": null,
+          "field_id": "agreement-date",
+          "kind": "DATE",
+          "label": "Agreement date",
+          "options": [],
+          "required": true
+        },
+        {
+          "applies_to": [
+            "LP"
+          ],
+          "autofill": false,
+          "case_data_key": null,
+          "document_label": null,
+          "field_id": "general-partner",
+          "kind": "TEXT",
+          "label": "General partner",
+          "options": [],
+          "required": true
+        }
+      ],
+      "name": "Partnership agreement",
+      "stage_id": "partnership-agreement"
+    }
+  ],
+  "stale_by_version": null,
+  "state": "DRAFT",
+  "submitted_at": null,
+  "updated_at": "2026-11-17T09:30:00Z",
+  "workflow_id": "corporate-onboarding"
+}

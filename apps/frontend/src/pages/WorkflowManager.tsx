@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { EntityApplicabilityPlaceholder, EntityConditionsPlaceholder } from "../components/workflow-governance/EntityApplicability";
+import { conditionalAnchorAllowed, isConditional, stageHasConditions } from "../components/workflow-governance/applicability";
+import {
+  EntityApplicabilitySummary,
+  FieldApplicabilityEditor,
+  StageApplicabilityEditor,
+} from "../components/workflow-governance/EntityApplicability";
 import {
   GovernanceRefusalPanel,
   ProposalStatus,
@@ -119,8 +124,10 @@ export function reorderStages(stages: WorkflowStage[], movedId: string, targetId
   return next;
 }
 
-function FieldEditor({ field, onChange, onRemove }: {
+function FieldEditor({ field, onChange, onRemove, applicability = null }: {
   field: WorkflowField; onChange: (next: WorkflowField) => void; onRemove: () => void;
+  /** ADR-018: the field's entity-applicability control. */
+  applicability?: ReactNode;
 }) {
   return (
     <div className="card" style={{ marginBottom: 10 }}>
@@ -146,6 +153,7 @@ function FieldEditor({ field, onChange, onRemove }: {
             onChange={event => onChange({ ...field, document_label: event.target.value })} />
         </label>
       )}
+      {applicability}
       <div className="case-header-actions" style={{ justifyContent: "space-between" }}>
         <label><input type="checkbox" checked={field.required}
           onChange={event => onChange({ ...field, required: event.target.checked })} /> Required</label>
@@ -164,7 +172,12 @@ export function activeStages(workflow: Pick<WorkflowDetail, "active_version" | "
 function draftProblem(stages: WorkflowStage[], onboarding: boolean): string | null {
   if (!onboarding && stages.length === 0) return "Add at least one stage before this proposal can be submitted.";
   const empty = stages.filter(stage => stage.fields.length === 0).map(stage => stage.name);
-  return empty.length ? `Add at least one field to: ${empty.join(", ")}.` : null;
+  if (empty.length) return `Add at least one field to: ${empty.join(", ")}.`;
+  // B6 hint: a non-onboarding workflow keeps at least one step for all entities with a field for all entities.
+  if (!onboarding && !stages.some(stage => !isConditional(stage) && stage.fields.some(field => !isConditional(field)))) {
+    return "Keep at least one step that applies to all entities, with at least one field for all entities.";
+  }
+  return null;
 }
 
 const snapshot = (stages: WorkflowStage[]) => JSON.stringify(stages);
@@ -215,6 +228,8 @@ export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onC
   }, [proposal, dirty, basedOn]);
   const anchors = workflow.locked_stages.slice(0, -1);
   const selected = stages.find(stage => stage.stage_id === selectedId) ?? null;
+  // RR-8 shaping: the same stage in the active version, if published.
+  const publishedStage = selected ? activeStages(workflow).find(stage => stage.stage_id === selected.stage_id) : undefined;
   const problem = editable ? draftProblem(stages, workflow.is_onboarding) : null;
   const suggestions = editable ? reusableStages(workflow, workflows, stages) : [];
 
@@ -508,13 +523,20 @@ export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onC
               <label>Show after
                 <select className="input" value={selected.after_node_id ?? ""}
                   onChange={event => updateSelected({ after_node_id: event.target.value })}>
-                  {anchors.map(stage => <option key={stage.node_id} value={stage.node_id}>{stage.label}</option>)}
+                  {anchors.map(stage => (
+                    // B2: a stage with conditions can't move before Registry verification.
+                    <option key={stage.node_id} value={stage.node_id}
+                      disabled={stageHasConditions(selected) && !conditionalAnchorAllowed(true, stage.node_id)}>{stage.label}</option>
+                  ))}
                 </select>
               </label>
             )}
             <p className="card-kicker">Fields to collect</p>
             {selected.fields.map(field => (
               <FieldEditor key={field.field_id} field={field}
+                applicability={<FieldApplicabilityEditor stage={selected} field={field} onboarding={workflow.is_onboarding}
+                  editable={editable} published={publishedStage}
+                  onChange={next => updateSelected({ fields: selected.fields.map(item => item.field_id === field.field_id ? next : item) })} />}
                 onChange={next => updateSelected({ fields: selected.fields.map(item => item.field_id === field.field_id ? next : item) })}
                 onRemove={() => updateSelected({ fields: selected.fields.filter(item => item.field_id !== field.field_id) })} />
             ))}
@@ -529,13 +551,14 @@ export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onC
                 setSelectedId(null);
               }}>Remove stage</button>
             </div>}
-            <EntityConditionsPlaceholder stageName={selected.name} />
+            <StageApplicabilityEditor stage={selected} onboarding={workflow.is_onboarding} editable={editable}
+              published={publishedStage} onChange={next => change(stages.map(stage => stage.stage_id === next.stage_id ? next : stage))} />
           </fieldset>}
           {selected && <button type="button" className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={() => setSelectedId(null)}>{editable ? "Confirm stage" : "Close"}</button>}
         </section>
       </div>
 
-      <EntityApplicabilityPlaceholder />
+      <EntityApplicabilitySummary stages={stages} />
       {governance && <HistoryRecoveryPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
       {governance && <EmergencyFallbackPanel workflow={workflow} actor={viewer} onChanged={onChanged} onNotice={onNotice} />}
 

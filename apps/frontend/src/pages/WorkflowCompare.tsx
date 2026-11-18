@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
 import type { AuthenticatedProfile } from "../types";
-import type { WorkflowField } from "../workflowApi";
+import { appliesToText, CONDITIONAL_FORM_LABEL, effectiveAppliesTo, stageHasConditions } from "../components/workflow-governance/applicability";
+import { EntityApplicabilitySummary } from "../components/workflow-governance/EntityApplicability";
+import type { WorkflowField, WorkflowStage } from "../workflowApi";
 import {
   approvalErrorView,
   buildDecisionRequest,
@@ -41,12 +43,32 @@ const OBLIGATION_LABEL: Record<PermanentObligationChange, string> = {
   NEW_REQUIRED_STAGE: "New required stage",
   NEW_REQUIRED_FIELD: "New required field",
   TIGHTENED: "Tightened",
+  APPLICABILITY_BROADENED: "Applicability broadened",
 };
 const FIELD_KIND_LABEL: Record<WorkflowField["kind"], string> = { TEXT: "Text", DATE: "Date", NUMBER: "Number", YES_NO: "Yes/No", CHOICE: "Choice" };
 
 export function fieldSummary(field: WorkflowField): string {
   const options = field.kind === "CHOICE" && field.options.length ? `: ${field.options.join(", ")}` : "";
-  return `${field.label} (${FIELD_KIND_LABEL[field.kind] ?? field.kind}${options}, ${field.required ? "required" : "optional"}${field.autofill ? ", autofill" : ""})`;
+  const forms = field.applies_to?.length ? `, for ${field.applies_to.map(form => CONDITIONAL_FORM_LABEL[form] ?? form).join(", ")}` : "";
+  return `${field.label} (${FIELD_KIND_LABEL[field.kind] ?? field.kind}${options}, ${field.required ? "required" : "optional"}${field.autofill ? ", autofill" : ""}${forms})`;
+}
+
+/** The stage records on both sides of the comparison, by stage id (applicability is read from them). */
+function stageSides(comparison: ComparisonResponse) {
+  return {
+    before: new Map((comparison.active_version?.stages ?? []).map(stage => [stage.stage_id, stage] as const)),
+    after: new Map(comparison.proposal.stages.map(stage => [stage.stage_id, stage] as const)),
+  };
+}
+
+function ApplicabilityLine({ before, after }: { before: WorkflowStage | undefined; after: WorkflowStage | undefined }) {
+  const was = before ? appliesToText(before.applies_to) : null;
+  const now = after ? appliesToText(after.applies_to) : null;
+  if (was !== null && now !== null && was !== now) {
+    return <p data-testid="applicability-change">Applies to: {was} → <strong>{now}</strong></p>;
+  }
+  const current = now ?? was;
+  return <p>Applies to: {current ?? "All entities"}</p>;
 }
 
 function nodeLabels(comparison: ComparisonResponse): Map<string, string> {
@@ -74,7 +96,9 @@ function FieldRow({ diff }: { diff: FieldDiff }) {
   );
 }
 
-function StageDiffView({ diff, labels }: { diff: StageDiff; labels: Map<string, string> }) {
+function StageDiffView({ diff, labels, before, after }: {
+  diff: StageDiff; labels: Map<string, string>; before?: WorkflowStage; after?: WorkflowStage;
+}) {
   const name = diff.name_after ?? diff.name_before ?? diff.stage_id;
   const renamed = diff.change === "CHANGED" && diff.name_before && diff.name_after && diff.name_before !== diff.name_after;
   const moved = diff.after_node_id_before !== diff.after_node_id_after && diff.change === "CHANGED";
@@ -96,6 +120,7 @@ function StageDiffView({ diff, labels }: { diff: StageDiff; labels: Map<string, 
           ? <>{diff.blocks_send_before ? "Yes" : "No"} → <strong>{diff.blocks_send_after ? "Yes" : "No"}</strong></>
           : diff.blocks_send_after ? "Yes" : "No"}
       </p>
+      <ApplicabilityLine before={before} after={after} />
       {diff.fields.length > 0 && <ul aria-label={`Field changes in ${name}`}>{diff.fields.map(field => <FieldRow key={field.field_id} diff={field} />)}</ul>}
     </li>
   );
@@ -147,13 +172,24 @@ function IssueList({ issues, label }: { issues: ValidationIssue[]; label: string
   );
 }
 
-function obligationText(item: PermanentObligation): string {
+/** The obligation's effective applicability in the proposal, read from its stage and field. */
+export function obligationAppliesTo(item: PermanentObligation, stages: WorkflowStage[]): string[] | undefined {
+  const stage = stages.find(candidate => candidate.stage_id === item.key.stage_id);
+  if (!stage) return undefined;
+  const field = item.key.field_id ? stage.fields.find(candidate => candidate.field_id === item.key.field_id) : undefined;
+  return effectiveAppliesTo(stage, field);
+}
+
+function obligationText(item: PermanentObligation, stages: WorkflowStage[] = []): string {
   const target = item.field_label ? `${item.stage_name} · ${item.field_label}` : item.stage_name;
-  return `${OBLIGATION_LABEL[item.change] ?? item.change}: ${target}. ${item.detail}`;
+  const forms = obligationAppliesTo(item, stages);
+  const scope = forms ? ` Conditional: applies to ${appliesToText(forms).replace(/^Only /, "")}.` : "";
+  return `${OBLIGATION_LABEL[item.change] ?? item.change}: ${target}. ${item.detail}${scope}`;
 }
 
 function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
   const labels = nodeLabels(comparison);
+  const sides = stageSides(comparison);
   const { proposal, validation } = comparison;
   const activeVersion = comparison.active_version?.version ?? 0;
   const changed = comparison.stages.filter(stage => stage.change !== "UNCHANGED");
@@ -184,7 +220,9 @@ function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
 
       <section className="card" aria-labelledby="compare-diff" style={{ marginBottom: 16 }}>
         <h2 id="compare-diff">Proposed changes</h2>
-        {changed.length === 0 ? <p className="text-muted">No stage or field changes.</p> : <ul style={{ listStyle: "none", padding: 0 }}>{changed.map(stage => <StageDiffView key={stage.stage_id} diff={stage} labels={labels} />)}</ul>}
+        {changed.length === 0 ? <p className="text-muted">No stage or field changes.</p> : <ul style={{ listStyle: "none", padding: 0 }}>{changed.map(stage => (
+          <StageDiffView key={stage.stage_id} diff={stage} labels={labels} before={sides.before.get(stage.stage_id)} after={sides.after.get(stage.stage_id)} />
+        ))}</ul>}
         {unchanged.length > 0 && <p className="text-muted">Unchanged stages: {unchanged.map(stage => stage.name_after ?? stage.stage_id).join(", ")}</p>}
         {comparison.locked_stages.length > 0 && (
           <>
@@ -196,6 +234,10 @@ function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
           </>
         )}
       </section>
+
+      {proposal.stages.some(stageHasConditions) && (
+        <div data-testid="compare-conditional-obligations"><EntityApplicabilitySummary stages={proposal.stages} /></div>
+      )}
 
       <section className="card" aria-labelledby="compare-validation" style={{ marginBottom: 16 }}>
         <h2 id="compare-validation">Required-obligation checks</h2>
@@ -343,7 +385,7 @@ function DecisionForm({ comparison, actor, onDecided, onReload }: {
           <div className="ds-banner ds-banner-warn">
             <p id={warningId}><strong>{PERMANENT_OBLIGATION_WARNING}</strong></p>
             <ul aria-label="Permanent obligations">
-              {obligations.map(item => <li key={`${item.key.stage_id}:${item.key.field_id ?? ""}`}>{obligationText(item)}</li>)}
+              {obligations.map(item => <li key={`${item.key.stage_id}:${item.key.field_id ?? ""}`}>{obligationText(item, comparison.proposal.stages)}</li>)}
             </ul>
             {offerDecision && (
               <label>

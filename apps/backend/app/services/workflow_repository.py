@@ -475,6 +475,13 @@ class InMemoryWorkflowDefinitionRepository:
         return refusals
 
 
+def frozen_basis_rewritten(stored: WorkflowRun, incoming: WorkflowRun) -> bool:
+    """ADR-018 3.5: once frozen, a run's applicability basis is write-once."""
+
+    basis = stored.applicability_basis
+    return basis is not None and basis.frozen and incoming.applicability_basis != basis
+
+
 class InMemoryWorkflowRunRepository:
     def __init__(self) -> None:
         self._items: dict[UUID, WorkflowRun] = {}
@@ -509,6 +516,8 @@ class InMemoryWorkflowRunRepository:
         with self._lock:
             current = self._items.get(run.run_id)
             if current is None or current.revision != expected_revision:
+                raise PersistenceConflictError
+            if frozen_basis_rewritten(current, run):
                 raise PersistenceConflictError
             self._items[run.run_id] = run
             return run

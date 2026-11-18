@@ -118,6 +118,7 @@ from app.domain.target_submission import (
     GoldTierSearchResolution,
     GoldTierTargetOutcome,
 )
+from app.domain.workflow_governance import CONDITIONAL_APPLICABILITY_ENABLED_ENV
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID
 from app.domain.zero_touch import (
     AutomationStage,
@@ -632,6 +633,16 @@ def _case_is_sent(service: OnboardingService, record: ZeroTouchAutomationRecord 
     return service.case_is_sent(case_id)
 
 
+def _case_has_dispatch_claim(service: OnboardingService, case_id: UUID) -> bool:
+    """Any ledger dispatch claim counts; an unreadable ledger fails closed (never narrows)."""
+
+    try:
+        entries = service.target_execution_repository.list_for_case(case_id)
+    except Exception:  # noqa: BLE001 - fail closed: treat the run as already touched
+        return True
+    return any(entry.workflow_dispatch is not None for entry in entries)
+
+
 def _build_dispatch_fence(
     service: OnboardingService,
     workflows: WorkflowManagementService,
@@ -733,7 +744,15 @@ def _build_workflow_governance(
         ledger=ledger,
         startup=startup,
         clock=clock,
+        conditional_enabled=_conditional_applicability_enabled(),
     )
+
+
+def _conditional_applicability_enabled() -> bool:
+    """ADR-018 §9 (B7): the enablement gate, read once at startup (default off)."""
+
+    value = os.environ.get(CONDITIONAL_APPLICABILITY_ENABLED_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def create_app(
@@ -828,8 +847,12 @@ def create_app(
             persistence.automation.get_for_case(case_id)
         ),
         case_data=lambda case_id: _onboarded_values(persistence, service, case_id),
+        # ADR-018 3.5 F3: a ledger dispatch claim makes the run too late to narrow.
+        case_has_dispatch_claim=lambda case_id: _case_has_dispatch_claim(service, case_id),
         clock=active_clock,
     )
+    # ADR-018 3.5 F1: freeze the onboarding basis once, at the first committed registry binding.
+    service.bind_registry_binding_hook(workflow_enforcement.freeze_onboarding_basis)
     workflows: WorkflowManagementService | None = (
         workflow_enforcement if active_settings.workflow_manager_enabled else None
     )

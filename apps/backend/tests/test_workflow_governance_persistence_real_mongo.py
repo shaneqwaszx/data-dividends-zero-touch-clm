@@ -316,6 +316,52 @@ def test_physical_deactivation_then_reactivation(store: MongoWorkflowStore) -> N
     assert repository.verify_governance_state() == []
 
 
+def test_a_frozen_applicability_basis_is_write_once_in_mongo(store: MongoWorkflowStore) -> None:
+    """ADR-018 3.5: the Mongo run update refuses any change to a frozen basis."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from app.domain.workflows import (
+        ApplicabilityBasis,
+        ApplicabilityBasisReason,
+        ApplicabilityBasisStatus,
+        WorkflowRun,
+    )
+    from app.persistence.mongo_workflow_store import MongoWorkflowRunRepository
+    from app.services.workflow_repository import PersistenceConflictError
+
+    now = datetime(2026, 11, 18, tzinfo=UTC)
+    runs = MongoWorkflowRunRepository(store)
+    run = runs.create(
+        WorkflowRun(
+            run_id=uuid.uuid4(),
+            case_id=uuid.uuid4(),
+            workflow_id="w-basis",
+            workflow_name="Basis",
+            use_case="Synthetic",
+            workflow_version=1,
+            stages=(),
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    frozen = ApplicabilityBasis(
+        legal_form=None,
+        status=ApplicabilityBasisStatus.UNVERIFIED,
+        reason=ApplicabilityBasisReason.NO_BINDING,
+        evaluated_at=now,
+        evaluated_from_version=1,
+        frozen=True,
+    )
+    first = run.model_copy(update={"applicability_basis": frozen, "revision": run.revision + 1})
+    runs.update(first, expected_revision=run.revision)
+    same = first.model_copy(update={"revision": first.revision + 1})
+    runs.update(same, expected_revision=first.revision)  # carried over unchanged: allowed
+    changed = same.model_copy(update={"applicability_basis": None, "revision": same.revision + 1})
+    with pytest.raises(PersistenceConflictError):
+        runs.update(changed, expected_revision=same.revision)
+
+
 # --- Owner-approved apply mode (2026-11-18): the CLI against the readWrite-only user ----
 
 

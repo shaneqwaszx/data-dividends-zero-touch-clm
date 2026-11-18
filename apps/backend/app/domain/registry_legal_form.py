@@ -13,6 +13,20 @@ class RegistryLegalForm(StrEnum):
     OTHER = "OTHER"
 
 
+class ConditionalLegalForm(StrEnum):
+    """ADR-018 §2.1: the legal forms a workflow condition may name.
+
+    Exactly ``RegistryLegalForm`` without ``OTHER`` (B5): an ``OTHER`` entity is unverified and
+    already receives every conditional obligation. No new classification is introduced.
+    """
+
+    COMPANY = RegistryLegalForm.COMPANY.value
+    BUSINESS_PARTNERSHIP = RegistryLegalForm.BUSINESS_PARTNERSHIP.value
+    LLP = RegistryLegalForm.LLP.value
+    LP = RegistryLegalForm.LP.value
+    GOVERNMENT = RegistryLegalForm.GOVERNMENT.value
+
+
 def classify_registry_legal_form(source_value: str | None) -> RegistryLegalForm:
     value = (source_value or "").strip().upper().replace("_", " ")
     if value in {
