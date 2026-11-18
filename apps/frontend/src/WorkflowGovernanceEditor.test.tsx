@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import registryLegalFormSource from "../../backend/app/domain/registry_legal_form.py?raw";
 import { ApiError, configureAuthenticatedTransport } from "./api";
-import { ENTITY_APPLICABILITY_OPTIONS } from "./components/workflow-governance/EntityApplicability";
+import {
+  CONDITIONAL_APPLICABILITY_OPTIONS,
+  CONDITIONS_EXPLANATION,
+  ENTITY_APPLICABILITY_OPTIONS,
+  OTHER_EXPLANATION,
+} from "./components/workflow-governance/EntityApplicability";
 import { approvedVersionCount, LEGACY_PROVENANCE_NOTE } from "./components/workflow-governance/GovernancePanels";
 import WorkflowManager from "./pages/WorkflowManager";
 import type { AuthenticatedProfile } from "./types";
@@ -19,6 +24,7 @@ import {
   issuesByRule,
 } from "./workflowGovernanceApi";
 import {
+  CONDITIONAL_LEGAL_FORMS,
   GOVERNANCE_ERROR_CODES,
   PERMANENT_OBLIGATION_WARNING,
   type ProposalResponse,
@@ -636,38 +642,73 @@ describe("governance error messages", () => {
   });
 });
 
-describe("C-5 entity applicability placeholder (frontend-only, not functional)", () => {
-  // (1) Sections render.
-  it("renders the workflow section and the step-editor subsection with Coming soon and the explanation", async () => {
+describe("Entity applicability (ADR-018 §5, functional successor of C-5)", () => {
+  const stageControl = (host: HTMLElement) => host.querySelector<HTMLFieldSetElement>('[data-testid="entity-stage-applies-to"]')!;
+  const fieldControls = (host: HTMLElement) => [...host.querySelectorAll<HTMLFieldSetElement>('[data-testid="entity-field-applies-to"]')];
+  const radio = (scope: Element, value: "ALL" | "ONLY") => scope.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!;
+  const boxes = (scope: Element) => [...scope.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  const box = (scope: Element, form: string) => boxes(scope).find(item => item.value === form)!;
+  async function toggle(input: HTMLElement) {
+    await act(async () => { input.click(); });
+    await settle();
+  }
+  const describedBy = (item: Element) => (item.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? "").join(" ");
+
+  // (1) Sections render, with the fixed explanations and without "Coming soon".
+  it("renders the workflow section and the step conditions with the fixed explanations", async () => {
     fakeServer({ proposal: DRAFT });
     const host = await openEditor();
-    const section = host.querySelector('[data-testid="entity-applicability-placeholder"]')!;
+    const section = host.querySelector('[data-testid="entity-applicability"]')!;
     expect(section.textContent).toContain("Entity applicability");
-    expect(section.textContent).toContain("Coming soon");
-    expect(section.textContent).toContain("Today every step applies to all entities.");
-    const conditions = host.querySelector('[data-testid="entity-conditions-placeholder"]')!;
+    expect(section.textContent).toContain(CONDITIONS_EXPLANATION);
+    expect(section.textContent).toContain(OTHER_EXPLANATION);
+    expect(section.textContent).toContain("Every step and field applies to all entities.");
+    const conditions = host.querySelector('[data-testid="entity-conditions"]')!;
     expect(conditions.textContent).toContain("Entity-specific conditions");
-    expect(conditions.textContent).toContain("Coming soon");
+    expect(host.textContent).not.toContain("Coming soon");
   });
 
-  // (2) "All entities" is the only selectable value; every other control is disabled.
-  it("lets only All entities be selected and disables every other control", async () => {
-    fakeServer({ proposal: DRAFT });
+  // (2) Set selection and canonical request bodies: sorted, no duplicates, no key for All, field within stage.
+  it("selects legal-form sets per stage and per field and sends the canonical bodies", async () => {
+    const server = fakeServer({ proposal: DRAFT });
     const host = await openEditor();
-    const radios = [...host.querySelectorAll<HTMLInputElement>('[data-testid="entity-applicability-placeholder"] input[type="radio"]')];
-    expect(radios.map(item => item.parentElement?.textContent?.trim())).toEqual(["All entities", ...ENTITY_APPLICABILITY_OPTIONS.map(item => item.label)]);
-    expect(radios.filter(item => !item.disabled).map(item => item.value)).toEqual(["ALL"]);
-    expect(radios[0].checked).toBe(true);
-    act(() => radios[5].click());
-    expect(radios[5].checked).toBe(false);
-    expect(radios[0].checked).toBe(true);
-    const controls = [...host.querySelectorAll<HTMLSelectElement | HTMLButtonElement>('[data-testid="entity-conditions-placeholder"] select, [data-testid="entity-conditions-placeholder"] button')];
-    expect(controls.length).toBe(2);
-    expect(controls.every(item => item.disabled && item.getAttribute("aria-disabled") === "true")).toBe(true);
+    await toggle(host.querySelector<HTMLButtonElement>('[aria-label="Add stage after Document verification"]')!);
+    await click(host, "Add field");
+    await toggle(radio(stageControl(host), "ONLY"));
+    expect(boxes(stageControl(host)).map(item => item.value)).toEqual(["COMPANY", "BUSINESS_PARTNERSHIP", "LLP", "LP", "GOVERNMENT"]);
+    for (const form of ["LP", "LLP", "COMPANY", "GOVERNMENT"]) await toggle(box(stageControl(host), form));
+    // The full set is never offered: that is All entities.
+    const fifth = box(stageControl(host), "BUSINESS_PARTNERSHIP");
+    expect(fifth.disabled).toBe(true);
+    expect(describedBy(fifth)).toContain("same as All entities");
+    for (const form of ["COMPANY", "GOVERNMENT"]) await toggle(box(stageControl(host), form));
+
+    await toggle(radio(fieldControls(host)[0], "ONLY"));
+    expect(boxes(fieldControls(host)[0]).map(item => item.value)).toEqual(["LLP", "LP"]);
+    await toggle(box(fieldControls(host)[0], "LP"));
+    // A form used by a field stays selected on the stage (field within stage).
+    expect(box(stageControl(host), "LP").disabled).toBe(true);
+
+    await click(host, "Save changes");
+    const saved = server.mutations()[0].body as { stages: WorkflowStage[] };
+    expect(saved.stages[0]).not.toHaveProperty("applies_to");
+    for (const item of saved.stages[0].fields) expect(item).not.toHaveProperty("applies_to");
+    expect(saved.stages[1].applies_to).toEqual(["LLP", "LP"]);
+    expect(saved.stages[1].after_node_id).toBe("DOCUMENT_IDP");
+    expect(saved.stages[1].fields[0].applies_to).toEqual(["LP"]);
+    expect(host.querySelector('[data-testid="entity-applicability"]')!.textContent).toContain("LLP, LP");
+
+    await toggle(radio(stageControl(host), "ALL"));
+    await click(host, "Save changes");
+    const cleared = server.mutations()[1].body as { stages: WorkflowStage[] };
+    expect(cleared.stages[1]).not.toHaveProperty("applies_to");
+    expect(cleared.stages[1].fields[0].applies_to).toEqual(["LP"]);
+    for (const call of server.calls) expect(JSON.stringify(call.body ?? {})).not.toContain("OTHER");
   });
 
-  // (3) Request snapshot: the placeholder adds nothing to any payload.
-  it("sends exactly the contract bodies, with no applicability data", async () => {
+  // (3) Request snapshot: unchanged content carries no applicability data.
+  it("sends exactly the contract bodies, with no applies_to for unconditional content", async () => {
     const server = fakeServer({ proposal: DRAFT });
     const host = await openEditor();
     type(stageNameInput(host), "Sanctions attestation 2");
@@ -682,23 +723,32 @@ describe("C-5 entity applicability placeholder (frontend-only, not functional)",
     ]);
     for (const call of server.calls) {
       expect(call.url).not.toMatch(/applicab|entity|legal/i);
-      expect(JSON.stringify(call.body ?? {})).not.toMatch(/applicab|entity|legal_form|ALL_ENTITIES/i);
+      expect(JSON.stringify(call.body ?? {})).not.toMatch(/applies_to|legal_form|ALL_ENTITIES/i);
     }
   });
 
-  // (4) Parity with the backend RegistryLegalForm enum.
-  it("lists exactly the backend RegistryLegalForm values", () => {
-    // Source of truth: apps/backend/app/domain/registry_legal_form.py (class RegistryLegalForm).
+  // (4) Parity with the backend enums; OTHER is never selectable.
+  it("lists exactly the backend RegistryLegalForm values and offers only ConditionalLegalForm", async () => {
     const source = registryLegalFormSource;
-    const body = source.split("class RegistryLegalForm(StrEnum):")[1].split(/\n(?=\S)/)[0];
-    const backend = [...body.matchAll(/^\s+([A-Z_]+) = "([A-Z_]+)"/gm)].map(match => match[2]);
-    expect(backend.length).toBeGreaterThan(0);
-    expect(ENTITY_APPLICABILITY_OPTIONS.map(item => item.value)).toEqual(backend);
+    const values = (name: string) => [...source.split(`class ${name}(StrEnum):`)[1].split(/\n(?=\S)/)[0]
+      .matchAll(/^\s+([A-Z_]+) = (?:"([A-Z_]+)"|RegistryLegalForm\.([A-Z_]+)\.value)/gm)].map(match => match[2] ?? match[3]);
+    const registry = values("RegistryLegalForm");
+    const conditional = values("ConditionalLegalForm");
+    expect(registry.length).toBeGreaterThan(0);
+    expect(ENTITY_APPLICABILITY_OPTIONS.map(item => item.value)).toEqual(registry);
+    expect(CONDITIONAL_APPLICABILITY_OPTIONS.map(item => item.value)).toEqual(conditional);
+    expect([...conditional].sort()).toEqual([...CONDITIONAL_LEGAL_FORMS]);
+    expect(conditional).not.toContain("OTHER");
+
+    fakeServer({ proposal: DRAFT });
+    const host = await openEditor();
+    await toggle(host.querySelector<HTMLButtonElement>('[aria-label="Add stage after Document verification"]')!);
+    await toggle(radio(stageControl(host), "ONLY"));
+    expect(boxes(host).some(item => item.value === "OTHER")).toBe(false);
   });
 
-  // (5) Role behaviour is unchanged: HR authors and Directors see the same disabled placeholder.
-  it("shows HR and Directors the same disabled placeholder and leaves each role's authoring controls as they were", async () => {
-    // Every visible control outside the placeholder, with its enabled state: what each role can do on the page.
+  // (5) Roles and the ratchet: Directors read only; HR is refused RR-8 narrowing of published required content.
+  it("shapes HR by RR-8 and shows Directors read-only controls, leaving other controls as they were", async () => {
     const surface = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>("button, input, select")]
       .filter(item => !item.closest('[data-testid^="entity-"]'))
       .map(item => {
@@ -707,43 +757,48 @@ describe("C-5 entity applicability placeholder (frontend-only, not functional)",
         return `${name}${item.matches(":disabled") ? " (disabled)" : ""}`;
       })
       .sort();
-    const placeholder = (host: HTMLElement) => [...host.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-      '[data-testid^="entity-"] input, [data-testid^="entity-"] select, [data-testid^="entity-"] button',
-    )].map(item => [item.disabled, item.getAttribute("aria-disabled")]);
 
     fakeServer({ proposal: DRAFT });
     const hrHost = await openEditor(hr);
     expect(surface(hrHost)).toEqual(HR_DRAFT_SURFACE);
-    const hrPlaceholder = placeholder(hrHost);
+    // The published stage holds required fields: making it conditional would narrow it (RR-8).
+    expect(radio(stageControl(hrHost), "ONLY").disabled).toBe(true);
+    expect(describedBy(radio(stageControl(hrHost), "ONLY"))).toContain("RR-8");
+    const [screenedBy, outcome, comment] = fieldControls(hrHost);
+    expect(radio(screenedBy, "ONLY").disabled).toBe(true);
+    expect(radio(outcome, "ONLY").disabled).toBe(true);
+    expect(radio(comment, "ONLY").disabled).toBe(false);
     act(() => root?.unmount());
     document.body.innerHTML = "";
 
     fakeServer({ proposal: { ...DRAFT, can_edit: false, can_submit: false, can_withdraw: false }, canCreate: false });
     const directorHost = await openEditor(director);
     expect(surface(directorHost)).toEqual(DIRECTOR_READ_ONLY_SURFACE);
-    expect(placeholder(directorHost)).toEqual(hrPlaceholder);
-    // The placeholder's only enabled control is the "All entities" radio, for both roles.
-    expect(hrPlaceholder.filter(([disabled]) => !disabled)).toHaveLength(1);
+    const controls = [...directorHost.querySelectorAll<HTMLInputElement>('[data-testid^="entity-"] input')];
+    expect(controls.length).toBeGreaterThan(0);
+    expect(controls.every(item => item.disabled)).toBe(true);
   });
 
-  // (6) Accessibility: named sections, a legend, described disabled controls, nothing focus-trapping.
+  // (6) Accessibility: named sections, legends, and every disabled control is described.
   it("is accessible", async () => {
     fakeServer({ proposal: DRAFT });
     const host = await openEditor();
-    const section = host.querySelector<HTMLElement>('[data-testid="entity-applicability-placeholder"]')!;
-    expect(document.getElementById(section.getAttribute("aria-labelledby")!)?.textContent).toContain("Entity applicability");
-    expect(section.querySelector("legend")?.textContent).toBe("Applies to");
-    const disabled = [...host.querySelectorAll<HTMLElement>('[aria-disabled="true"]')];
-    expect(disabled.length).toBe(ENTITY_APPLICABILITY_OPTIONS.length + 2);
+    const section = host.querySelector<HTMLElement>('[data-testid="entity-applicability"]')!;
+    expect(document.getElementById(section.getAttribute("aria-labelledby")!)?.textContent).toBe("Entity applicability");
+    expect(stageControl(host).querySelector("legend")?.textContent).toBe("Show this step for");
+    expect(fieldControls(host).map(item => item.querySelector("legend")?.textContent)).toEqual([
+      'Collect "Screened by" for', 'Collect "Screening outcome" for', 'Collect "Comment" for',
+    ]);
+    const disabled = [...host.querySelectorAll<HTMLElement>('[data-testid^="entity-"] [aria-disabled="true"]')];
+    expect(disabled.length).toBeGreaterThan(0);
     for (const item of disabled) {
-      const description = item.getAttribute("aria-describedby")!.split(" ").map(id => document.getElementById(id)?.textContent ?? "").join(" ");
-      expect(description).toMatch(/Coming soon|not functional|all entities/i);
       expect((item as HTMLInputElement).disabled).toBe(true);
+      expect(describedBy(item).trim().length).toBeGreaterThan(0);
       expect(item.getAttribute("tabindex")).toBeNull();
     }
   });
 
-  // (7) Regression: the existing editor behaviour around the placeholder is unchanged.
+  // (7) Regression: the existing editor behaviour around the controls is unchanged.
   it("keeps the existing stage editor order and reuse controls", async () => {
     fakeServer({ proposal: DRAFT });
     const host = await openEditor();
