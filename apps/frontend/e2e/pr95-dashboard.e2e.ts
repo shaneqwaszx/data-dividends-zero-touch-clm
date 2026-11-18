@@ -25,10 +25,19 @@ function weekLabel(weeksAgo: number): string {
 test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", async ({ page }) => {
   const violations: string[] = [];
   const dashboardRanges: Array<string | null> = [];
+  // F-2 fix (b): each dashboard request in order, with whether the AI insights mode check had
+  // already failed (no assistant runs here, so it fails and the rule-based panel is shown).
+  const dashboardCalls: Array<{ endpoint: string; range: string | null; team: string | null; scope: string | null; afterModeFailure: boolean }> = [];
+  let insightsModeFailed = false;
+  const isModeCheck = (href: string) => new URL(href).pathname.endsWith("/api/assistant/dashboard/insights/mode");
+  page.on("response", response => { if (isModeCheck(response.url()) && !response.ok()) insightsModeFailed = true; });
+  page.on("requestfailed", request => { if (isModeCheck(request.url())) insightsModeFailed = true; });
   page.on("request", request => {
     const url = new URL(request.url());
     if (url.pathname.endsWith("/zero-touch/dashboard")) {
       dashboardRanges.push(url.searchParams.get("date_range"));
+      dashboardCalls.push({ endpoint: `${request.method()} ${url.origin}${url.pathname}`, range: url.searchParams.get("date_range"),
+        team: url.searchParams.get("team_filter"), scope: url.searchParams.get("scope"), afterModeFailure: insightsModeFailed });
     }
   });
   const policy = createBrowserNetworkPolicy({
@@ -157,7 +166,22 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   expect(segmentBox?.width).toBeGreaterThan(0);
   await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(SAMPLE_AU_WEEKS);
   expect(dashboardRanges.length).toBeGreaterThan(0);
-  expect(dashboardRanges.every(value => value === "30d")).toBe(true);
+  // Every dashboard request is "30d", except the rule-based insights panel's all-time read, sent
+  // only after the insights mode check failed, to the same endpoint and team scope. This spec's
+  // injected failures, the query retry and Refresh refetch it alongside the 30d read, so it may
+  // repeat, but never more often than the 30d read and never before the first 30d read.
+  const fallback = dashboardCalls.filter(call => call.range !== "30d");
+  const regular = dashboardCalls.filter(call => call.range === "30d");
+  expect(regular.length).toBeGreaterThan(0);
+  expect(fallback.length, JSON.stringify(dashboardCalls)).toBeLessThanOrEqual(regular.length);
+  if (fallback.length) expect(dashboardCalls[0].range).toBe("30d");
+  expect(regular.length + fallback.length).toBe(dashboardRanges.length);
+  for (const call of fallback) {
+    expect(call.range).toBe("all");
+    expect(call.afterModeFailure).toBe(true);
+    expect({ endpoint: call.endpoint, team: call.team, scope: call.scope })
+      .toEqual({ endpoint: regular[0].endpoint, team: regular[0].team, scope: regular[0].scope });
+  }
   // Browser-clock skew must not change the same server duration or its age filters.
   const allCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "All cases", exact: true }) });
   // Every sortable header is reachable and works with native keyboard activation.
