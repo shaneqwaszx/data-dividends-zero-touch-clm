@@ -76,7 +76,14 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
-from . import anthropic_profiles, anthropic_runtime, data_access, key_sources, recovery
+from . import (
+    anthropic_profiles,
+    anthropic_runtime,
+    data_access,
+    key_sources,
+    privacy_boundary,
+    recovery,
+)
 from . import claude_reconciliation as reconciliation
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
@@ -555,10 +562,21 @@ class ModelSelector:
         if kind == data_access.LOCAL_CLASS:
             if self.store is None or not data_access.local_restricted(self.data_access_policy()):
                 return active
-        elif kind != data_access.IT_CLASS or not self.restrict_remote:
+        elif kind == data_access.IT_CLASS and not self.restrict_remote:
+            # D-142: an endpoint that is not literal loopback is an external provider, so its
+            # every call passes the privacy boundary, restricted or not.
+            return replace(active, model=privacy_boundary.BoundedModel(active.model))
+        elif kind != data_access.IT_CLASS:
             return active
+        # D-142: the synthetic gate decides on the messages as built; the privacy boundary
+        # inside it sends only the protected ones.
+        inner: ChatModel = (
+            privacy_boundary.BoundedModel(active.model)
+            if kind == data_access.IT_CLASS
+            else active.model
+        )
         model = data_access.SyntheticOnlyModel(
-            active.model, self.settings, local=kind == data_access.LOCAL_CLASS
+            inner, self.settings, local=kind == data_access.LOCAL_CLASS
         )
         return replace(active, model=model)
 

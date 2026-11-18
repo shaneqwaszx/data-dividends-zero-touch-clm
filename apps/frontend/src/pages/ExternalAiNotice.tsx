@@ -13,6 +13,9 @@
  *
  * What it lists as sent follows the D-129 r3.1 payload inventory for each path. It does not claim
  * that personal information is removed: automatic removal covers only some known identifiers.
+ * D-142 Q4 (proposed): it also says that the privacy boundary replaces names, identifiers and
+ * unrecognised words with placeholders before sending, and that this is not complete. Each answer
+ * an external model wrote says the same in its own attribution (the service's lead notice).
  *
  * D-138 A1 (proposed): it names the provider that can serve the surface, from what the hosted
  * service reports (`external_ai` on the case brief and the health reply): Anthropic for Claude,
@@ -72,7 +75,9 @@ export function noticeProvider(surface: ExternalAiSurface, status?: ExternalAiSt
 const TAIL =
   "Use synthetic test data only. Do not enter real " +
   "names, contact details, ID numbers or any other personal or confidential information. Automatic " +
-  "removal covers only some known identifiers, not everything you type.";
+  "removal covers only some known identifiers, not everything you type. Before anything is sent, " +
+  "names, identifiers and words the service does not recognise are replaced with placeholders, " +
+  "and restored only here (D-142); this cannot catch every way of writing personal information.";
 
 /** The notice's plain text for a surface (also used by the tests). */
 export function externalAiNoticeText(surface: ExternalAiSurface, named: ExternalAiNamed = "anthropic"): string {

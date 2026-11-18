@@ -18,7 +18,14 @@ import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from ai_assistant import anthropic_runtime, budget, key_sources, remote_test, synthetic_eligibility
+from ai_assistant import (
+    anthropic_runtime,
+    budget,
+    key_sources,
+    privacy_boundary,
+    remote_test,
+    synthetic_eligibility,
+)
 from ai_assistant.anthropic_chat import AnthropicChatModel
 from ai_assistant.anthropic_profiles import BALANCED, FAST, LEDGER_PROFILE_ID, PROFILE_IDS
 from ai_assistant.anthropic_runtime import (
@@ -193,10 +200,13 @@ def _ask(
     model: Any, messages: list[dict[str, str]] = MESSAGES
 ) -> tuple[list[Piece], ModelCallError | None]:
     pieces: list[Piece] = []
+    # D-142 R1: each call is a new request with its own single-use privacy admission.
+    # D-142 R4: every external prompt is service-built (its user turn a canonical question).
+    admitted = privacy_boundary.admit(messages, person_written=False)
 
     async def gather() -> ModelCallError | None:
         try:
-            async for piece in model.stream(messages):
+            async for piece in model.stream(admitted):
                 pieces.append(piece)
         except ModelCallError as error:
             return error
@@ -758,7 +768,9 @@ def test_a_d095_ticket_admits_its_messages_once_and_only_in_development_mode(
     tmp_path: Path,
 ) -> None:
     # QG L-3 / F2: the ticket is used once in the runtime and the adapter re-checks the mode.
-    outside = [*SYSTEM, {"role": "user", "content": "Ünknown customer"}]
+    # D-142 R3: outside the D-094 text but classified by the privacy boundary (an unknown
+    # word now falls back at the boundary, so it could not show the ticket's single use).
+    outside = [*SYSTEM, {"role": "user", "content": "Is the customer known?"}]
     settings = claude_config(tmp_path, synthetic_dev_decision="D-095")
     assert synthetic_eligibility.mode(settings)
     claude_ledger(settings)

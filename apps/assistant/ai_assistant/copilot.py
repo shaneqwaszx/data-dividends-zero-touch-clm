@@ -42,6 +42,7 @@ from .claims import (
 from .evidence import evidence_message
 from .guardrails import _CITATION, _CLAUSE, Context, _asserted, _check
 from .knowledge_answers import ShownKnowledge, TaggedHit
+from .privacy_boundary import trusted_text as _privacy_trusted
 from .prompts import trim_history
 
 # --- 1. scope ---------------------------------------------------------------------------------
@@ -347,8 +348,12 @@ def ownership_facts(analysis: Any) -> dict[str, Any]:
     if not isinstance(analysis, dict):
         return {"available": False, "note": "No ownership analysis is available for this case."}
     people = []
-    # Each holding once, written out with its direction, for the model to state as is.
-    relationships: dict[str, None] = {}
+    # Each holding once, written out with its direction, for the model to state as is. D-142 R2
+    # (D-4): a holding is one per pair of parties (the backend's party ids), not per text, so
+    # two distinct parties that share a name are never merged; the ids travel beside the names
+    # (party_ref, holder_ref, held_ref, relationship_refs) and no model receives them
+    # (privacy_boundary.strip_entity_refs, qualify_entities).
+    relationships: dict[tuple[str, Any, Any], dict[str, Any]] = {}
     for candidate in (analysis.get("candidates") or [])[:MAX_OWNERS]:
         if not isinstance(candidate, dict):
             continue
@@ -361,7 +366,16 @@ def ownership_facts(analysis: Any) -> dict[str, Any]:
                 holder, held = edge.get("parent_display_name"), edge.get("child_display_name")
                 percent = _pct(edge.get("ownership_percent"))
                 if holder and held and percent is not None:
-                    relationships[f"{holder} holds {percent}% of {held}"] = None
+                    holder_ref, held_ref = edge.get("parent_party_id"), edge.get("child_party_id")
+                    relationships.setdefault(
+                        (f"{holder} holds {percent}% of {held}", holder_ref, held_ref),
+                        {
+                            "holder": holder,
+                            "held": held,
+                            "holder_ref": holder_ref,
+                            "held_ref": held_ref,
+                        },
+                    )
             paths.append(
                 {
                     "direct": bool(path.get("is_direct")),
@@ -370,6 +384,8 @@ def ownership_facts(analysis: Any) -> dict[str, Any]:
                             "holder": edge.get("parent_display_name"),
                             "held": edge.get("child_display_name"),
                             "ownership_percent": _pct(edge.get("ownership_percent")),
+                            "holder_ref": edge.get("parent_party_id"),
+                            "held_ref": edge.get("child_party_id"),
                         }
                         for edge in edges[:MAX_LINKS]
                     ],
@@ -382,6 +398,9 @@ def ownership_facts(analysis: Any) -> dict[str, Any]:
         people.append(
             {
                 "name": _party_name(candidate.get("party")),
+                "party_ref": (candidate.get("party") or {}).get("party_id")
+                if isinstance(candidate.get("party"), dict)
+                else None,
                 "direct_percent": _pct(candidate.get("direct_ownership_percent")),
                 "indirect_percent": _pct(candidate.get("indirect_ownership_percent")),
                 "aggregated_percent": _pct(candidate.get("aggregated_ownership_percent")),
@@ -402,7 +421,8 @@ def ownership_facts(analysis: Any) -> dict[str, Any]:
         "source_environment": analysis.get("provider_environment"),
         "threshold_percent": _pct(analysis.get("threshold_percent")),
         "threshold_rule": _COMPARATOR.get(comparator, comparator.lower()),
-        "relationships": list(relationships),
+        "relationships": [key[0] for key in relationships],
+        "relationship_refs": list(relationships.values()),
         "people": people,
         "people_not_shown": max(0, len(analysis.get("candidates") or []) - MAX_OWNERS),
         "issues": [
@@ -832,3 +852,9 @@ def check_answer(
     guard = CopilotGuard(facts, knowledge_tags=knowledge_tags, required=required)
     guard.feed(text)
     return guard.finish()
+
+
+# D-142 R3: the service's fixed wording, trusted by origin where it is defined (a system
+# role alone never makes text trusted: privacy_boundary.trusted_text).
+_privacy_trusted(RULES)
+_privacy_trusted(NO_CASE_MESSAGE)

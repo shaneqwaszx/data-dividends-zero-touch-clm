@@ -745,3 +745,58 @@ is not a billing guarantee.
   `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD`). Stored HR values win.
 - **Basis.** The qualification basis moves from `77e50313a62c…` to `17a3172e1607…`. External
   models need a separately approved paid requalification after the upgrade.
+
+## 16. The privacy boundary on every external call (D-142, proposed)
+
+Every prompt to Claude, GPT-OSS or a model IT configured on an endpoint that is not literal
+loopback passes `ai_assistant/privacy_boundary.py` inside the model's own call. This happens after
+its admission check and before anything is reserved or sent.
+
+- **Field table.** The external view of a case omits the registration date, unreviewed document
+  fields and document file names. The viewer is the role only.
+- **Placeholders.** Known identities become `[COMPANY-A]`, `[PERSON-B]`, `[ID-A]` or `[ADDRESS-A]`.
+  Any word outside the reviewed vocabulary, any identifier-like token and any contact detail
+  becomes `[TEXT-x]` or `[ID-x]`.
+- **Checks.** Separate rules re-check the final messages before the call. Reply placeholders are
+  validated before they are restored, and the existing answer checks then run on real values.
+- **Vocabulary.** After changing any string the service sends, rebuild it:
+  `python scripts/build_privacy_vocabulary.py`. A test fails while it is stale.
+- **Policy per provider.** `ASSISTANT_HOSTING_ANTHROPIC_DATA_POLICY` and
+  `ASSISTANT_HOSTING_OPENROUTER_DATA_POLICY` take `synthetic_only` (the default and rollback; the
+  D-139 R3 check) or `pseudonymised` (any authorised case). `pseudonymised` refuses to start
+  until `config.HOSTED_PRIVACY_DECISION` records the owner's adoption.
+- **Admission (R1).** Every caller that builds messages for a model admits them with
+  `privacy_boundary.admit(messages, identities)`: one single-use admission per call. A call
+  without one, or a retry of a used one, is refused before anything is reserved.
+- **POC admission (R1, R2).** `pseudonymised` also needs `synthetic_eligibility.poc_check`:
+  ACRA `MOCK` provenance (the ACRA Mock and the Marketplace Mock) on the company and on every
+  registry record, a Mock GoldTier id, grounded typed values. An upload that is not a tracked
+  synthetic fixture is withheld from the external prompt with what was derived from it
+  (`synthetic_eligibility.poc_view`); the rest of the case is answered.
+- **The wire (R1, R2).** The Anthropic, OpenRouter and IT (`llm.OpenAICompatibleChatModel`, once
+  wrapped by `BoundedModel`) adapters pass the exact HTTP body to `privacy_boundary.verify_wire`
+  before sending. It passes only a cleared, unsent call for exactly its messages, once.
+- **IT qualification (R2).** A model on an endpoint that is not literal loopback is qualified,
+  token-counted and capacity-measured through the boundary; its prompt bound is the protected
+  payload's.
+- **Names (R2).** Short and ordinary words of a known person's name are protected (every
+  occurrence in questions and history; name-like uses in the service's own text). Parties that
+  share a name stay apart by the backend's party ids, which no model receives.
+- **Controlled intents (R4, OD-3, owner Option A).** Nothing a person typed reaches an
+  external model. The whole case question must match a supported intent before the model
+  receives that intent's fixed canonical question (`controlled_intents.py`). Unsupported or
+  ambiguous questions, including compound requests, get the deterministic case-data answer
+  before reservation or transport
+  (`INTENT_UNSUPPORTED`, `INTENT_AMBIGUOUS`). The boundary refuses person-written text outright
+  (`PERSON_TEXT`). Chat history is never sent to an external model.
+- **Closed paths (R4).** The general chat, Support chat and "Try with this change" never use an
+  external model (`PRIVACY_CLOSED_PATHS`); the hosted Claude qualification asks two calls.
+- **Field table (R4).** External facts omit backend explanations, no-action reasons, step
+  results and timeline messages. Technical failures carry only the error code. Uploaded
+  file names are replaced with "document N (type)".
+- **Trusted wording (R3).** Fixed instructions are registered with
+  `privacy_boundary.trusted_text` where they are defined. Any other system text takes the strict
+  rules. A new fixed instruction must be registered, or it is treated as service text.
+- **Basis.** The qualification basis includes the controlled-intent source. Changes to its
+  matching rules or canonical questions make earlier qualifications ineligible. External
+  models need a separately approved paid requalification before they answer on the new image.

@@ -9,6 +9,7 @@ disposable stores. No network, no paid call, no real key.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,19 @@ SCRIPT: dict[str, str] = {
     ),
 }
 DEFAULT = "This case is paused, waiting for a person to review something."
+# D-142 R4 (R3-1): an external model receives the service's canonical question for the
+# recognised intent, never what the user wrote; the mocks answer it as the user's question did.
+SCRIPT.update(
+    {
+        "Why is this case blocked, and what should be done next?": SCRIPT[
+            "Why is Garden Business blocked?"
+        ],
+        "Can I approve this case?": SCRIPT["Approve this case now"],
+        "What happens when this case is sent to GoldTier?": SCRIPT["Has it gone to GoldTier?"],
+    }
+)
+# The canonical question of the "why is it blocked / what next" intent.
+BLOCKED = "Why is this case blocked, and what should be done next?"
 # Every conversational prompt the mocks received (system text and messages, as sent).
 SENT: list[str] = []
 
@@ -61,6 +75,25 @@ def _last_user(messages: list[dict[str, Any]]) -> str:
                 return " ".join(str(part.get("text", "")) for part in content)
             return str(content)
     return ""
+
+
+# D-142: a model sees the case's company as a placeholder, so the mock does what a real model
+# does: it reads the placeholder and writes it back; the service restores the real name.
+_COMPANY = re.compile(r"\[COMPANY-[A-Z]+\]")
+_CASE_COMPANY = "Garden Business"
+
+
+def _scripted_reply(question: str, context: str = "") -> tuple[str, str]:
+    """(the question as the model got it, the scripted reply as the model would write it). R4:
+    a canonical question names no company, so the mock takes the company's placeholder from the
+    case facts it was sent, as a real model would."""
+
+    alias = _COMPANY.search(question) or _COMPANY.search(context)
+    asked = question.replace(alias.group(0), _CASE_COMPANY) if alias else question
+    reply = SCRIPT.get(asked, DEFAULT)
+    if alias:
+        reply = reply.replace(_CASE_COMPANY.upper(), alias.group(0))
+    return asked, reply
 
 
 def _conversational_prompt(text: str) -> bool:
@@ -78,19 +111,21 @@ def scripted(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     def openrouter(body: dict[str, Any]) -> str:
         if not _conversational_prompt(json.dumps(body["messages"])):
             return openrouter_lines(body)
-        question = _last_user(body["messages"])
+        question, reply = _scripted_reply(
+            _last_user(body["messages"]), json.dumps(body["messages"])
+        )
         asked.append(question)
         SENT.append(json.dumps(body))
-        return SCRIPT.get(question, DEFAULT) + "\n"
+        return reply + "\n"
 
     def claude(body: dict[str, Any]) -> str:
         system = json.dumps(body.get("system", []))
         if not _conversational_prompt(system):
             return claude_lines(body)
-        question = _last_user(body["messages"])
+        question, reply = _scripted_reply(_last_user(body["messages"]), system)
         asked.append(question)
         SENT.append(json.dumps(body))
-        return SCRIPT.get(question, DEFAULT) + "\n"
+        return reply + "\n"
 
     SENT.clear()
     monkeypatch.setattr(test_remote_test, "_reply_lines", openrouter)
@@ -136,16 +171,19 @@ def test_external_models_answer_in_their_own_words_once_approved(
 ) -> None:
     approve(monkeypatch)
     journey = make(tmp_path, monkeypatch)
+    before = len(scripted)  # the qualification's own questions came first
     reply = journey.ask("Why is Garden Business blocked?", stream=stream)
     if not stream and isinstance(journey, HrJourney):
         # Claude is streaming only (as for exact lines): refused before anything is sent.
         assert reply["answered_by"] == "case_data"
-        assert "Why is Garden Business blocked?" not in scripted
+        assert scripted[before:] == []
         return
     assert reply["answered_by"] == "model", reply
     assert "does not match the ACRA record" in reply["answer"]
     assert "ownership (shareholder) evidence is still needed" in reply["answer"]
-    assert "Why is Garden Business blocked?" in scripted
+    # D-142 R4 (R3-1): the model got the intent's canonical question, not what was typed.
+    assert scripted[before:] == [BLOCKED]
+    assert "Why is Garden Business blocked?" not in scripted
 
 
 @pytest.mark.parametrize("make", JOURNEYS)
@@ -164,7 +202,8 @@ def test_invented_statuses_and_actions_are_removed(
 ) -> None:
     approve(monkeypatch)
     journey = make(tmp_path, monkeypatch)
-    status = journey.ask("Has it gone to GoldTier?", stream=True)
+    # D-142 R4: a supported intent (the GoldTier hand-off), so its canonical question is sent.
+    status = journey.ask("What happens after it is sent to GoldTier?", stream=True)
     assert "GoldTier accepted" not in status["answer"]
     assert "The GoldTier section is blocked" in status["answer"]
     action = journey.ask("Approve this case now", stream=True)
@@ -186,6 +225,22 @@ def test_unrelated_questions_never_reach_the_paid_model(
         reply = journey.ask(question, stream=True)
         assert reply["answer"] == copilot.OFF_DOMAIN_REPLY and reply["model"] is None
     assert len(scripted) == before
+
+
+def test_copilot_refuses_a_compound_case_question_before_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: list[str]
+) -> None:
+    approve(monkeypatch)
+    journey = gpt_oss(tmp_path, monkeypatch)
+    before = len(journey.openrouter.chats)
+    reply = journey.ask(
+        "Who are the ultimate beneficial owners, and is this case ready for approval?",
+        stream=True,
+    )
+    assert reply["answered_by"] == "case_data"
+    assert "INTENT_UNSUPPORTED" in reply["notice"]
+    assert len(journey.openrouter.chats) == before
+    assert len(scripted) == 2  # Only the qualification reached the model.
 
 
 # --- D-122: any case the user may read --------------------------------------------------------
@@ -214,7 +269,7 @@ def test_gpt_oss_in_d094_mode_answers_conversationally_too(
     journey = Journey(tmp_path, monkeypatch)  # D-094 only, no D-095 development mode
     journey.activate_remote()
     journey.ask("Why is this case blocked?", stream=True)
-    assert "Why is this case blocked?" in scripted
+    assert BLOCKED in scripted
 
 
 # --- context, qualification identity and spending -------------------------------------------------
@@ -237,13 +292,17 @@ def test_a_follow_up_uses_the_case_and_the_server_held_chat(
     assert first.status_code == 200, first.text
     follow = journey.client.post(
         f"/assistant/cases/{CASE_ID}/chat",
-        json={"message": "What should the RM do next?", "context_id": context},
+        json={"message": "What should I do next?", "context_id": context},
     )
     journey.client.cookies.set("clm_session", "hr-session")
     assert follow.json()["answered_by"] == "model"
-    assert "Keep registry value" in follow.json()["answer"]
     last = journey.openrouter.chats[-1]["messages"]
-    assert any("does not match the ACRA record" in str(m.get("content")) for m in last)
+    # D-142 R3 (OD-3): the case facts go, the server-held chat does not: only the system
+    # turns and the final question reach the external model. R4 (R3-1): that question is the
+    # follow-up's canonical question, never what was typed.
+    assert [m["role"] for m in last if m["role"] != "system"] == ["user"]
+    assert last[-1]["content"] == BLOCKED
+    assert "What should I do next?" not in json.dumps(last)
 
 
 def test_an_exact_line_qualification_never_counts_for_conversational_answers(

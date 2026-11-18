@@ -66,6 +66,7 @@ from .guide import (
     is_topic_only,
 )
 from .instructions import system_prompt
+from .privacy_boundary import trusted_text as _privacy_trusted
 
 # The rules live in instructions/persona_and_rules.md so they can be edited as plain text.
 SYSTEM_PROMPT = system_prompt()
@@ -608,3 +609,8 @@ def build_messages(
         )
     messages.append({"role": "user", "content": question})
     return messages
+
+
+# D-142 R3: the service's fixed wording, trusted by origin where it is defined (a system
+# role alone never makes text trusted: privacy_boundary.trusted_text).
+_privacy_trusted(SYSTEM_PROMPT)

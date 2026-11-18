@@ -51,6 +51,7 @@ os.environ["AI_ASSISTANT_MODEL_PROFILES_FILE"] = ""
 
 from ai_assistant.clm_client import CaseSnapshot  # noqa: E402
 from ai_assistant.context import build_case_facts  # noqa: E402
+from ai_assistant.controlled_intents import CANONICAL, NOT_SENT  # noqa: E402
 from ai_assistant.knowledge.ingest import (  # noqa: E402
     GUIDANCE_DIR,
     SYNTHETIC_AUTHOR,
@@ -84,6 +85,10 @@ QUESTION_FILES = ("scenarios.json", "phase_b_questions.json")
 # through the per-call eligibility check and its single-use ticket (the D-115 conversational
 # contract); a D-094-only external model keeps exact lines.
 LOCAL_ONLY_MODULES = ("copilot.py", "claims.py", "evidence.py")
+# D-142: modules whose string constants are name-detection lists or mock-connector fixture data
+# (made-up companies, officers, addresses), not the service's own wording (as
+# build_privacy_vocabulary.SKIPPED_MODULES); the vocabulary excludes person-name words.
+SKIPPED_MODULES = frozenset({"privacy_boundary.py", "mock_acra.py", "mock_ownership.py"})
 # Reviewed everyday words an RM uses in a question (no names, places or identifiers).
 EVERYDAY_WORDS = [
     "block",
@@ -322,6 +327,10 @@ def build() -> str:
         conversation |= tokens(" ".join([entry.title, entry.body, *entry.follow_ups]))
     for path in sorted((HERE / "ai_assistant" / "instructions").glob("*.md")):
         conversation |= tokens(path.read_text(encoding="utf-8"))
+    # D-142 R4 (R3-1): the service's canonical questions, the only user turn an external model
+    # receives (a difference question takes the case's own field names, already values).
+    questions += [text.replace("{fields}", "") for text in CANONICAL.values()]
+    questions.append(NOT_SENT)
     for question in questions:
         conversation |= tokens(question)
     values |= {normalize(name) for name in documents}
@@ -340,7 +349,10 @@ def build() -> str:
         path
         for path in sorted((HERE / "ai_assistant").rglob("*.py"))
         if path.relative_to(HERE / "ai_assistant").as_posix() not in LOCAL_ONLY_MODULES
-    ] + sorted((BACKEND / "app").rglob("*.py"))
+        and path.name not in SKIPPED_MODULES
+    ] + [
+        path for path in sorted((BACKEND / "app").rglob("*.py")) if path.name not in SKIPPED_MODULES
+    ]
     code_words = {word for word in _string_constants(code) if word.isalpha()}
     code_only = code_words - conversation - prompt_words
     data = {

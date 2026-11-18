@@ -307,8 +307,11 @@ class AnthropicChatModel:
         transport: object,
         admit: Callable[[list[dict[str, str]]], bool] = _text_check,
         expected_workspace: str | None = None,
+        wire_check: Callable[[list[dict[str, str]], bytes], None] | None = None,
     ) -> None:
         self._live = transport is LIVE_NETWORK
+        # D-142: the privacy boundary's check of the exact HTTP body (privacy_boundary.py).
+        self._wire_check = wire_check
         self._transport = None if self._live else require_offline_transport(transport)
         if configuration.profile_id not in anthropic_profiles.CONFIGURATIONS:
             raise ProfileConfigError("PROFILE_UNKNOWN", "not an approved Claude configuration")
@@ -423,6 +426,12 @@ class AnthropicChatModel:
                 request = client.build_request(
                     "POST", MESSAGES_URL, json=payload, headers=self._headers()
                 )
+                if self._wire_check is not None:
+                    # D-142: the exact serialised body, checked again before it is sent.
+                    try:
+                        self._wire_check(messages, request.content)
+                    except LlmUnavailableError:
+                        raise ModelCallError("not_allowed") from None
                 with anyio.fail_after(max(0.0, deadline - time.monotonic())):
                     reply = await client.send(request, stream=True)
                 try:

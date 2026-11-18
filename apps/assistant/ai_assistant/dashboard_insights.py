@@ -28,7 +28,7 @@ from pydantic import (
     model_validator,
 )
 
-from ai_assistant import data_access, synthetic_eligibility
+from ai_assistant import data_access, privacy_boundary, synthetic_eligibility
 from ai_assistant.llm import ChatModel, LlmUnavailableError
 from ai_assistant.remote_test import is_remote_test_model
 
@@ -351,7 +351,10 @@ class DashboardInsights:
             return None
         provider = data_access.model_class(model, base_url)
         if provider in PAID_CLASSES:
-            return "paid" if external else None
+            # D-142 I-4: closed. The findings come from the browser and may name staff or
+            # teams, which no known identity covers, so no API-key model writes insights; the
+            # local model, when there is one, still does.
+            return None
         if provider != data_access.LOCAL_CLASS:
             return None
         if isinstance(model, data_access.SyntheticOnlyModel):
@@ -520,8 +523,13 @@ class DashboardInsights:
     ) -> InsightsResponse:
         started = time.monotonic()
         response: InsightsResponse | None = None
-        messages = build_messages(request)
+        built = build_messages(request)
         for attempt in range(attempts):
+            # D-142 R1: every attempt is a new call with its own single-use privacy admission
+            # (insights hold aggregate findings, no case identities).
+            messages = privacy_boundary.admit(
+                built, (), source="insights", person_written=False  # R3: service-built metrics
+            )
             if ticket:
                 # D-122: a model that checks its prompts (an API-key or policy-restricted model)
                 # takes exactly these messages, once; the ticket is spent by the call.
@@ -550,3 +558,8 @@ class DashboardInsights:
         )
         self._store(key, response)
         return response
+
+
+# D-142 R3: the service's fixed wording, trusted by origin where it is defined (a system
+# role alone never makes text trusted: privacy_boundary.trusted_text).
+privacy_boundary.trusted_text(INSTRUCTIONS)

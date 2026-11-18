@@ -23,6 +23,8 @@ async function ready(page: Page) {
 const METHOD_REVISION = "settled-resource-precondition-v1";
 const SETTLE_DEADLINE_MS = 30_000;
 const SETTLE_POLL_MS = 250;
+// Rows on the first Cases page (apps/frontend/src/caseQueries.ts CASES_PAGE_SIZE, PR #178).
+const PORTFOLIO_PAGE_LIMIT = 10;
 
 async function awaitSettledResources(page: Page, casePath: string) {
   const started = Date.now();
@@ -105,7 +107,10 @@ async function measure(page: Page, width: number) {
         } else {
           await page.getByRole("link", { name: "Cases", exact: true }).click();
           await expect(page.getByRole("heading", { name: "Cases", exact: true })).toBeVisible();
-          await expect(page.locator("table.case-table tbody tr")).toHaveCount(50);
+          // The Cases tab renders one full first page (CASES_PAGE_SIZE = 10, PR #178) before the warm
+          // navigation continues to the same case.
+          await expect(page.getByText(`Showing 1–${PORTFOLIO_PAGE_LIMIT}`, { exact: true })).toBeVisible();
+          await expect(page.locator("table.case-table tbody tr")).toHaveCount(PORTFOLIO_PAGE_LIMIT);
           await page.locator(`a[href="${casePath}"]`).click();
         }
         await ready(page);
@@ -131,7 +136,7 @@ async function measure(page: Page, width: number) {
     expect(samples).toHaveLength(40);
     const raw = path.join(root, ".runtime/performance-optimization");
     fs.mkdirSync(raw, { recursive: true });
-    fs.writeFileSync(path.join(raw, `browser-${width}.json`), JSON.stringify({ claim: "DEVELOPMENT_MEASUREMENT", method_sha256: method, method_revision: METHOD_REVISION, precondition, width, seeded_cases: 105, portfolio_page_limit: 50, measured_each_kind: 20, warmup_each_kind: 2, assets_cache: "HTTP cache disabled by Playwright routing", cold_scope: "query cache reset by page reload, same authenticated browser/session", warm_scope: "Cases -> same case within same loaded session", accounting_tail_ms: 500, render_work: "not separately instrumented", target_confirmation_requests: targetWrites, samples }, null, 2) + "\n");
+    fs.writeFileSync(path.join(raw, `browser-${width}.json`), JSON.stringify({ claim: "DEVELOPMENT_MEASUREMENT", method_sha256: method, method_revision: METHOD_REVISION, precondition, width, seeded_cases: 105, portfolio_page_limit: PORTFOLIO_PAGE_LIMIT, measured_each_kind: 20, warmup_each_kind: 2, assets_cache: "HTTP cache disabled by Playwright routing", cold_scope: "query cache reset by page reload, same authenticated browser/session", warm_scope: "Cases -> same case within same loaded session", accounting_tail_ms: 500, render_work: "not separately instrumented", target_confirmation_requests: targetWrites, samples }, null, 2) + "\n");
  }
 
 test("Performance browser cache measurement width1440", async ({ page }) => measure(page, 1440));

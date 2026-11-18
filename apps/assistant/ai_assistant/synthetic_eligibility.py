@@ -42,19 +42,22 @@ whose exact messages hold no ticket and do not pass the D-094 text check (``admi
 no caller can skip the case check.
 """
 
+import copy
 import hashlib
 import json
 import re
 import threading
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from .clm_client import CaseSnapshot
 from .knowledge.models import Entry
+from .privacy_boundary import is_trusted_text
 from .synthetic_boundary import (
     _TIMESTAMP,
     _dict,
@@ -333,6 +336,494 @@ def check(
         return "SYNTHETIC_TEXT_NOT_APPROVED"
     approve(messages)
     return None
+
+
+# --- D-142 R1 (proposed): the trusted POC admission for the pseudonymised policy ----------------
+
+POC_DECISION_ID = "D-142"
+# The backend's own source environments (apps/backend/app/domain/models.py SourceEnvironment):
+# MOCK is synthetic by construction; SANDBOX is a sponsor or registry test environment whose
+# records are not the project's synthetic data and so are treated as sponsor data.
+_SPONSOR_ENVIRONMENTS = frozenset({"SANDBOX"})
+# Operation statuses under which nothing was acquired (apps/backend RegistryOperationStatus).
+_ABSENT_STATUSES = frozenset({"FAILED", "NOT_ATTEMPTED", "UNSUPPORTED"})
+
+
+def _provenance_problem(provenance: Any, approved: Manifest) -> str | None:
+    data = _dict(provenance)
+    if data.get("environment") in _SPONSOR_ENVIRONMENTS:
+        return "POC_SPONSOR_DATA"
+    if (
+        data.get("provider") != approved.source_system
+        or data.get("environment") not in approved.environments
+    ):
+        return "POC_PROVENANCE_UNKNOWN"
+    return None
+
+
+def _poc_registry_problem(snapshot: CaseSnapshot, approved: Manifest) -> str | None:
+    """The registry part of the POC admission, by the backend's recorded provenance: the
+    company's details came from the approved registry in MOCK mode, for the identifier the case
+    requested. No company list: any company a Mock registry returned qualifies."""
+
+    case = _dict(snapshot.summary.get("case"))
+    entity = _dict(case.get("entity"))
+    source = _dict(entity.get("source"))
+    environment = source.get("environment")
+    if environment in _SPONSOR_ENVIRONMENTS:
+        return "POC_SPONSOR_DATA"
+    if (
+        not entity
+        or source.get("source_system") != approved.source_system
+        or environment not in approved.environments
+    ):
+        return "POC_PROVENANCE_UNKNOWN"
+    uen = str(entity.get("registration_number") or "").strip().upper()
+    if not uen or not str(entity.get("legal_name") or "").strip():
+        return "POC_PROVENANCE_UNKNOWN"
+    # R2/R3: every record family the registry acquisition holds carries the same approved
+    # provenance (ACRA in MOCK mode: the ACRA Mock and the Marketplace Mock alike). A SANDBOX
+    # record is sponsor data, a record of unknown or missing provenance is uncertain.
+    acquisition = _dict(case.get("registry_acquisition"))
+    for family in ("ownership_parties", "officers", "relationships"):
+        for record in _list(acquisition.get(family)):
+            refusal = _provenance_problem(_dict(record).get("provenance"), approved)
+            if refusal is not None:
+                return refusal
+    # An operation result says what the registry returned for one operation. With provenance,
+    # it must be the approved one. Without, it is authoritative absence only when nothing was
+    # acquired (FAILED, NOT_ATTEMPTED or UNSUPPORTED with no records); any other result without
+    # provenance (COMPLETE, EMPTY, or records counted) is a claim of unknown provenance.
+    for result in _list(acquisition.get("operation_results")):
+        data = _dict(result)
+        if data.get("provenance") is not None:
+            refusal = _provenance_problem(data.get("provenance"), approved)
+            if refusal is not None:
+                return refusal
+        elif data.get("status") not in _ABSENT_STATUSES or data.get("record_count") not in (0,):
+            return "POC_PROVENANCE_UNKNOWN"
+    requested = case.get("requested_uen")
+    acquired = _dict(case.get("registry_acquisition")).get("requested_identifier")
+    if (requested is not None and str(requested).strip().upper() != uen) or (
+        acquired is not None and str(acquired).strip().upper() != uen
+    ):
+        return "POC_PROVENANCE_UNKNOWN"
+    return None
+
+
+def poc_check(
+    snapshot: CaseSnapshot,
+    facts: dict[str, Any],
+    entries: Iterable[Entry],
+    *,
+    digests: list[dict[str, Any]] | None = None,
+) -> str | None:
+    """D-142 R1 (P1-3): None when the case's data is classified as synthetic or Mock POC data by
+    authoritative provenance, independent of the D-095 company and viewer lists; otherwise a
+    closed reason. RBAC and team scope have already decided that the user may read the case.
+
+        registry    the company came from the approved registry in MOCK mode for the requested
+                    identifier (any company; no list). SANDBOX data is sponsor data: refused
+        documents   every document is a tracked synthetic fixture by the backend's own digest.
+                    The data contract holds no other authoritative provenance for an upload, so
+                    any other upload is uncertain and refused (owner decision OD-1)
+        target      a GoldTier id the Mock connector issued, or none (a Sandbox id: sponsor data)
+        values      every value a person typed equals a value the trusted sources hold
+        knowledge   only unchanged repository guidance and the synthetic seed
+
+    The question and history are user-entered text: the privacy boundary transforms and
+    validates them on every call. Nothing here infers safety from the deployment, from the
+    viewer's access, or from an upload being unfamiliar."""
+
+    try:
+        approved = manifest()
+    except (OSError, ValueError, KeyError, TypeError):
+        return "POC_ELIGIBILITY_UNAVAILABLE"
+    refusal = _poc_registry_problem(snapshot, approved)
+    if refusal is not None:
+        return refusal
+    if not snapshot.documents_loaded:
+        return "POC_DOCUMENTS_UNAVAILABLE"
+    problem, verified = _verify_documents(
+        [_dict(document) for document in snapshot.documents], digests, approved
+    )
+    if problem is not None:
+        return "POC_DOCUMENT_PROVENANCE_UNKNOWN"
+    # R3: an observation is bound to its document by id (and version), never by file name:
+    # every document-sourced observation must name a verified document of this case.
+    verified_ids = {_document_key(_dict(document)) for document in snapshot.documents}
+    for item in _list(_dict(snapshot.summary.get("reconciliation")).get("discrepancies")):
+        for observation in _list(_dict(item).get("observations")):
+            data = _dict(observation)
+            if data.get("document_id") is None:
+                if data.get("document_display_name") not in (None, "") or str(
+                    data.get("source_kind") or ""
+                ).startswith("DOCUMENT"):
+                    return "POC_DOCUMENT_PROVENANCE_UNKNOWN"
+                continue
+            document_id = str(data.get("document_id"))
+            version = data.get("document_version")
+            if not any(
+                key == document_id and (version is None or version == kept)
+                for key, kept in verified_ids
+            ):
+                return "POC_DOCUMENT_PROVENANCE_UNKNOWN"
+    goldtier_id = _dict(facts.get("goldtier")).get("goldtier_id")
+    if goldtier_id not in (None, "") and not _MOCK_GOLDTIER_ID.fullmatch(str(goldtier_id)):
+        return "POC_SPONSOR_DATA"
+    trusted = _trusted_values(snapshot, facts, verified, approved)
+    if goldtier_id not in (None, ""):
+        trusted.add(_fold(goldtier_id))
+    if any(value.casefold() not in trusted for value in data_values(facts)):
+        return "POC_VALUE_NOT_GROUNDED"
+    if any(not approved_entry(entry) for entry in entries):
+        return "POC_KNOWLEDGE_NOT_APPROVED"
+    return None
+
+
+# --- D-142 R2 (owner direction): unverified uploads are withheld, not the whole case ------------
+
+
+@dataclass(frozen=True)
+class PocView:
+    """The case as external inference may receive it under the pseudonymised policy.
+
+        snapshot           the same case without every uploaded document that is not a tracked
+                           synthetic fixture by the backend's own digest (bound to its document
+                           id, version and digest, never to its file name), and without what
+                           was derived from one: every record naming that document id is
+                           removed, and document-read values in exception evidence (which name
+                           no document) are blanked
+        digests            the digests of the documents kept (all verified)
+        withheld           how many documents were withheld
+        withheld_documents (document id, version, digest) of each withheld document
+        withheld_values    the text values read from a withheld document and its name (folded,
+                           two or more characters)
+        withheld_numbers   every number read from a withheld document, whatever its length (R3:
+                           a short or numeric value is still upload-derived content)
+
+    The boundary's backstop (``withheld_present``) refuses a prompt that still holds a withheld
+    value or number unless the independently authorised facts hold it too. Nothing is
+    persisted and nothing in the data contract changes: this is a view."""
+
+    snapshot: CaseSnapshot
+    digests: list[dict[str, Any]]
+    withheld: int
+    withheld_values: frozenset[str]
+    withheld_documents: frozenset[tuple[str, object, str | None]] = frozenset()
+    withheld_numbers: frozenset[Decimal] = frozenset()
+
+
+_DOCUMENT_READ_KEYS = frozenset(
+    {"document_value", "original_extracted_value", "reviewed_value", "review_note"}
+)
+# R4 (R3-2): free text the backend derives from case events (timeline messages, exception
+# explanations, step results, notes). Its source lineage is not recorded, so while any upload is
+# withheld it is withheld from the external view; structured codes and values stay.
+_DERIVED_TEXT_KEYS = frozenset({"explanation", "safe_result", "message", "note", "detail"})
+# The value-bearing keys of a record that names a withheld document (an observation, a
+# reviewer correction, a field): what it carried is upload-derived, whatever its text.
+_RECORD_VALUE_KEYS = frozenset(
+    {
+        "normalized_value",
+        "selected_value",
+        "reviewed_value",
+        "original_extracted_value",
+        "value",
+        "document_value",
+        "display_name",
+        "document_display_name",
+    }
+)
+_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w])")
+
+
+def _numbers(text: str) -> set[Decimal]:
+    found: set[Decimal] = set()
+    for match in _NUMBER.finditer(re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)):
+        try:
+            found.add(Decimal(match.group(0)).normalize())
+        except InvalidOperation:
+            continue
+    return found
+
+
+def _names_withheld(item: dict[str, Any], withheld: frozenset[tuple[str, object]]) -> bool:
+    if item.get("document_id") is None:
+        return False
+    key = str(item.get("document_id"))
+    version = item.get("document_version")
+    return (key, version) in withheld or (
+        version is None and any(key == doc for doc, _ in withheld)
+    )
+
+
+def _record_values(value: Any, out: list[Any]) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _RECORD_VALUE_KEYS and isinstance(item, (str, int, float, Decimal)):
+                out.append(item)
+            else:
+                _record_values(item, out)
+    elif isinstance(value, list):
+        for item in value:
+            _record_values(item, out)
+
+
+def _without(
+    value: Any, withheld: frozenset[tuple[str, object]], removed: list[dict[str, Any]]
+) -> Any:
+    """``value`` without every record that names a withheld document (by id and version; a
+    record that names the id with no version is removed too, and collected in ``removed``),
+    with document-read values and backend-derived free text blanked."""
+
+    if isinstance(value, list):
+        kept = []
+        for item in value:
+            if isinstance(item, dict) and _names_withheld(item, withheld):
+                removed.append(item)
+                continue
+            kept.append(_without(item, withheld, removed))
+        return kept
+    if isinstance(value, dict):
+        return {
+            key: None
+            if key in _DOCUMENT_READ_KEYS or key in _DERIVED_TEXT_KEYS
+            else _without(item, withheld, removed)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _walk(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from _walk(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk(item)
+
+
+def _registry_observation(item: dict[str, Any], approved: Manifest | None) -> dict[str, Any]:
+    for observation in _list(item.get("observations")):
+        data = _dict(observation)
+        if (
+            approved is not None
+            and data.get("source_kind") == "REGISTRY"
+            and data.get("source_system") == approved.source_system
+            and data.get("environment") in approved.environments
+        ):
+            return data
+    return {}
+
+
+def _upload_decisions(
+    summary: dict[str, Any], withheld_ids: set[str], approved: Manifest | None
+) -> list[tuple[str, str, str | None]]:
+    """(field, selected value, independent registry value or None) for every reconciliation
+    decision that selected an observation from a withheld upload: by the recorded selected
+    observation id (its lineage), never by comparing text."""
+
+    found: list[tuple[str, str, str | None]] = []
+    for item in _walk(summary):
+        if "observations" not in item or not isinstance(item.get("decision"), dict):
+            continue
+        decision = item["decision"]
+        selected = str(decision.get("selected_observation_id") or "")
+        value = decision.get("selected_value")
+        if selected and selected in withheld_ids and isinstance(value, str):
+            registry = _registry_observation(item, approved).get("normalized_value")
+            found.append(
+                (
+                    str(item.get("field_name") or ""),
+                    decision["selected_value"],
+                    registry if isinstance(registry, str) and registry.strip() else None,
+                )
+            )
+    return found
+
+
+def _restore_canonical(summary: Any, decisions: list[tuple[str, str, str | None]]) -> Any:
+    """The canonical values an upload-derived decision promoted (the backend promotes only the
+    legal name) replaced by the independent registry observation's value, or withheld (None)
+    when the registry holds none; the decision's selected value is withheld too."""
+
+    promoted = {
+        (field, _fold(selected)): registry
+        for field, selected, registry in decisions
+        if field == "legal_name"
+    }
+    for item in _walk(summary):
+        if isinstance(item.get("decision"), dict) and item["decision"].get("selected_value") in {
+            selected for _, selected, _ in decisions
+        }:
+            item["decision"] = {
+                **item["decision"],
+                "selected_value": None,
+                "selected_observation_id": None,
+            }
+        name = item.get("legal_name")
+        if isinstance(name, str) and ("legal_name", _fold(name)) in promoted:
+            item["legal_name"] = promoted[("legal_name", _fold(name))]
+    return summary
+
+
+def poc_view(snapshot: CaseSnapshot, digests: list[dict[str, Any]] | None) -> PocView:
+    """The external view of this case (see PocView). ``digests`` None: the digest list could
+    not be read, so no document is verified and every one is withheld."""
+
+    try:
+        approved: Manifest | None = manifest()
+    except (OSError, ValueError, KeyError, TypeError):
+        approved = None
+    documents = [_dict(document) for document in snapshot.documents]
+    by_key: dict[tuple[str, object], dict[str, Any]] = {}
+    unusable = digests is None or approved is None
+    for item in digests or []:
+        key = _document_key(_dict(item))
+        if key in by_key:
+            unusable = True  # an ambiguous digest list verifies nothing
+        by_key[key] = _dict(item)
+    kept: list[dict[str, Any]] = []
+    kept_digests: list[dict[str, Any]] = []
+    withheld: list[tuple[dict[str, Any], str | None]] = []
+    for document in documents:
+        found = None if unusable else by_key.get(_document_key(document))
+        digest = (found or {}).get("content_sha256")
+        verified = (
+            approved is not None
+            and isinstance(digest, str)
+            and bool(_SHA256.fullmatch(digest))
+            and approved.documents.get(digest)
+            == (document.get("media_type"), document.get("size_bytes"))
+        )
+        if verified and found is not None:
+            kept.append(document)
+            kept_digests.append(found)
+        else:
+            withheld.append((document, digest if isinstance(digest, str) else None))
+    if not withheld:
+        return PocView(snapshot, kept_digests, 0, frozenset())
+    keys = frozenset(_document_key(document) for document, _ in withheld)
+    values: list[Any] = [document.get("display_name") for document, _ in withheld]
+    for document, _ in withheld:
+        for field in _list(document.get("fields")):
+            data = _dict(field)
+            values += [
+                data.get(key)
+                for key in ("original_extracted_value", "normalized_value", "reviewed_value")
+            ]
+            values += [_dict(item).get("value") for item in _list(data.get("candidates"))]
+    # R4 (R3-2): lineage. Every record naming a withheld document is removed, and what it
+    # carried is upload-derived (reviewer corrections and HUMAN_REVIEW observations included).
+    # A decision that selected such an observation is upload-derived too, and so is the
+    # canonical value it promoted: replaced by the independent registry value, or withheld.
+    summary = copy.deepcopy(snapshot.summary)
+    withheld_ids = {
+        str(item.get("observation_id"))
+        for item in _walk(summary)
+        if item.get("observation_id") is not None and _names_withheld(item, keys)
+    }
+    decisions = _upload_decisions(summary, withheld_ids, approved)
+    values += [selected for _, selected, _ in decisions]
+    summary = _restore_canonical(summary, decisions)
+    removed: list[dict[str, Any]] = []
+    summary = _without(summary, keys, removed)
+    _record_values(removed, values)
+    texts = [str(value) for value in values if isinstance(value, (str, int, float, Decimal))]
+    view = replace(snapshot, documents=kept, summary=summary)
+    return PocView(
+        view,
+        kept_digests,
+        len(withheld),
+        frozenset(
+            _fold(text)
+            for text in texts
+            if len(_ALNUM.sub("", text)) >= 2 and not _NUMBER.fullmatch(text.strip())
+        ),
+        frozenset(
+            (key, version, digest)
+            for (key, version), (_, digest) in zip(
+                [_document_key(document) for document, _ in withheld], withheld, strict=True
+            )
+        ),
+        frozenset(number for text in texts for number in _numbers(text)),
+    )
+
+
+_ALNUM = re.compile(r"[\W_]+")
+_ADDRESS_KEYS = frozenset({"address_line_1", "address_line_2", "postal_code", "unit", "street"})
+
+
+def _lineage_numbers(snapshot: CaseSnapshot, verified: set[str]) -> set[Decimal]:
+    """Numbers with an authorised source lineage: the Mock registry records the view keeps
+    (entity fields, ownership parties, officers, relationships) and verified documents."""
+
+    case = _dict(snapshot.summary.get("case"))
+    found: set[Decimal] = set()
+    for source in (case.get("entity"), case.get("registry_acquisition")):
+        for item in _walk(source):
+            for key, value in item.items():
+                # Value fields only: never timestamps, ids, counts or evidence references.
+                if (
+                    isinstance(value, bool)
+                    or value is None
+                    or str(key).endswith(("_at", "_id", "_reference"))
+                    or key in ("record_count", "version", "operation", "evidence_reference")
+                ):
+                    continue
+                if isinstance(value, (int, float, Decimal)):
+                    found.add(Decimal(str(value)).normalize())
+                elif isinstance(value, str) and (
+                    _NUMBER.fullmatch(value.strip()) or key in _ADDRESS_KEYS
+                ):
+                    found |= _numbers(value)
+    for document in snapshot.documents:
+        if str(_dict(document).get("display_name") or "") not in verified:
+            continue
+        for field in _list(_dict(document).get("fields")):
+            for key in ("original_extracted_value", "normalized_value", "canonical_value"):
+                value = _dict(field).get(key)
+                if isinstance(value, str):
+                    found |= _numbers(value)
+    return found
+
+
+def withheld_present(view: PocView, messages: list[dict[str, str]], facts: dict[str, Any]) -> bool:
+    """The backstop: whether any value or number read from a withheld document is still in the
+    text of these messages, unless an authorised source lineage holds it independently (R4,
+    R3-2: the Mock registry records the view keeps, verified documents and the approved
+    companies; never a value merely because some fact happens to hold the same text).
+
+    Text values are looked for in every message but the service's fixed wording. Numbers are
+    looked for in what a person wrote (the user turn): the structured facts are built from the
+    view, where upload-derived values were removed by lineage."""
+
+    if not view.withheld_values and not view.withheld_numbers:
+        return False
+    try:
+        approved = manifest()
+    except (OSError, ValueError, KeyError, TypeError):
+        return True
+    verified = {
+        str(_dict(document).get("display_name") or "") for document in view.snapshot.documents
+    }
+    trusted = _trusted_values(view.snapshot, facts, verified, approved)
+    risky = [value for value in view.withheld_values if value not in trusted]
+    risky_numbers = view.withheld_numbers - _lineage_numbers(view.snapshot, verified)
+    for message in messages:
+        content = str(message.get("content", ""))
+        if message.get("role") == "system" and is_trusted_text(content):
+            continue
+        text = _fold(content)
+        if any(
+            re.search(r"(?<![^\W_])" + re.escape(value) + r"(?![^\W_])", text) for value in risky
+        ):
+            return True
+        if message.get("role") != "system" and risky_numbers & _numbers(content):
+            return True
+    return False
 
 
 # --- tickets: the remote model sends only messages that passed ``check`` ----------------------

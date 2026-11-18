@@ -693,8 +693,10 @@ def test_harness_run_separates_answers_from_telemetry(tmp_path: Path) -> None:
         result = run(scenarios, lambda capture: monitor, workspace=workspace, only={"P02"})
     monitor.finish()
     assert [turn.key for turn in result.turns] == ["P02#0", "P02#1"]
-    assert [row.verification for row in monitor.rows] == ["verified", "verified"]
-    assert [row.turn for row in monitor.rows] == ["P02#0@0", "P02#1@0"]
+    # D-142 R4 (R3-1): P02#1 ("What ownership percentage makes someone a UBO here?") has no
+    # supported intent, so it is answered from the case data and makes no call.
+    assert [row.verification for row in monitor.rows] == ["verified"]
+    assert [row.turn for row in monitor.rows] == ["P02#0@0"]
     answers, calls = live.write_artifacts(
         tmp_path / "out",
         run=result,
@@ -711,7 +713,7 @@ def test_harness_run_separates_answers_from_telemetry(tmp_path: Path) -> None:
     assert SENTINEL_KEY not in calls_text and SENTINEL_KEY not in answers.read_text(
         encoding="utf-8"
     )
-    assert json.loads(calls_text)["spent_usd"] == "0.001440"
+    assert json.loads(calls_text)["spent_usd"] == "0.000720"  # R4: one call, not two
     rows = [json.loads(line) for line in answers.read_text(encoding="utf-8").splitlines()]
     assert rows[0]["question"].startswith("Who are the ultimate") and len(rows) == 2
 

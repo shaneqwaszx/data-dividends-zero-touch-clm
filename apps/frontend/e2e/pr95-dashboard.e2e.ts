@@ -2,12 +2,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { classifyBrowserRequest, createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { SAMPLE_CASES, sampleCaseCount } from "../src/pages/mockDashboards/onboardingSample";
+import { SAMPLE_CASES, sampleCaseCount, sampleCaseRows } from "../src/pages/mockDashboards/onboardingSample";
 import type { AuthenticatedProfile } from "../src/types";
 
-// The Onboarding dashboard adds fixed sample cases on top of the live backend counts.
-const SAMPLE_OPEN = SAMPLE_CASES.filter(item => item.status !== "COMPLETED").length;
-const SAMPLE_AU_WEEKS = new Set(SAMPLE_CASES.filter(item => item.jurisdiction === "AU").map(item => item.weeksAgo)).size;
+// The Onboarding dashboard adds fixed sample cases on top of the live backend counts. Since PR #178
+// the sample cases follow the backend case scope: a Director sees every sample case, an onboarder
+// or relationship manager only their own team's. Expectations therefore use the signed-in profile.
+function visibleSamples(profile: AuthenticatedProfile) {
+  const rows = sampleCaseRows(profile);
+  const visible = new Set(rows.map(row => row.requested_uen));
+  expect(visible.size).toBe(rows.length);
+  return SAMPLE_CASES.filter(item => visible.has(item.registration));
+}
+
+/** Week starts (MM-DD, UTC Monday) shown by the onboarded-per-week chart, oldest first. */
+function weekLabel(weeksAgo: number): string {
+  const now = new Date();
+  const monday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - ((now.getUTCDay() + 6) % 7) * 86_400_000;
+  return new Date(monday - weeksAgo * 7 * 86_400_000).toISOString().slice(5, 10);
+}
 
 test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", async ({ page }) => {
   const violations: string[] = [];
@@ -45,7 +58,20 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await page.goto("/");
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  const signIn = page.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/login");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const signedIn = await signIn;
+  expect(signedIn.status()).toBe(200);
+  const profile = (await signedIn.json()).profile as AuthenticatedProfile;
+  const samples = visibleSamples(profile);
+  const SAMPLE_OPEN = samples.filter(item => item.status !== "COMPLETED").length;
+  const SAMPLE_AU_WEEKS = new Set(samples.filter(item => item.jurisdiction === "AU").map(item => item.weeksAgo)).size;
+  const SAMPLE_SG_TWO_WEEKS = samples.filter(item => item.status === "COMPLETED" && item.jurisdiction === "SG" && item.weeksAgo === 2).length;
+  // Independent hand count from SAMPLE_CASES for the Team A onboarder (Ethan Tan's and the viewer's
+  // sample cases): the team scope is applied, so these are smaller than the unscoped figures (12, 5, 6).
+  expect(profile.role).toBe("CLIENT_ONBOARDER");
+  expect(profile.team_id).toBe("TEAM_A");
+  expect([SAMPLE_OPEN, SAMPLE_AU_WEEKS, SAMPLE_SG_TWO_WEEKS]).toEqual([8, 3, 3]);
   // Initial 503 and network failures recover directly from the category picker.
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
   const error = page.getByRole("alert").filter({ hasText: "Dashboard data is unavailable" });
@@ -119,8 +145,12 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await page.locator(".category-card--live").click();
   await expect(page.getByRole("heading", { name: "Onboarding Dashboard" })).toBeVisible();
   await expect(page.locator(".dashboard-date-range")).toHaveValue("30d");
-  // Two weeks ago holds six fixed sample Singapore completions and no live ones.
-  const recordedSegment = page.locator('.weekly-chart-seg[title="Singapore: 6"]').first();
+  // Two weeks ago holds the team's fixed sample Singapore completions and no live ones.
+  const onboardedCard = page.locator("article").filter({ has: page.getByRole("heading", { name: "Onboarded per week", exact: true }) });
+  const weekBars = onboardedCard.locator(".weekly-chart .weekly-chart-bar");
+  await expect(weekBars).toHaveCount(8);
+  await expect(onboardedCard.locator(".weekly-chart-axis .weekly-chart-label").nth(5)).toHaveText(weekLabel(2));
+  const recordedSegment = weekBars.nth(5).locator(`.weekly-chart-seg[title="Singapore: ${SAMPLE_SG_TWO_WEEKS}"]`);
   await expect(recordedSegment).toBeVisible();
   const segmentBox = await recordedSegment.boundingBox();
   expect(segmentBox?.height).toBeGreaterThan(0);
@@ -234,10 +264,16 @@ test("PR95 R4 recent activity pages past100 real authorized events", async ({ pa
   const headers = { "X-CSRF-Token": session.csrf_token, Origin: process.env.PLAYWRIGHT_BASE_URL! };
   const priorMine = await (await page.request.get("/api/clm/zero-touch/dashboard?scope=mine&date_range=30d")).json();
   const priorTeam = await (await page.request.get("/api/clm/zero-touch/dashboard?date_range=30d")).json();
-  // The dashboard adds the fixed sample cases to both the totals and the loaded cases.
-  const signedIn = { user_id: "maya-lim" } as AuthenticatedProfile;
+  // The dashboard adds the fixed sample cases to both the totals and the loaded cases. Since PR #178
+  // the sample scope depends on the signed-in role and team, so the real session profile is used.
+  const signedIn = session.profile as AuthenticatedProfile;
+  expect(signedIn.user_id).toBe("maya-lim");
+  expect(signedIn.team_id).toBe("TEAM_A");
   const sampleMine = sampleCaseCount("mine", signedIn);
   const sampleTeam = sampleCaseCount("team", signedIn);
+  // Independent hand count from SAMPLE_CASES: 9 viewer-owned cases are the user's own; with Ethan
+  // Tan's 19 they are the 28 Team A sample cases (all 46 would be a Director's view).
+  expect([sampleMine, sampleTeam]).toEqual([9, 28]);
   const expectedMineTotal = priorMine.totals.total_cases + 205 + sampleMine;
   const expectedTeamTotal = priorTeam.totals.total_cases + 205 + sampleTeam;
   // Genuine local test-mode case creation; no provider start or mocked API replies.
