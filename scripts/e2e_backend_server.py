@@ -105,6 +105,11 @@ def main() -> int:
     system_environment = {
         key: os.environ[key] for key in _SYSTEM_ENV_KEYS if key in os.environ
     }
+    # ADR-018 M3 browser spec only: the conditional-applicability gate stays off (the
+    # product default) unless this isolated run passes it explicitly.
+    conditional_applicability = (
+        os.environ.get("CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED") == "true"
+    )
     os.environ.clear()
     os.environ.update(system_environment)
     # Pin child workers (the local document worker) to this checkout's backend.
@@ -127,6 +132,11 @@ def main() -> int:
                     "CLM_E2E_BACKEND_PORT": str(port),
                 }
                 if diagnostics_enabled
+                else {}
+            ),
+            **(
+                {"CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED": "true"}
+                if conditional_applicability
                 else {}
             ),
         }

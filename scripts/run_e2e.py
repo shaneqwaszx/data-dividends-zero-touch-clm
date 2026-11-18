@@ -576,6 +576,7 @@ def run(
     recovery_demo: str | None = None,
     sandbox_demo: str | None = None,
     outcome: dict[str, object] | None = None,
+    workflow_conditional: bool = False,
 ) -> int:
     # Optional caller-owned record of the result kind and phase durations.
     record: dict[str, object] = {} if outcome is None else outcome
@@ -638,6 +639,12 @@ def run(
         "CLM_E2E_FRONTEND_ORIGIN": frontend_origin,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
         **({"CLM_E2E_GARDEN_PROTOCOL": "1"} if garden_protocol else {}),
+        # ADR-018 M3 browser spec only; the product default (off) holds for every other run.
+        **(
+            {"CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED": "true"}
+            if workflow_conditional
+            else {}
+        ),
         **({"CLM_E2E_REGISTRY_DEMO": registry_demo} if registry_demo else {}),
         **({"CLM_E2E_RECOVERY_DEMO": recovery_demo} if recovery_demo else {}),
         **({"CLM_E2E_SANDBOX_DEMO": sandbox_demo} if sandbox_demo else {}),
@@ -663,6 +670,12 @@ def run(
         # use this runner's own interpreter, on Windows and POSIX alike.
         "CLM_E2E_PYTHON": sys.executable,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
+        # The M3 spec skips itself unless its backend has the gate on.
+        **(
+            {"CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED": "true"}
+            if workflow_conditional
+            else {}
+        ),
     }
 
     processes: list[OwnedProcess] = []
@@ -1184,6 +1197,11 @@ def main(argv: Sequence[str] | None = None) -> int:
               "in isolated lifecycles."),
     )
     parser.add_argument(
+        "--workflow-conditional", action="store_true",
+        help=("Turn on the ADR-018 conditional-applicability gate for this focused --grep "
+              "run only (the M3 workflow governance spec)."),
+    )
+    parser.add_argument(
         "--results-json", type=Path,
         help="Write per-lifecycle structured results to this new file.",
     )
@@ -1208,6 +1226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--garden-protocol requires a focused --grep selection")
     if not 30 <= args.timeout_seconds <= 900:
         parser.error("--timeout-seconds must be between 30 and 900")
+    if args.workflow_conditional and not args.grep:
+        parser.error("--workflow-conditional requires a focused --grep selection")
     if args.grep:
         return run(
             backend_port=args.backend_port,
@@ -1220,6 +1240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             registry_demo=args.registry_demo,
             recovery_demo=args.recovery_demo,
             sandbox_demo=args.sandbox_demo,
+            workflow_conditional=args.workflow_conditional,
         )
     return run_isolated_suite(
         backend_port=args.backend_port,
