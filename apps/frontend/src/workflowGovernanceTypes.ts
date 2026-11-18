@@ -11,14 +11,11 @@ export type ProposalOrigin = "GOVERNED" | "PRE_GOVERNANCE_DRAFT";
 export type VersionOrigin = "GOVERNED_APPROVAL" | "PRE_GOVERNANCE_DIRECTOR_ACTIVATION" | "EMERGENCY_FALLBACK";
 export type DecisionOutcome = "APPROVE" | "REJECT";
 export type RatchetRule = "RR-1" | "RR-2" | "RR-3" | "RR-4" | "RR-5" | "RR-6" | "RR-7" | "RR-8" | "RR-9" | "RR-10";
-export type PermanentObligationChange = "NEW_REQUIRED_STAGE" | "NEW_REQUIRED_FIELD" | "TIGHTENED";
-/**
- * CC-8 (ADR-018 §4.4): the backend also sends "APPLICABILITY_BROADENED". It joins
- * PermanentObligationChange in the same PR that adds its label to WorkflowCompare.tsx (WS-D),
- * whose exhaustive Record<PermanentObligationChange, string> would otherwise stop compiling.
- */
+/** CC-8 (ADR-018 §4.4): APPLICABILITY_BROADENED joined with its WorkflowCompare.tsx label (M3-E). */
 export const APPLICABILITY_BROADENED = "APPLICABILITY_BROADENED";
-export type PermanentObligationChangeM3 = PermanentObligationChange | typeof APPLICABILITY_BROADENED;
+export type PermanentObligationChange = "NEW_REQUIRED_STAGE" | "NEW_REQUIRED_FIELD" | "TIGHTENED" | typeof APPLICABILITY_BROADENED;
+/** Kept as an alias for code written against the CC-8 export; identical to PermanentObligationChange. */
+export type PermanentObligationChangeM3 = PermanentObligationChange;
 export type DiffChange = "ADDED" | "REMOVED" | "CHANGED" | "UNCHANGED";
 
 export const GOVERNANCE_ERROR_CODES = [
