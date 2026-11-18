@@ -1,5 +1,5 @@
 import { API_BASE_URL, ApiError, authenticatedFetch, parseResponse } from "./api";
-import type { WorkflowGovernanceView } from "./workflowGovernanceTypes";
+import type { ConditionalLegalForm, RunApplicabilityView, WorkflowGovernanceView } from "./workflowGovernanceTypes";
 
 export type WorkflowCaseSource = "EXISTING_CASE" | "NEW_CASE";
 
@@ -14,6 +14,8 @@ export interface WorkflowField {
   autofill: boolean;
   document_label: string | null;
   case_data_key?: string | null;
+  /** ADR-018 (CC-8): absent means All entities; otherwise a sorted, non-empty legal-form set. */
+  applies_to?: ConditionalLegalForm[];
 }
 
 export interface WorkflowStage {
@@ -21,6 +23,8 @@ export interface WorkflowStage {
   name: string;
   fields: WorkflowField[];
   after_node_id: string | null;
+  /** ADR-018 (CC-8): absent means All entities; otherwise a sorted, non-empty legal-form set. */
+  applies_to?: ConditionalLegalForm[];
 }
 
 export interface WorkflowDetail {
@@ -75,6 +79,8 @@ export interface WorkflowRun {
   is_onboarding: boolean;
   is_complete: boolean;
   stages: WorkflowRunStage[];
+  /** ADR-018 (CC-8): the run's applicability basis; absent or null when none is recorded. */
+  applicability?: RunApplicabilityView | null;
 }
 
 export interface StartableWorkflow {

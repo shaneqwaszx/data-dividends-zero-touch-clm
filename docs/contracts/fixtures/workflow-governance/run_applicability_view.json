@@ -1,0 +1,16 @@
+{
+  "conflict": {
+    "detected_at": "2026-11-17T09:30:00Z",
+    "escalated": true,
+    "escalated_at": "2026-11-17T10:00:00Z",
+    "escalated_by": "rm-synthetic-1",
+    "observed_legal_form": "LP",
+    "observed_status": "REGISTRY_BOUND"
+  },
+  "effective_legal_form": null,
+  "frozen": true,
+  "legal_form": "LLP",
+  "reason": "REGISTRY_BINDING",
+  "source_environment": "MOCK",
+  "status": "REGISTRY_BOUND"
+}

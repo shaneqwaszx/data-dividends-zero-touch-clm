@@ -26,6 +26,7 @@ from app.api_workflow_governance_models import (
     GovernanceErrorBody,
     ProposalResponse,
     PublicationReport,
+    RunApplicabilityView,
     SimulatedStep,
     SimulationOutcome,
     SimulationResult,
@@ -35,6 +36,8 @@ from app.api_workflow_governance_models import (
     ValidationReport,
     WorkflowGovernanceView,
 )
+from app.domain.models import SourceEnvironment
+from app.domain.registry_legal_form import ConditionalLegalForm
 from app.domain.workflow_governance import (
     LEGACY_VERSION_NOTE,
     MAX_ENCODED_VERSION_BYTES,
@@ -57,8 +60,16 @@ from app.domain.workflow_governance import (
 from app.domain.workflows import (
     ONBOARDING_LOCKED_STAGES,
     ONBOARDING_WORKFLOW_ID,
+    ApplicabilityBasis,
+    ApplicabilityBasisReason,
+    ApplicabilityBasisStatus,
+    BasisConflict,
+    BindingRef,
+    RunItemKey,
+    WorkflowCompany,
     WorkflowField,
     WorkflowFieldKind,
+    WorkflowRun,
     WorkflowStage,
     WorkflowVersion,
 )
@@ -94,6 +105,25 @@ SANCTIONS = WorkflowStage(
         ),
     ),
 )
+# ADR-018 (CC-8): a conditional stage, anchored after the registry stage (B2).
+PARTNERSHIP_AGREEMENT = WorkflowStage(
+    stage_id="partnership-agreement",
+    name="Partnership agreement",
+    after_node_id="DOCUMENT_IDP",
+    applies_to=(ConditionalLegalForm.LP, ConditionalLegalForm.LLP),  # stored sorted
+    fields=(
+        WorkflowField(
+            field_id="agreement-date", label="Agreement date", kind=WorkflowFieldKind.DATE
+        ),
+        WorkflowField(
+            field_id="general-partner",
+            label="General partner",
+            kind=WorkflowFieldKind.TEXT,
+            applies_to=(ConditionalLegalForm.LP,),
+        ),
+    ),
+)
+BINDING = BindingRef(cache_id="a" * 64, cache_revision=1, bound_to_case_at=T0)
 ACTIVE = WorkflowVersion(
     version=1, stages=(), activated_at=T0, activated_by="director-legacy-1"
 )
@@ -178,8 +208,53 @@ VALID = ValidationReport(
 )
 
 
+def _conditional_run() -> WorkflowRun:
+    """A synthetic onboarding run frozen REGISTRY_BOUND (Mock) as LLP, then escalated."""
+
+    return WorkflowRun(
+        run_id="5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        company=WorkflowCompany(
+            legal_name="Synthetic Partners LLP",
+            registration_id="T00LL0000A",
+            team_id="team-synthetic-1",
+        ),
+        workflow_id="synthetic-conditional",
+        workflow_name="Synthetic conditional workflow",
+        use_case="Onboarding",
+        workflow_version=2,
+        stages=(PARTNERSHIP_AGREEMENT,),
+        created_at=T0,
+        updated_at=T2,
+        applicability_basis=ApplicabilityBasis(
+            legal_form=ConditionalLegalForm.LLP,
+            status=ApplicabilityBasisStatus.REGISTRY_BOUND,
+            reason=ApplicabilityBasisReason.REGISTRY_BINDING,
+            source_environment=SourceEnvironment.MOCK,
+            evaluated_at=T0,
+            evaluated_from_version=2,
+            frozen=True,
+            binding_ref=BINDING,
+        ),
+        basis_conflict=BasisConflict(
+            detected_at=T1,
+            observed_status=ApplicabilityBasisStatus.REGISTRY_BOUND,
+            observed_legal_form=ConditionalLegalForm.LP,
+            binding_ref=BindingRef(cache_id="b" * 64, cache_revision=2, bound_to_case_at=T1),
+            escalated_by="rm-synthetic-1",
+            escalated_at=T2,
+            escalation_reason="Registry re-check returned a different legal form.",
+        ),
+        ever_touched=(RunItemKey(stage_id="partnership-agreement", field_id="agreement-date"),),
+    )
+
+
 def fixtures() -> dict[str, object]:
     draft = _proposal(ProposalState.DRAFT)
+    conditional_draft = _proposal(
+        ProposalState.DRAFT,
+        stages=(PARTNERSHIP_AGREEMENT,),
+        note="Add a partnership agreement step for LLPs and LPs.",
+    )
     pending = _proposal(
         ProposalState.PENDING_APPROVAL, submitted_at=T1, content_hash=HASH
     )
@@ -221,6 +296,11 @@ def fixtures() -> dict[str, object]:
             draft, can_edit=True, can_submit=True, can_withdraw=True
         ),
         "proposal_pending_director_view.json": _response(pending, can_decide=True),
+        # CC-8 (ADR-018): conditional content and the run applicability view.
+        "proposal_conditional_draft.json": _response(
+            conditional_draft, can_edit=True, can_submit=True, can_withdraw=True
+        ),
+        "run_applicability_view.json": RunApplicabilityView.from_run(_conditional_run()),
         "validation_report_valid.json": VALID,
         "validation_report_refused.json": refused,
         "simulation_scenarios.json": (scenario,),

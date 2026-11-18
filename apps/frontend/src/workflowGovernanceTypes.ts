@@ -12,6 +12,13 @@ export type VersionOrigin = "GOVERNED_APPROVAL" | "PRE_GOVERNANCE_DIRECTOR_ACTIV
 export type DecisionOutcome = "APPROVE" | "REJECT";
 export type RatchetRule = "RR-1" | "RR-2" | "RR-3" | "RR-4" | "RR-5" | "RR-6" | "RR-7" | "RR-8" | "RR-9" | "RR-10";
 export type PermanentObligationChange = "NEW_REQUIRED_STAGE" | "NEW_REQUIRED_FIELD" | "TIGHTENED";
+/**
+ * CC-8 (ADR-018 §4.4): the backend also sends "APPLICABILITY_BROADENED". It joins
+ * PermanentObligationChange in the same PR that adds its label to WorkflowCompare.tsx (WS-D),
+ * whose exhaustive Record<PermanentObligationChange, string> would otherwise stop compiling.
+ */
+export const APPLICABILITY_BROADENED = "APPLICABILITY_BROADENED";
+export type PermanentObligationChangeM3 = PermanentObligationChange | typeof APPLICABILITY_BROADENED;
 export type DiffChange = "ADDED" | "REMOVED" | "CHANGED" | "UNCHANGED";
 
 export const GOVERNANCE_ERROR_CODES = [
@@ -218,7 +225,7 @@ export interface SimulationScenario {
   scenario_id: string;
   label: string;
   description: string;
-  legal_form: string;
+  legal_form: SimulationLegalForm;
   synthetic: true;
 }
 
@@ -394,3 +401,55 @@ export interface NoticeListResponse { items: NoticeItem[] }
 export interface AcknowledgeNoticeRequest { workflow_id: string; expected_workflow_revision: number }
 
 export const DRAFT_RELEASE_AFTER_DAYS = 14;
+
+// --- M3 (ADR-018, contract CC-8): conditional, add-only applicability ---
+
+/** The selectable legal forms: the backend RegistryLegalForm without OTHER (B5). */
+export const CONDITIONAL_LEGAL_FORMS = ["BUSINESS_PARTNERSHIP", "COMPANY", "GOVERNMENT", "LLP", "LP"] as const;
+export type ConditionalLegalForm = (typeof CONDITIONAL_LEGAL_FORMS)[number];
+export type SimulationLegalForm = ConditionalLegalForm | "UNVERIFIED" | "OTHER";
+
+/** Onboarding anchors at which conditional content is allowed (B2). */
+export const CONDITIONAL_ONBOARDING_ANCHORS = [
+  "ACRA_REGISTRY",
+  "DOCUMENT_IDP",
+  "RECONCILIATION",
+  "OWNERSHIP_UBO",
+  "ADVISORY",
+  "GOLDTIER_DETAILS",
+] as const;
+
+/** A send hold, not a governance error code (ADR-018 §6). */
+export const HOLD_APPLICABILITY_BASIS_CONFLICT = "WORKFLOW_APPLICABILITY_BASIS_CONFLICT";
+
+export type ApplicabilityBasisStatus = "REGISTRY_BOUND" | "UNVERIFIED";
+export type ApplicabilityBasisReason =
+  | "REGISTRY_BINDING" | "NO_ENTITY" | "NO_BINDING" | "OTHER_FORM" | "CONFLICTING_CLASSIFICATION"
+  | "AMBIGUOUS_BINDING" | "TOO_LATE_TO_NARROW" | "NO_CASE_RECORD" | "READ_FAILED";
+export type SourceEnvironment = "MOCK" | "SANDBOX";
+
+export interface RunBasisConflictView {
+  detected_at: string;
+  observed_status: ApplicabilityBasisStatus;
+  observed_legal_form: ConditionalLegalForm | null;
+  escalated: boolean;
+  escalated_by: string | null;
+  escalated_at: string | null;
+}
+
+export interface RunApplicabilityView {
+  status: ApplicabilityBasisStatus;
+  legal_form: ConditionalLegalForm | null;
+  reason: ApplicabilityBasisReason;
+  source_environment: SourceEnvironment | null;
+  frozen: boolean;
+  /** The effective basis: null means every conditional step applies. */
+  effective_legal_form: ConditionalLegalForm | null;
+  conflict: RunBasisConflictView | null;
+}
+
+export const RUN_APPLICABILITY_VIEW_KEYS = [
+  "status", "legal_form", "reason", "source_environment", "frozen", "effective_legal_form", "conflict",
+] as const;
+
+export interface ApplicabilityEscalationRequest { run_id: string; expected_revision: number; reason: string }

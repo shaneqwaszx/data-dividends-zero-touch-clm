@@ -16,6 +16,9 @@ M1 (Director, ``POLICY_APPROVE``):
     POST /api/workflows/{wid}/proposals/{pid}/decision        DecisionRequest
 M1 (HR and Director, read-only): GET /api/workflows/{wid} adds ``governance``.
 Retired: POST …/activate (PR-4), PUT …/draft (PR-5); both return 410 WORKFLOW_ROUTE_RETIRED.
+M3 (ADR-018, CC-8; onboarding filler role, reauthorized inside the case lock):
+    POST /api/clm/cases/{id}/workflow/applicability-escalation  ApplicabilityEscalationRequest
+Run views add ``applicability`` (RunApplicabilityView).
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.models import SourceEnvironment
+from app.domain.registry_legal_form import ConditionalLegalForm
 from app.domain.workflow_governance import (
     DecisionOutcome,
     DecisionReason,
@@ -40,7 +45,14 @@ from app.domain.workflow_governance import (
     VersionProvenance,
     WorkflowProposal,
 )
-from app.domain.workflows import WorkflowField, WorkflowStage, WorkflowVersion
+from app.domain.workflows import (
+    ApplicabilityBasisReason,
+    ApplicabilityBasisStatus,
+    WorkflowField,
+    WorkflowRun,
+    WorkflowStage,
+    WorkflowVersion,
+)
 
 
 class _Contract(BaseModel):
@@ -126,11 +138,17 @@ class ValidationReport(_Contract):
     permanent_obligations: tuple[PermanentObligation, ...] = ()
 
 
+# ADR-018 §7 (CC-8): a selectable legal form, or the two fail-closed scenarios.
+SimulationLegalForm = Literal[
+    "COMPANY", "BUSINESS_PARTNERSHIP", "LLP", "LP", "GOVERNMENT", "UNVERIFIED", "OTHER"
+]
+
+
 class SimulationScenario(_Contract):
     scenario_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
     label: str = Field(max_length=80)
     description: str = Field(max_length=240)
-    legal_form: str = Field(max_length=64)  # synthetic RegistryLegalForm label only
+    legal_form: SimulationLegalForm  # synthetic only; typed by CC-8
     synthetic: Literal[True] = True
 
 
@@ -440,3 +458,63 @@ class NoticeListResponse(_Contract):
 class AcknowledgeNoticeRequest(_Contract):
     workflow_id: str = Field(min_length=1, max_length=64)
     expected_workflow_revision: int = Field(ge=1)
+
+
+# --- M3 (ADR-018, CC-8): run applicability ---
+
+
+class RunBasisConflictView(_Contract):
+    """Operator view of a basis conflict; safe values only, never source text."""
+
+    detected_at: datetime
+    observed_status: ApplicabilityBasisStatus
+    observed_legal_form: ConditionalLegalForm | None
+    escalated: bool
+    escalated_by: str | None
+    escalated_at: datetime | None
+
+
+class RunApplicabilityView(_Contract):
+    """ADR-018 §3.3/§5: what a run's stage copy was resolved with (always with environment)."""
+
+    status: ApplicabilityBasisStatus
+    legal_form: ConditionalLegalForm | None
+    reason: ApplicabilityBasisReason
+    source_environment: SourceEnvironment | None
+    frozen: bool
+    # The effective basis (§3.3): None means every conditional step applies.
+    effective_legal_form: ConditionalLegalForm | None
+    conflict: RunBasisConflictView | None = None
+
+    @classmethod
+    def from_run(cls, run: WorkflowRun) -> RunApplicabilityView | None:
+        basis = run.applicability_basis
+        if basis is None:
+            return None
+        conflict = run.basis_conflict
+        return cls(
+            status=basis.status,
+            legal_form=basis.legal_form,
+            reason=basis.reason,
+            source_environment=basis.source_environment,
+            frozen=basis.frozen,
+            effective_legal_form=run.effective_legal_form,
+            conflict=None
+            if conflict is None
+            else RunBasisConflictView(
+                detected_at=conflict.detected_at,
+                observed_status=conflict.observed_status,
+                observed_legal_form=conflict.observed_legal_form,
+                escalated=conflict.escalated,
+                escalated_by=conflict.escalated_by,
+                escalated_at=conflict.escalated_at,
+            ),
+        )
+
+
+class ApplicabilityEscalationRequest(_Contract):
+    """ADR-018 §3.5 F6: "Apply all conditional steps" (add-only, audited)."""
+
+    run_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    expected_revision: int = Field(ge=0)
+    reason: DecisionReason

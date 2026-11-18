@@ -22,9 +22,22 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
-from app.domain.workflows import WorkflowField, WorkflowFieldKind, WorkflowStage
+from app.domain.workflows import (
+    AppliesTo,
+    WorkflowField,
+    WorkflowFieldKind,
+    WorkflowStage,
+    canonical_applies_to,
+)
 
 # --- Reserved top-level field names (P2-0 tools already refuse documents carrying them) ---
 
@@ -82,6 +95,37 @@ PERMANENT_OBLIGATION_WARNING = (
 LEGACY_VERSION_NOTE = (
     "Activated by a Director before approval governance; not independently approved."
 )
+
+# --- ADR-018 (M3, contract CC-8): conditional, add-only applicability ---
+
+# Enablement gate (ADR-018 §9, B7). Until it is on, any proposal carrying ``applies_to`` is
+# refused with WORKFLOW_PROPOSAL_INVALID and CONDITIONAL_NOT_ENABLED_ISSUE. Default OFF.
+CONDITIONAL_APPLICABILITY_ENABLED_ENV = "CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED"
+CONDITIONAL_APPLICABILITY_ENABLED_DEFAULT = False
+# Structure issues (code WORKFLOW_PROPOSAL_INVALID; no new error code).
+CONDITIONAL_NOT_ENABLED_ISSUE = "Conditional content is not enabled."
+CONDITIONAL_BEFORE_REGISTRY_ISSUE = (
+    "Conditional steps are available only from Registry verification onwards."
+)
+CONDITIONAL_FULL_SET_ISSUE = "A condition naming every legal form must be All entities."
+CONDITIONAL_FIELD_OUTSIDE_STAGE_ISSUE = (
+    "A field's legal forms must be within its step's legal forms."
+)
+CONDITIONAL_OPTIONAL_TO_REQUIRED_ISSUE = (
+    "An optional step for all entities cannot become conditional and required; "
+    "add a new conditional required field instead."
+)
+CONDITIONAL_NON_ONBOARDING_MINIMUM_ISSUE = (
+    "A workflow keeps at least one step for all entities with a field for all entities."
+)
+# Send hold (ADR-018 §6). Not a GovernanceErrorCode: it is a send-check hold, like
+# WORKFLOW_STAGE_INCOMPLETE, returned by the send check and D1 only.
+HOLD_APPLICABILITY_BASIS_CONFLICT = "WORKFLOW_APPLICABILITY_BASIS_CONFLICT"
+# Case event ``code`` strings (ADR-018 §3.5 F6). Appended through the onboarding owner with
+# ``stage = case.state`` and an existing EventOutcome. No WorkflowState or EventOutcome value is
+# ever added for them (forbidden).
+CASE_EVENT_APPLICABILITY_BASIS_CONFLICT = "WORKFLOW_APPLICABILITY_BASIS_CONFLICT"
+CASE_EVENT_APPLICABILITY_ESCALATED = "WORKFLOW_APPLICABILITY_ESCALATED"
 
 
 class GovernanceErrorCode(StrEnum):
@@ -141,7 +185,7 @@ class RatchetRule(StrEnum):
     RR_5 = "RR-5"  # required field normalised label changed
     RR_6 = "RR-6"  # required CHOICE offers an option outside the baseline intersection
     RR_7 = "RR-7"  # required field gained a case_data_key
-    RR_8 = "RR-8"  # applicability narrowed (M3; inert until ADR-018)
+    RR_8 = "RR-8"  # applicability narrowed, or ALL made conditional (ADR-018 §4.1, active)
     RR_9 = "RR-9"  # code-owned mandatory stage or engine order changed
     RR_10 = "RR-10"  # required stage normalised name changed
 
@@ -200,6 +244,8 @@ class PermanentObligationChange(StrEnum):
     NEW_REQUIRED_FIELD = "NEW_REQUIRED_FIELD"
     # optional -> required, CHOICE options narrowed, or a case_data_key dropped (CC-2)
     TIGHTENED = "TIGHTENED"
+    # ADR-018 §4.4 (CC-8): a required obligation's applicability broadened
+    APPLICABILITY_BROADENED = "APPLICABILITY_BROADENED"
 
 
 class GovernanceEventKind(StrEnum):
@@ -300,8 +346,14 @@ class FieldSignature(_Frozen):
     # The baseline intersection for CHOICE (sorted, normalised); None for other kinds.
     choice_options: tuple[str, ...] | None = None
     has_case_data_key: bool
-    # Reserved for ADR-018 (M3). Always None until then; RR-8 is inert.
-    applicability: None = None
+    # ADR-018 §2.3 (CC-8): the field's effective applicability (stage ∩ field); None = ALL.
+    # Kept in dumps as null, so every stored M1/M2 baseline encodes byte-identically.
+    applicability: AppliesTo | None = None
+
+    @field_validator("applicability", mode="after")
+    @classmethod
+    def _canonical(cls, value: AppliesTo | None) -> AppliesTo | None:
+        return canonical_applies_to(value)
 
 
 class BaselineField(_Frozen):
@@ -318,6 +370,16 @@ class BaselineStage(_Frozen):
     fields: tuple[BaselineField, ...] = Field(min_length=1)
     first_published_version: int = Field(ge=1)
     last_published_version: int = Field(ge=1)
+    # ADR-018 §2.3 (CC-8): the stage's own broadest applies_to; None = ALL. Left out of dumps
+    # while None, so M1/M2 baselines are unchanged and pre-M3 readers still decode them.
+    applicability: AppliesTo | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @field_validator("applicability", mode="after")
+    @classmethod
+    def _canonical(cls, value: AppliesTo | None) -> AppliesTo | None:
+        return canonical_applies_to(value)
 
 
 class RequiredBaseline(_Frozen):
