@@ -171,6 +171,10 @@ test("Phase24 entered UEN choice resolves current identity conflict without sile
   const registryNode = projected.processing_pipeline.find((node: any) => node.node_id === "ACRA_REGISTRY");
   expect(registryNode.status).toBe("COMPLETE");
   await expect(page.locator('.ds-stage[data-node-id="ACRA_REGISTRY"]')).toHaveAttribute("data-status", registryNode.status);
+  // OPQ S2 (A3): the backend verdict marks the Registry stage for the Document-owned UEN issue.
+  expect(registryNode.presentation.state).toBe("ACTION_REQUIRED");
+  expect(registryNode.presentation.reason_code).toBe("IDENTITY_CONFIRMATION_REQUIRED");
+  await expect(page.locator('.ds-stage[data-node-id="ACRA_REGISTRY"]')).toHaveAttribute("data-presentation-state", "ACTION_REQUIRED");
   const corrected = await chooseConflict(page, caseId, "Entered UEN");
   expect(corrected.case.requested_uen).toBe("202400001A");
   expect(corrected.case.identity_corrections.at(-1).choice).toBe("ENTERED");
