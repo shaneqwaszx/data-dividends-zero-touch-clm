@@ -81,6 +81,9 @@ import {
   processingNodeFocusTarget,
   ProcessingBlockerPanels,
   RegistryStatePanel,
+  ownershipHeaderText,
+  registryHeaderText,
+  stagePresentationNote,
 } from "./CaseStatePanels";
 import { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl from "./PriorityControl";
@@ -106,7 +109,7 @@ import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import type { UploadRejection } from "../uploadRejection";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
-import { ADVISED_STAGE_SUMMARY, isWaitingForEarlierSteps } from "../stageDisplay";
+import { isWaitingForEarlierSteps, presentationIssueCount } from "../stageDisplay";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   identity: "case-identity-correction",
@@ -1361,18 +1364,18 @@ export default function CaseDetail({
   const governmentBasis = summary.entity_type_basis?.entity_type === "GOVERNMENT" ? summary.entity_type_basis : null;
   const partnershipPendingLabel = summary.entity_type_basis?.partnership_state === "AWAITING_RM_CONFIRMATION" ? summary.entity_type_basis.label : null;
   // D-141: complete for readiness, but the D-121 advisory review is still open.
-  const ownershipStageAdvised = stageStatusFor(summary, ["OWNERSHIP_UBO"])?.tone === "advised";
-  const ownershipHeaderStatus = ownershipStageAdvised
-    ? ADVISED_STAGE_SUMMARY
-    : ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
-    ? "Ownership calculated — POC basis accepted."
-    : ownership
-    ? "Ownership: " + ownership.state.replaceAll("_", " ") + ". " + (stageNeedsAttention(["OWNERSHIP"]) || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0 ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.")
-    : confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response."
-      : "Ownership analysis not confirmed.";
+  // OPQ S2: with a backend verdict the header text follows only that verdict (as the chip);
+  // without one the legacy text is unchanged.
+  const ownershipHeaderStatus = ownershipHeaderText(summary, ownership, {
+    legacyNeedsAttention: stageNeedsAttention(["OWNERSHIP"]), confirmedOwnershipEmpty,
+  });
+  // OPQ S2 (A3): Registry verification links the Document-owned UEN issue while it is open.
+  const registryVerdict = stagePresentationNote(summary, "ACRA_REGISTRY");
+  const registryHeaderStatus = registryHeaderText(summary, stageNeedsAttention(["REGISTRY"]));
   const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
     ? targetStatusCheck : null;
-  const remainingIssueCount = summary.active_exceptions.filter(
+  // OPQ S2: each owned exception id once when the backend verdicts are present (linked ids not counted).
+  const remainingIssueCount = presentationIssueCount(summary) ?? summary.active_exceptions.filter(
     (item) => item.exception_type !== "TARGET_CONFIRMATION_REQUIRED",
   ).length + (summary.technical_failure ? 1 : 0);
   const documentUenCandidates = documents.filter((item) => !item.superseded_by_document_id).flatMap((item) => {
@@ -1541,9 +1544,18 @@ export default function CaseDetail({
         />
         </div>
         {workflowStagesAfter("GOLDTIER_SEARCH")}
-        <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} active={identityConflict || undefined} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+        <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} active={identityConflict || undefined} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${registryHeaderStatus}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
+            {registryVerdict.state === "ACTION_REQUIRED" && registryVerdict.linkedTo.map(owner => {
+              const linkedIds = (summary.processing_pipeline ?? []).find(node => node.node_id === "ACRA_REGISTRY")?.presentation?.linked_exception_ids ?? [];
+              const exception = summary.active_exceptions.find(item => linkedIds.includes(item.exception_id)
+                && owner.presentation?.owned_exception_ids.includes(item.exception_id));
+              return <p key={owner.node_id} className="control-help stage-linked-issue">
+                Linked issue — owned and counted in {owner.label}.{exception && <> <button type="button" className="btn btn-ghost"
+                  onClick={() => focusAttention({ kind: "exception", exception })}>Open linked issue</button></>}
+              </p>;
+            })}
             <UenRouteNote route={summary.case.uen_route} />
             {!identityInSearch && identityEditor}
             <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />

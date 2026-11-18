@@ -1,5 +1,8 @@
 import { withWorkflowStages, workflowStageElementId } from "../workflowPipeline";
-import { ADVISED_STAGE_LABEL, isAdvisoryReview, isWaitingForEarlierSteps, WAITING_STAGE_LABEL } from "../stageDisplay";
+import {
+  ADVISED_STAGE_LABEL, ADVISED_STAGE_SUMMARY, exceptionOwnerNode, isAdvisoryReview, isWaitingForEarlierSteps, presentationDisplay,
+  presentationIssueCount, stagePresentation, WAITING_STAGE_LABEL, type RailState,
+} from "../stageDisplay";
 import type { WorkflowRun } from "../workflowApi";
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -13,6 +16,7 @@ import type {
   ProcessingNode,
   ProcessingNodeStatus,
   SimulationProfile,
+  StagePresentationState,
   ZeroTouchCaseSummary,
 } from "../types";
 
@@ -53,8 +57,6 @@ function progressStateLabel(state: RegistryProgressState): string {
   return state.replaceAll("_", " ").toLowerCase();
 }
 
-type RailState = "done" | "now" | "attention" | "advised" | "";
-
 function pipelineRailState(status: ProcessingNodeStatus): Exclude<RailState, "advised"> {
   if (status === "COMPLETE" || status === "EMPTY" || status === "SKIPPED") return "done";
   if (status === "IN_PROGRESS") return "now";
@@ -66,7 +68,28 @@ function pipelineRailState(status: ProcessingNodeStatus): Exclude<RailState, "ad
  * Presentation of one backend stage: a BLOCKED stage that is only waiting for earlier steps is neutral.
  * D-141: a stage complete only because its ownership review is advisory (D-121) is amber "Review advised".
  */
-function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary): { waiting: boolean; advised: boolean; label: string; rail: RailState } {
+interface MemberDisplay {
+  waiting: boolean; advised: boolean; label: string; rail: RailState; symbol: string;
+  /** OPQ S2: backend reason line, only with a backend verdict. */
+  note?: string;
+  /** OPQ S2: true when the backend verdict drives this display; false keeps the legacy rendering. */
+  fromPresentation: boolean;
+  countsAsDone: boolean;
+}
+
+/**
+ * OPQ S2: a backend presentation verdict, when present, is rendered as given (shared mapping in
+ * stageDisplay.ts). Without one, the legacy display below is unchanged.
+ */
+function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary): MemberDisplay {
+  const presentation = stagePresentation(member);
+  if (presentation) {
+    const display = presentationDisplay(presentation);
+    return {
+      waiting: display.waiting, advised: display.advised, label: display.label, rail: display.rail,
+      symbol: display.symbol, note: display.note, fromPresentation: true, countsAsDone: presentation.counts_as_done,
+    };
+  }
   const waiting = summary ? isWaitingForEarlierSteps(member, summary) : false;
   const advised = !waiting && isAdvisoryReview(member);
   return {
@@ -74,7 +97,115 @@ function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary): 
     advised,
     label: waiting ? WAITING_STAGE_LABEL : advised ? ADVISED_STAGE_LABEL : PROGRESS_STATUS_LABELS[member.status],
     rail: waiting ? "" : advised ? "advised" : pipelineRailState(member.status),
+    symbol: waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : advised ? PROGRESS_STATUS_SYMBOLS.REVIEW_REQUIRED : PROGRESS_STATUS_SYMBOLS[member.status],
+    fromPresentation: false,
+    countsAsDone: member.status === "COMPLETE" || member.status === "EMPTY" || member.status === "SKIPPED",
   };
+}
+
+/** True when every backend stage behind a step carries a backend verdict. */
+function stepFromPresentation(node: ProcessingNode, members: ProcessingNode[]): boolean {
+  return members.length > 0 && members.every(member => stagePresentation(member) !== null)
+    && (members.length > 1 || members[0] === node);
+}
+
+/** The member a grouped step is summarised by, from the verdicts (attention first, as the rail). */
+function presentationLead(members: ProcessingNode[]): ProcessingNode {
+  const rails = members.map(member => presentationDisplay(stagePresentation(member)!).rail);
+  for (const rail of ["attention", "advised", "now", ""] as const) {
+    const index = rails.indexOf(rail);
+    if (index >= 0) return members[index];
+  }
+  return members[0];
+}
+
+/** OPQ S2: a step counts as done only when every verdict behind it counts as done (A1). */
+function stepCountsAsDone(node: ProcessingNode, members: ProcessingNode[]): boolean {
+  if (stepFromPresentation(node, members)) return members.every(member => stagePresentation(member)!.counts_as_done);
+  return node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED";
+}
+
+/** Text marker for a step; the legacy marker is kept without verdicts. */
+function stepSymbol(node: ProcessingNode, members: ProcessingNode[], summary: ZeroTouchCaseSummary, waiting: boolean, advised: boolean): string {
+  if (stepFromPresentation(node, members)) return memberDisplay(presentationLead(members), summary).symbol;
+  return waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : advised ? PROGRESS_STATUS_SYMBOLS.REVIEW_REQUIRED : PROGRESS_STATUS_SYMBOLS[node.status];
+}
+
+/** Reason lines for a step, from its verdicts only. */
+function stepNotes(node: ProcessingNode, members: ProcessingNode[], summary?: ZeroTouchCaseSummary): string[] {
+  if (!stepFromPresentation(node, members)) return [];
+  return [...new Set(members.map(member => memberDisplay(member, summary).note).filter((note): note is string => Boolean(note)))];
+}
+
+/** Linked issues shown on a step: owned and counted by another stage, so never counted here. */
+function stepLinkedOwners(pipeline: ProcessingNode[], node: ProcessingNode, members: ProcessingNode[]): ProcessingNode[] {
+  if (!stepFromPresentation(node, members)) return [];
+  const owners = members.flatMap(member => stagePresentation(member)!.linked_exception_ids)
+    .map(id => exceptionOwnerNode(pipeline, id))
+    .filter((owner): owner is ProcessingNode => Boolean(owner) && !members.includes(owner!));
+  return [...new Map(owners.map(owner => [owner.node_id, owner])).values()];
+}
+
+/** OPQ S2: plain reason text and linked-issue references for one stage, from the backend verdict. */
+export function stagePresentationNote(summary: ZeroTouchCaseSummary, nodeId: string): {
+  state?: StagePresentationState; label?: string; note?: string; linkedTo: ProcessingNode[];
+} {
+  const pipeline = summary.processing_pipeline ?? [];
+  const node = pipeline.find(item => item.node_id === nodeId);
+  const presentation = node ? stagePresentation(node) : null;
+  if (!node || !presentation) return { linkedTo: [] };
+  const display = presentationDisplay(presentation);
+  return { state: display.state, label: display.label, note: display.note, linkedTo: stepLinkedOwners(pipeline, node, [node]) };
+}
+
+const ATTENTION_VERDICTS: ReadonlySet<StagePresentationState> = new Set<StagePresentationState>(["ACTION_REQUIRED", "BLOCKED", "FAILED"]);
+
+/** Header sentence for one stage from its verdict only: the chip label, then detail, reason and links. */
+function verdictHeaderText(verdict: ReturnType<typeof stagePresentationNote>, detail?: string): string {
+  const linked = verdict.linkedTo.length ? ` Linked issue owned by ${verdict.linkedTo.map(owner => owner.label).join(", ")}.` : "";
+  return [`${verdict.label}.`, detail, verdict.note].filter(Boolean).join(" ") + linked;
+}
+
+/**
+ * OPQ S2: Registry verification header text. With a backend verdict it follows only that verdict
+ * (the same mapping as the chip); without one the legacy text is unchanged.
+ */
+export function registryHeaderText(summary: ZeroTouchCaseSummary, legacyNeedsAttention: boolean): string {
+  const verdict = stagePresentationNote(summary, "ACRA_REGISTRY");
+  if (verdict.state) {
+    return verdictHeaderText(verdict, ATTENTION_VERDICTS.has(verdict.state) ? "Review registry identity and evidence."
+      : verdict.state === "COMPLETE" ? "Retained registry evidence and source." : undefined);
+  }
+  return legacyNeedsAttention ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source.";
+}
+
+/**
+ * OPQ S2: Ownership & UBO header text. With a backend verdict it follows only that verdict;
+ * without one the legacy (D-082 N2 / D-141) text is unchanged.
+ */
+export function ownershipHeaderText(
+  summary: ZeroTouchCaseSummary,
+  ownership: { state: string; poc_basis_accepted?: boolean | null; issues: readonly unknown[] } | null | undefined,
+  { legacyNeedsAttention, confirmedOwnershipEmpty }: { legacyNeedsAttention: boolean; confirmedOwnershipEmpty: boolean },
+): string {
+  const verdict = stagePresentationNote(summary, "OWNERSHIP_UBO");
+  if (verdict.state) {
+    if (verdict.state === "REVIEW_ADVISED") return verdictHeaderText(verdict, ADVISED_STAGE_SUMMARY);
+    if (ATTENTION_VERDICTS.has(verdict.state)) return verdictHeaderText(verdict, "Review ownership evidence.");
+    if (verdict.state === "COMPLETE") {
+      return verdictHeaderText(verdict, ownership?.poc_basis_accepted ? "Ownership calculated — POC basis accepted."
+        : "Provisional ownership and UBO analysis.");
+    }
+    return verdictHeaderText(verdict);
+  }
+  if (stageStatusFor(summary, ["OWNERSHIP_UBO"])?.tone === "advised") return ADVISED_STAGE_SUMMARY;
+  if (ownership?.poc_basis_accepted && !legacyNeedsAttention) return "Ownership calculated — POC basis accepted.";
+  if (ownership) {
+    return "Ownership: " + ownership.state.replaceAll("_", " ") + ". "
+      + (legacyNeedsAttention || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0
+        ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.");
+  }
+  return confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response." : "Ownership analysis not confirmed.";
 }
 
 /** Rail marker for a step; a grouped step uses its member that needs the user most (as before). */
@@ -173,7 +304,7 @@ export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[])
   if (attention) return { tone: "attention", label: display(attention).label };
   const advised = nodes.find(node => display(node).rail === "advised");
   if (advised) return { tone: "advised", label: display(advised).label };
-  const current = nodes.find(node => node.status === "IN_PROGRESS");
+  const current = nodes.find(node => (display(node).fromPresentation ? display(node).rail === "now" : node.status === "IN_PROGRESS"));
   if (current) return { tone: "current", label: display(current).label };
   if (nodes.every(node => display(node).rail === "done")) return { tone: "done", label: display(nodes[0]).label };
   return { tone: "pending", label: display(nodes.find(node => display(node).rail !== "done")!).label };
@@ -194,7 +325,8 @@ export function PipelineRail({ summary, onStageActivate, renderAttention, workfl
         const state = stepRailState(node, members, summary);
         return (
           <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}
-            data-display-state={stepWaiting(members, summary) ? "waiting" : state === "advised" ? "advised" : undefined}>
+            data-display-state={stepWaiting(members, summary) ? "waiting" : state === "advised" ? "advised" : undefined}
+            data-presentation-state={stepFromPresentation(node, members) ? stagePresentation(presentationLead(members))!.state : undefined}>
             <div className="ds-stage-marker">
               <span className={`ds-stage-node ${state}`}>
                 {state === "done" ? "✓" : index + 1}
@@ -211,6 +343,10 @@ export function PipelineRail({ summary, onStageActivate, renderAttention, workfl
               </details>
               {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
               <div className="text-muted">{stageStatusText(members, node, summary)}</div>
+              {stepNotes(node, members, summary).map(note => <p key={note} className="control-help stage-presentation-note">{note}</p>)}
+              {stepLinkedOwners(backendPipeline, node, members).map(owner => <p key={owner.node_id} className="control-help stage-linked-issue">
+                Linked issue — owned and counted in {owner.label}.{onStageActivate && <> <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(owner)}>Open {owner.label}</button></>}
+              </p>)}
               {renderAttention?.(node)}
             </div>
           </div>
@@ -482,6 +618,8 @@ function identityCorrectedPipeline(summary: ZeroTouchCaseSummary): ProcessingNod
     timestamp: summary.updated_at,
     safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
     blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+    // The existing correction marker replaces the backend status, so it keeps the legacy display.
+    presentation: null,
     children: [],
   };
   return backendPipeline.some((node) => node.node_id === "INITIAL_IDENTITY")
@@ -520,14 +658,14 @@ export function OnboardingProgressPanel({
       || (member.backend_stage && item.owning_stage === member.backend_stage)
     )
   ))?.expected_next_step;
-  const completed = pipeline.filter((node) =>
-    node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
-  ).length;
+  // OPQ S2 (A1): with backend verdicts only counts_as_done counts; "Review advised" is not done.
+  const completed = pipeline.filter((node) => stepCountsAsDone(node, businessStageMembers(stagePipeline, node))).length;
   const waitingStep = (node: ProcessingNode) => stepWaiting(businessStageMembers(stagePipeline, node), summary);
   const current = currentProcessingNode(pipeline, waitingStep);
   const maximum = Math.max(pipeline.length, 1);
   const percentage = summary.status === "COMPLETED" ? 100 : Math.round((completed / maximum) * 100);
-  const activeIssues = summary.status === "COMPLETED" ? 0 : summary.active_exceptions.filter(
+  // OPQ S2: with backend verdicts, each owned exception id once; linked ids are never counted.
+  const activeIssues = summary.status === "COMPLETED" ? 0 : presentationIssueCount(summary) ?? summary.active_exceptions.filter(
     (item) => item.exception_type !== "TARGET_CONFIRMATION_REQUIRED",
   ).length + (summary.technical_failure ? 1 : 0);
   const finalConfirmationOnly = activeIssues === 0 && summary.current_stage === "READINESS"
@@ -586,15 +724,20 @@ export function OnboardingProgressPanel({
               && (!availableFocusTargets || availableFocusTargets.has(target) || workflowStageElementId(node.node_id) !== null),
             );
             const waiting = waitingStep(node);
-            const advised = !waiting && stepRailState(node, businessStageMembers(stagePipeline, node), summary) === "advised";
+            const members = businessStageMembers(stagePipeline, node);
+            const advised = !waiting && stepRailState(node, members, summary) === "advised";
+            const verdict = stepFromPresentation(node, members) ? stagePresentation(presentationLead(members))!.state : null;
+            const reviewAction = verdict ? verdict === "ACTION_REQUIRED" || verdict === "REVIEW_ADVISED" : node.status === "REVIEW_REQUIRED" || advised;
+            const resolveAction = verdict ? verdict === "BLOCKED" || verdict === "FAILED" : ["BLOCKED", "FAILED"].includes(node.status);
             const content = <>
               <span className="onboarding-progress__title-row">
-                <span className="onboarding-progress__symbol" aria-hidden="true">{waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : advised ? PROGRESS_STATUS_SYMBOLS.REVIEW_REQUIRED : PROGRESS_STATUS_SYMBOLS[node.status]}</span>
+                <span className="onboarding-progress__symbol" aria-hidden="true">{stepSymbol(node, members, summary, waiting, advised)}</span>
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
-              <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node, summary)}</span>
+              <span className="onboarding-progress__stage-status">{stageStatusText(members, node, summary)}</span>
+              {stepNotes(node, members, summary).map(note => <span key={note} className="control-help stage-presentation-note">{note}</span>)}
               {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
-              <span className="onboarding-progress__stage-action">{navigable && !waiting && (node.status === "REVIEW_REQUIRED" || advised) ? "Review" : navigable && !waiting && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
+              <span className="onboarding-progress__stage-action">{navigable && !waiting && reviewAction ? "Review" : navigable && !waiting && resolveAction ? "Resolve issue" : "View details"}</span>
             </>;
             return (
               <li
@@ -602,6 +745,7 @@ export function OnboardingProgressPanel({
                 className="onboarding-progress__stage onboarding-progress__stage--actionable"
                 data-status={node.status}
                 data-display-state={waiting ? "waiting" : advised ? "advised" : undefined}
+                data-presentation-state={verdict ?? undefined}
               >
                 <button type="button" onClick={() => {
                   setInspected({ caseId: summary.case.case_id, nodeId: node.node_id });
@@ -631,6 +775,7 @@ function ProcessingStageFacts({ node, nextAction, summary }: { node: ProcessingN
   const display = memberDisplay(node, summary);
   return <>
     <p><strong>Status:</strong> {display.label}</p>
+    {display.note && <p className="control-help">{display.note}</p>}
     {display.waiting && <p className="control-help"><strong>Backend status:</strong> {PROGRESS_STATUS_LABELS[node.status]}. An earlier step must finish first; no action is needed on this stage yet.</p>}
     {node.safe_result ? <p><strong>Outcome:</strong> {node.safe_result}</p> : <p className="control-help">The backend has not reported an outcome or explanation for this stage.</p>}
     {node.provider && <p><strong>Provider:</strong> {node.provider}</p>}
