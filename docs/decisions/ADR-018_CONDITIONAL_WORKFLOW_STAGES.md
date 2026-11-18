@@ -6,7 +6,9 @@
 owner fixed in advance (programme decision D-10, 2026-11-17). "D-10" here always means the
 workflow designer programme's owner decision (`WORKFLOW_DESIGNER_PROGRAMME.md` §10). It is not
 DECISION_LOG `D-010`, which is unrelated (deterministic UBO calculation). Revised 2026-11-18
-after an independent doc review (READY WITH NOTES).
+after an independent doc review (READY WITH NOTES), then again for the owner's decisions B1 to B11
+of 2026-11-18 (B1 and B2 revised: conditional onboarding, with the basis frozen at the first
+registry binding). It stays **PROPOSED** until the design review.
 
 This ADR is a design record only:
 - **Nothing in it is implemented.** Current behaviour is unchanged.
@@ -46,6 +48,19 @@ simulation), ADR-016 (designer), ADR-014 (Director-managed workflows).
     verification. While the case is open, `_rebased` moves the run to each newly active version
     (owner decision 2026-11-14: open cases rebase).
   - **Send check.** `send_hold_code` enforces the run's own `stages`.
+- **Where the registry binding is set** (`services/onboarding.py`,
+  `_acquire_required_registry_evidence`):
+  - The case receives `registry_acquisition`, `entity` and `registry_evidence_binding` together.
+  - The engine then records `WorkflowState.REGISTRY_FETCHED`, which is the ACRA registry stage
+    (`ACRA_REGISTRY`) completing.
+  - The binding is created only through the registry acquisition coordinator
+    (`registry_acquisition.py`, `_bound_result`). The direct-provider path and the government
+    register path leave `registry_evidence_binding` as `None`.
+  - An identity correction (`_acquire_registry_after_identity_recheck`) can replace the entity
+    and the binding later.
+- **Owner decisions of 2026-11-18** (B1 to B11): corporate onboarding must support
+  entity-specific conditional stages, with the basis frozen once, at the first eligible
+  authoritative registry binding.
 - Fixed scope (D-10): add-only; deterministic on the backend `RegistryLegalForm` only; evaluated
   once at run creation and frozen; fail closed; RR-8; no reduced UBO or compliance obligations;
   governed like all other content.
@@ -58,10 +73,10 @@ simulation), ADR-016 (designer), ADR-014 (Director-managed workflows).
 |---|---|
 | CA-1 | **Add-only.** A condition only ever **adds** obligations for matching entities. Nothing conditional removes, relaxes, skips or replaces an unconditional obligation, a code-owned stage or the engine order |
 | CA-2 | **Deterministic on `RegistryLegalForm` only.** Only the existing enum values are used. No new classification is introduced. There are no free-text, numeric, ownership, risk, country, policy or AI conditions |
-| CA-3 | **Evaluated once, frozen.** Applicability is resolved when a run is created. The basis is stored on the run and never re-evaluated (see §3.4 for rebasing) |
+| CA-3 | **Evaluated once, frozen.** A non-onboarding run resolves its basis at creation. An onboarding run starts `UNVERIFIED` and freezes its basis once, at the first eligible authoritative registry binding (§3.5). The basis is stored on the run and never re-evaluated afterwards. Rebasing reuses it (§3.4) |
 | CA-4 | **Fail closed.** If the classification is unknown, missing, unverified or `OTHER`, **every** conditional obligation applies |
 | CA-5 | **RR-8.** Applicability is never narrowed. An unconditional obligation stays unconditional. The baseline keeps the broadest applicability ever published |
-| CA-6 | **No editor-controlled reduction of UBO or compliance obligations.** UBO thresholds, ownership, screening and policy rules stay outside the editor. D-136 E1–E4, the dispatch fence, ledgers and the mandatory engine order are unaffected |
+| CA-6 | **Mandatory, UBO and compliance obligations stay unconditional and protected.** The code-owned onboarding stages (`ONBOARDING_LOCKED_STAGES`) and the engine order cannot be conditional (RR-9, unchanged). UBO thresholds, ownership, screening, policy and existing compliance rules stay outside the editor. D-136 E1–E4, the dispatch fence and ledgers are unaffected |
 | CA-7 | **Governed.** HR proposes and one Director approves (ADR-017 §1). The permanent-obligation warning covers every new conditional obligation and every broadening (§4.4) |
 
 **Out of scope:**
@@ -96,7 +111,7 @@ applies_to: tuple[ConditionalLegalForm, ...] | None = Field(
   validator normalises the order, so equal sets always serialise the same way. A tuple naming
   every selectable form is refused (`WORKFLOW_PROPOSAL_INVALID`, "use All entities"), so ALL has
   one representation only. `OTHER` is not selectable, because an `OTHER` entity is treated as
-  unverified and already receives every conditional obligation (owner decision 5).
+  unverified and already receives every conditional obligation (B5).
 - **Stage and field.** A stage's `applies_to` governs the whole stage. A field's `applies_to`
   applies within its stage. A field set must be a subset of its stage set, otherwise it is
   refused. The **effective applicability** of a field is the intersection of the two, with ALL
@@ -105,18 +120,23 @@ applies_to: tuple[ConditionalLegalForm, ...] | None = Field(
   records, and RR-9 is unchanged. Anchors (`after_node_id`) are unchanged.
 - **Non-onboarding minimum.** A non-onboarding version must keep at least one stage that applies
   to ALL and holds at least one ALL field (an extension of `WORKFLOW_PROPOSAL_EMPTY`). This
-  ensures no run is created with zero stages (owner decision 6).
-- **Onboarding authoring.** Under the onboarding default (§3.4), a condition on onboarding content
-  has no effect, because it always applies. The owner decides whether conditional authoring on
-  the onboarding workflow is **refused** (`WORKFLOW_PROPOSAL_INVALID`, "conditions have no effect
-  on onboarding"), or **allowed with a warning** that it applies to every onboarding case (owner
-  decision 2; proposed: refuse).
-- **Optional ALL → conditional required.** Making an optional field that applies to ALL into a
-  conditional required field removes it from runs for non-matching verified entities. That is a
-  deletion of optional content (allowed by D4), but it is a visible change for them. The owner
-  decides whether it is allowed, or whether the field must stay as an optional ALL field beside
-  a new conditional required one (owner decision 9; proposed: refuse, and require the second
-  form).
+  ensures no run is created with zero stages (B6).
+- **Onboarding anchor eligibility (decided, B2).** On the onboarding workflow, a stage, or a
+  field inside it, may carry `applies_to` only when the stage's `after_node_id` is
+  `ACRA_REGISTRY` or a later anchor: `DOCUMENT_IDP`, `RECONCILIATION`, `OWNERSHIP_UBO`,
+  `ADVISORY` or `GOLDTIER_DETAILS`.
+  - At those anchors, the registry basis exists before the stage is reached in engine order.
+  - Anything else is refused at validate, submit and approve (`WORKFLOW_PROPOSAL_INVALID`,
+    issue "conditional before registry verification"). That covers the earlier anchors
+    (`CASE_START`, `INITIAL_IDENTITY`, `JURISDICTION`, `GOLDTIER_SEARCH`) and a missing
+    `after_node_id`.
+  - Moving a conditional stage to an earlier anchor is refused for the same reason.
+  - This is a structure rule, not a ratchet rule, so it also applies to optional content.
+  - Display order does not stop an RM answering a later stage early. §3.5 rule F3 covers that.
+- **Optional ALL → conditional required (decided, B9: refused).** An optional ALL field cannot
+  become a conditional required field, because that would remove it for non-matching entities.
+  HR keeps the optional ALL field and adds a new conditional required field beside it.
+  Refused with `WORKFLOW_PROPOSAL_INVALID`.
 
 #### 2.2 Content hash
 
@@ -156,39 +176,50 @@ document, AI output or the frontend:
 - **Two adapter paths fill `party_type`.** Both are normalised in `connectors/registry.py`:
   - **ACRA Sandbox:** `entityType` (`connectors/acra_sandbox.py`).
   - **ACRA API Marketplace Mock:** `companyType` (`connectors/acra_api_marketplace_mock.py`).
-- **Known defect.** The review reports a `companyType` decoder defect that classifies OPQ as
-  `OTHER`. Under this ADR such a case is `UNVERIFIED`, so every condition applies. That fails
-  closed, and this ADR does not fix it.
-- **Residual risk.** "Verified" means **registry-bound and classified**. It does not mean the
-  form is correct. A wrong but known form (for example a partnership mapped to `COMPANY`) would
-  silently drop the conditions for the true form. That drops only conditional obligations, never
-  an unconditional one. The owner either accepts this risk or requires a CT gate that freezes the
-  mapping table, so any change to it fails review (owner decision 10).
+- **Known defect and owner rule A4.** The review reports a `companyType` decoder defect that
+  classifies OPQ as `OTHER`. Under this ADR such a case is `UNVERIFIED`, so every condition
+  applies. That fails closed.
+  - **Owner rule A4 (2026-11-18):** the decoder must use the documented canonical legal-form
+    mapping (`ACRA_CANONICAL_MAPPING.md`). An unrecognised, ambiguous or conflicting
+    classification must fail closed and never narrow silently.
+  - The decoder fix is a **prerequisite change outside this ADR**. It needs its own review,
+    and it must not alter `classify_registry_legal_form` without the CT-31 gate.
+  - **Conflicting**, for this ADR: the classified form disagrees with the case's `uen_route`
+    category. For example, the `GOVERNMENT` form under an ACRA route, or a non-`GOVERNMENT`
+    form under the government register route. A conflict gives `UNVERIFIED`
+    (`CONFLICTING_CLASSIFICATION`).
+- **Residual risk (decided, B10: CT gate).** "Registry-bound" means **bound and classified**,
+  not proven correct. A wrong but known form would drop the conditions for the true form; it
+  never drops an unconditional obligation. CT-31 (now mandatory) freezes the mapping table: any
+  change to it fails until it is reviewed.
 - **Single classifier, enforced.** The evaluator imports `classify_registry_legal_form` only. A
   CT-23 source check fails if `services/workflow_*` or the evaluator contains its own `party_type`
   string table, or compares `party_type` text directly.
 
-#### 3.2 What counts as verified
+#### 3.2 What counts as registry-bound
 
-A legal form `F` is **verified** only when all of these hold at evaluation time:
+A legal form `F` is **registry-bound** only when all of these hold at evaluation time:
 1. `case.entity` is present.
 2. `case.registry_evidence_binding` is present. Its model validator already guarantees a
    `COMPLETE` acquisition, `entity == acquisition.entity_profile`, a matching UEN and per-operation
    provenance.
-3. `classify_registry_legal_form(case.entity.party_type)` is not `OTHER`.
+3. `classify_registry_legal_form(case.entity.party_type)` is not `OTHER`, and does not conflict
+   with `uen_route` (§3.1).
 
 `SourceSystem` has only `ACRA` today, so a source-system check would always pass. It is kept
 only as a defensive assertion: a future non-ACRA value is `UNVERIFIED`.
 
-Anything else (no case, no entity, no binding, `OTHER`, a decode or read failure, a workflow-only
-`WorkflowCompany` case) gives the basis **`UNVERIFIED`**.
+Anything else (no case, no entity, no binding, `OTHER`, a conflict, a decode or read failure, a
+workflow-only `WorkflowCompany` case) gives the basis **`UNVERIFIED`**.
 
-- **Environment.** The source environment (Mock or Sandbox) is recorded on the basis and is
-  **always shown** with it. Whether a Mock binding counts is owner decision 4. The proposal is
-  that it counts, and is labelled Mock.
-- **Status naming.** Because the status means "registry-bound and classified", not "correct"
-  (§3.1), the proposed status names are `REGISTRY_BOUND` and `UNVERIFIED`, not `VERIFIED`
-  (owner decision 11). This ADR uses "verified" in prose with that meaning.
+- **No binding means `UNVERIFIED`.** The government register path and the direct-provider path
+  create no binding (Context), so they stay `UNVERIFIED`. A `GOVERNMENT` condition therefore
+  never narrows today. This is fail-closed, and recorded rather than changed.
+- **Environment (decided, B4).** A Mock ACRA binding counts. The source environment is
+  recorded on the basis and is **always shown** with it, for example "Registry-bound (Mock):
+  LLP".
+- **Status naming (decided, B11).** `REGISTRY_BOUND` and `UNVERIFIED`. This ADR's prose word
+  "verified" means registry-bound.
 
 #### 3.3 Resolution and freezing
 
@@ -212,18 +243,32 @@ At creation, the run's stage copy is computed from the version with the basis `B
 ```python
 class ApplicabilityBasis(_Frozen):
     legal_form: ConditionalLegalForm | None   # None when UNVERIFIED
-    status: Literal["REGISTRY_BOUND", "UNVERIFIED"]   # naming: owner decision 11
+    status: Literal["REGISTRY_BOUND", "UNVERIFIED"]   # naming: B11
     reason: Literal["REGISTRY_BINDING", "NO_ENTITY", "NO_BINDING", "OTHER_FORM",
-                    "NO_CASE_RECORD", "READ_FAILED"]
+                    "CONFLICTING_CLASSIFICATION", "AMBIGUOUS_BINDING",
+                    "TOO_LATE_TO_NARROW", "NO_CASE_RECORD", "READ_FAILED"]
     source_environment: SourceEnvironment | None
     evaluated_at: datetime
     evaluated_from_version: int
+    frozen: bool          # onboarding: False until the freeze write (§3.5); always True otherwise
+    binding_ref: BindingRef | None   # cache_id, cache_revision, bound_to_case_at; no source text
+
+class BasisConflict(_Frozen):       # onboarding only (§3.5, F5)
+    detected_at: datetime
+    observed_status: Literal["REGISTRY_BOUND", "UNVERIFIED"]
+    observed_legal_form: ConditionalLegalForm | None
+    binding_ref: BindingRef | None
+    escalated_by: ActorId | None = None   # set by the audited escalation (F6)
+    escalated_at: datetime | None = None
 ```
+
+`WorkflowRun` also gains `basis_conflict: BasisConflict | None` (excluded when `None`).
 
 - A run without a basis (every run created before this ADR) is treated as `UNVERIFIED`. Its
   stages were copied from unconditional content, so this changes nothing.
-- The basis is **never recomputed**. Later changes to the case record do not change the run:
-  identity corrections, re-acquisition, a different `party_type`.
+- A **frozen** basis is **never recomputed**. Later changes to the case record do not change the
+  run: identity corrections, re-acquisition, a different `party_type`. They are handled by §3.5
+  F5.
 - **Determinism.** The same version and the same basis always give the same stage copy. The
   evaluator is a pure function, with no clock, I/O or randomness in the selection.
 
@@ -232,18 +277,102 @@ class ApplicabilityBasis(_Frozen):
 - **Non-onboarding `EXISTING_CASE` runs.** `start_run` requires a case that has finished
   onboarding, so the binding normally exists and the evaluation is meaningful.
 - **Non-onboarding `NEW_CASE` runs.** The basis is `UNVERIFIED`, so everything applies.
-- **Onboarding runs.** These are created from `case.created_at`, before ACRA verification, and
-  are materialised lazily on read. To stay deterministic and literal to D-10, the **proposed
-  default** is that every onboarding run's basis is `UNVERIFIED (NO_BINDING)`, whenever it is
-  first materialised. All conditional onboarding obligations then apply to every onboarding case.
-  This is safe, but it means **conditions do nothing on onboarding**. The owner decides the basis
-  (owner decision 1), and whether conditional onboarding authoring is refused or warned (owner
-  decision 2, §2.1).
-- **Rebasing.** When an open onboarding case rebases to a newer version (`_rebased`), the
-  **frozen basis is reapplied** to the new version's stages. The classification is never
-  re-evaluated. Confirmations are kept only for a stage whose resolved copy is unchanged, as
-  today. Answers are kept only for fields in the resolved copy (§3.3). This reading of "never
-  re-evaluated" needs owner confirmation (owner decision 3).
+- **Onboarding runs.** These start with `UNVERIFIED (NO_BINDING)`, `frozen: False`. Every
+  conditional obligation applies until the freeze (§3.5).
+- **Rebasing (decided, B3).** When an open onboarding case rebases to a newer version
+  (`_rebased`), its **current basis is reapplied** to the new version's stages: the frozen
+  basis, or `UNVERIFIED` before the freeze. The classification is never re-evaluated by a
+  rebase. Confirmations are kept only for a stage whose resolved copy is unchanged, as today.
+  Answers are kept only for fields in the resolved copy (§3.3). A rebase never performs the
+  freeze.
+
+#### 3.5 Onboarding: freezing the basis at the first eligible registry binding (B1)
+
+**F1. The freeze event.**
+- **Trigger.** The first time a case snapshot write that sets a non-`None`
+  `registry_evidence_binding` and records `REGISTRY_FETCHED` has been **committed**, in
+  `_acquire_required_registry_evidence` after the case compare-and-set succeeds.
+- **The hook.** The onboarding service then calls one new workflow hook,
+  `freeze_onboarding_basis(case_id)`.
+- **Where it runs.** It runs under the case lock (`case_lock`), which every run writer already
+  takes. It reads the committed case and computes the basis (§3.2).
+- **The write.** It writes the onboarding run once, using the run repository's existing
+  safeguards:
+  - **A never-saved run:** insert-only `create`, with the basis.
+  - **A stored run:** an `update` that compare-and-sets `revision` and asserts
+    `payload.applicability_basis.frozen != true` **in the filter** (ADR-017 §3.2 style).
+- **Duplicate key or no match.** Re-read under the lock, and repeat at most once. A run that
+  already holds a frozen basis is never rewritten.
+- **A Mock binding counts** (B4).
+
+**F2. Safeguards and their limits.**
+- **What they are.** Run documents use revision compare-and-set and insert-only create. They do
+  **not** carry ADR-017's `write_nonce`, because that rule covers case snapshot and definition
+  documents only.
+- **Losing a freeze write fails safe.** That can happen through an ambiguous write outcome, a
+  crash or a rollback. The run is then left `frozen: False`, which means `UNVERIFIED`, which
+  means every condition applies. Loss can only broaden obligations, never narrow them.
+- **What is not relied on.** A read-back is never treated as proof of the freeze.
+- **The decision.** Adding a run `write_nonce` is therefore **not required** for safety. It is
+  noted as optional hardening for the design review.
+
+**F3. Too late to narrow.**
+- **The test.** Resolve the run with `F`. Let `X` be the conditional stages and fields present
+  in the current `UNVERIFIED` copy that `F` would exclude. **If any item in `X` is touched, the
+  freeze writes `UNVERIFIED (TOO_LATE_TO_NARROW)`, `frozen: True`.**
+- **Touched** means any of these:
+  - an answer stored for a field in `X`, or for any field of a stage in `X`, from any source,
+    including document suggestions and case-data prefill
+  - a confirmation of a stage in `X`
+  - the case is already sent, or has a `target_dispatch_confirmation`
+  - the case has any `workflow_dispatch` claim
+- **What it guarantees.** Completed, started or confirmed obligations are never removed
+  retroactively. The run keeps everything.
+- **Otherwise** the freeze writes `F` and the narrowed resolved copy in the same write. That is
+  the only narrowing that ever happens, and it happens only once.
+
+**F4. Ambiguous or late binding.**
+- The hook can fail, for example because the store is unavailable or the process crashed after
+  the case write. If so, the next run write under the case lock retries the freeze, but only if
+  **all** of these hold:
+  - the case's current binding is still its first
+  - `identity_corrections` is empty
+  - exactly one successful `REGISTRY_FETCHED` event exists
+- Otherwise the freeze writes `UNVERIFIED (AMBIGUOUS_BINDING)`, `frozen: True`.
+- F3 always applies to a late freeze.
+
+**F5. Freeze-once, and conflicts.**
+- **The basis never changes after the freeze.** Re-acquisition, an identity correction or a new
+  binding cannot change it, and nothing can narrow it.
+- **The check.** On every later case write that changes `registry_evidence_binding` or `entity`,
+  the onboarding service calls the same hook. It compares the newly computed basis with the
+  frozen basis.
+- **A conflict** is a different legal form, a different status, or a binding for another
+  identity. On a conflict, the hook:
+  - writes `basis_conflict` to the run, under the same filter rules as F1
+  - keeps the frozen stage copy unchanged
+  - logs `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`, with safe identifiers only
+- **If the run was never frozen,** it stays `UNVERIFIED`, and the conflict marks it
+  `AMBIGUOUS_BINDING` when it is frozen.
+
+**F6. Safe, audited recovery (add-only).**
+- **The hold.** While `basis_conflict` is unescalated, `send_hold_code` returns a new hold
+  `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`. D1 refuses, and the run view shows an
+  operator-visible notice.
+- **The only recovery** is the **audited escalation** "Apply all conditional steps":
+  - a filler-role action under the case lock, with a reason of 10–240 characters
+  - it sets the run's resolved copy to `UNVERIFIED` (every condition applies), keeps all answers
+    and confirmations, and records `escalated_by` and `escalated_at`
+  - it **only adds** obligations
+- **Narrowing after a freeze is impossible.** No action, route or tool can narrow a run's
+  obligations after the freeze.
+- **Records.** The escalation is recorded on the run and in the case's event history, using the
+  existing `WorkflowEvent` mechanism with a safe summary. It writes nothing to the workflow
+  definition document, which holds no case data.
+- **Needs design-review confirmation.** The new hold code and the case event kind.
+
+**F7. Unchanged.** Mandatory engine stages, UBO and compliance rules are never conditional
+(CA-6, RR-9). The freeze touches only added workflow stages.
 
 ### 4. Ratchet extension (RR-8 made active)
 
@@ -333,6 +462,12 @@ The C-5 placeholder becomes functional within scope:
 - **Ratchet-locked controls.** Controls that RR-8 would refuse are shown disabled, with the rule
   named. Examples: narrowing a published required obligation, making an ALL obligation
   conditional. The backend remains authoritative.
+- **Onboarding anchors (B2).** For a stage placed before "Registry verification", the
+  applicability control is disabled, with the explanation: "Conditions need the registry
+  result, so they are available only from Registry verification onwards."
+- **Run view.** Shows the basis, for example "Registry-bound (Mock): LLP", or "Not verified: all
+  conditional steps apply". It also shows the conflict notice and the escalation action (§3.5,
+  F6).
 - **No UBO, ownership, screening, policy or risk options** are shown. The "Coming soon" label is
   removed only for legal-form applicability.
 - **Accessibility.** Existing styling tokens and `aria-disabled` descriptions, as in C-5.
@@ -346,8 +481,11 @@ The C-5 placeholder becomes functional within scope:
   required stage (`stage_blocks_send`).
 - **D1 under version `V`** evaluates the hold on the run's copy resolved for `V`, with the frozen
   basis. A publication that adds a conditional stage triggers ADR-017 §3.7 re-confirmation only
-  for cases where it applies after resolution. Under the default for owner decision 1, that is
-  every open onboarding case.
+  for cases where it applies after resolution. For an onboarding case not yet frozen, that is
+  every open case (`UNVERIFIED`).
+- **New hold, onboarding only:** `WORKFLOW_APPLICABILITY_BASIS_CONFLICT` (§3.5 F6). It is
+  treated like `WORKFLOW_STAGE_INCOMPLETE`: it returns the case to target confirmation, and
+  never ends automation.
 - **Unchanged:** D3, D4–D6, leases, the durable write rule, no-replay recovery and D-136 E1–E4.
 - **Failure.** If resolution fails (an unreadable basis, an unknown enum value in stored content),
   the check returns `WORKFLOW_STAGE_CHECK_UNAVAILABLE`, which fails closed.
@@ -366,10 +504,10 @@ The C-5 placeholder becomes functional within scope:
 
 | Store | Change | Numbered schema change? |
 |---|---|---|
-| Case snapshot document | **None.** The legal form is read from existing fields | **No.** Stays 21; 22 stays reserved for D-117 |
+| Case snapshot document | **None.** The legal form and binding are read from existing fields. The escalation event uses the existing `events` list (a new event kind, no new field) | **No.** Stays 21; 22 stays reserved for D-117. If the design review rules that a new event kind changes the case schema, escalate to the integrator and the D-117 owner before PR-9 |
 | Workflow definition `payload` (`versions[].stages`, `draft_stages`) | Optional `applies_to` on stages and fields, excluded when `None` | No numbered schema. It is a payload shape change (§9) |
 | Top-level `required_baseline` | `FieldSignature.applicability` typed; `BaselineStage.applicability` added | Contract change (§10) |
-| `workflow_runs` payload | Optional `applicability_basis`; `applies_to` on copied stages | No numbered schema. It is a payload shape change (§9) |
+| `workflow_runs` payload | Optional `applicability_basis` (with `frozen`, `binding_ref`) and `basis_conflict`; `applies_to` on copied stages | No numbered schema. It is a payload shape change (§9). The basis lives here, **not** in the case snapshot |
 | Cold `workflow_versions` and `workflow_proposals` | The same optional field inside records | None (content is insert-only and unchanged for existing records) |
 
 If implementation finds that the case snapshot must change after all, it stops. The number is
@@ -395,7 +533,7 @@ Byte budget: at most 5 short enum strings per stage or field. This is negligible
 
   So a rollback from PR-10 to PR-9 is always decodable. A rollback below PR-9 is safe only
   before any conditional content is published. After that it is a fail-closed stop that needs a
-  forward fix. Whether to require a reviewed reverse migration instead is owner decision 7.
+  forward fix. The owner chose this rollout (B7).
 
 ### 10. API and contract changes (proposed contract-change note)
 
@@ -409,11 +547,20 @@ To be recorded in `WORKFLOW_GOVERNANCE_API.md` §6 and approved by the integrato
 5. `RatchetRule.RR_8` comment changed from "inert" to active. Issues carry RR-8a/b/c in
    `ValidationIssue.message`. No new error code.
 6. `SimulationScenario.legal_form` typed (§7). The catalogue gains the new scenarios.
-7. Run view: `applicability_basis` (status, legal form, reason; never raw source values).
+7. Run view: `applicability_basis` (status, legal form, reason, environment, frozen) and
+   `basis_conflict`; never raw source values.
+8a. `ApplicabilityBasis`, `BindingRef` and `BasisConflict` models. The new reasons are
+    `CONFLICTING_CLASSIFICATION`, `AMBIGUOUS_BINDING` and `TOO_LATE_TO_NARROW`.
+8b. The hold code `WORKFLOW_APPLICABILITY_BASIS_CONFLICT`.
+8c. The escalation route `POST /api/clm/cases/{id}/workflow/applicability-escalation`
+    (filler role, `ACTOR_ONLY`, reauthorized inside the case lock, reason 10–240). It is the
+    only new route.
+8d. The structure issue "conditional before registry verification" (§2.1).
 8. Fixtures regenerated with `scripts/generate_workflow_governance_fixtures.py`, with
    contract-test updates.
 
-No new routes. `ROUTE_POLICIES` and `ROLE_CAPABILITIES` are unchanged.
+One new route (8c). It is added to `ROUTE_POLICIES` and the RBAC inventory. `ROLE_CAPABILITIES`
+is unchanged.
 
 ### 11. Security and privacy
 
@@ -432,15 +579,19 @@ No new routes. `ROUTE_POLICIES` and `ROLE_CAPABILITIES` are unchanged.
 |---|---|
 | CT-21 | Model canonicalisation (sorted, no duplicates, no full set, field ⊆ stage, `OTHER` refused). Golden hashes of existing proposals, versions and fixtures unchanged |
 | CT-22 | The RR-8a/b/c matrix at validate, submit and approve, against the active version and the baseline. An interleaved broader publication. Deactivate then reactivate. Baseline union. Safe targets keep the broadest applicability, widen stage applicability where needed, or raise `SafeTargetError` |
-| CT-23 | Evaluation for every legal form, `OTHER`, no entity, no binding, read failure, and `NEW_CASE`. Both adapter paths: a Sandbox `entityType` and a Marketplace Mock `companyType` fixture (synthetic), including the OPQ-shaped `companyType` that decodes to `OTHER` and gives `UNVERIFIED`. The single-classifier source check (§3.1). An emptied stage is dropped, and a stage authored with zero fields is kept. Determinism (the same inputs give the same copy) |
-| CT-24 | Freezing: a later case change (identity correction, re-acquisition) never changes the run. Rebase reapplies the frozen basis. `start_run`, `_loaded_answers`, `_onboarding_run` and `_rebased` use the resolved copy: no prefill or kept answer for a non-applicable stage or field. Confirmations are kept only for unchanged resolved stages |
-| CT-25 | Send check and fence: a non-applicable stage neither holds nor is bypassed. An applicable one holds. D1/D3 against the publication of an applicable versus a non-applicable conditional stage. Re-confirmation only when applicable. Resolution failure gives `WORKFLOW_STAGE_CHECK_UNAVAILABLE`. A recording mock GoldTier shows exact call counts |
+| CT-23 | Evaluation for every legal form, `OTHER`, no entity, no binding (including the government register and direct-provider paths), a `uen_route` conflict, read failure, and `NEW_CASE`. Both adapter paths: a Sandbox `entityType` and a Marketplace Mock `companyType` fixture (synthetic), including the OPQ-shaped `companyType` that decodes to `OTHER` and gives `UNVERIFIED`. The single-classifier source check (§3.1). An emptied stage is dropped, and a stage authored with zero fields is kept. Determinism (the same inputs give the same copy) |
+| CT-24 | Freezing: a later case change (identity correction, re-acquisition) never changes the run. Rebase reapplies the current basis (frozen, or `UNVERIFIED` before the freeze), and never freezes. `start_run`, `_loaded_answers`, `_onboarding_run` and `_rebased` use the resolved copy: no prefill or kept answer for a non-applicable stage or field. Confirmations are kept only for unchanged resolved stages |
+| CT-25 | Send check and fence: a non-applicable stage neither holds nor is bypassed. An applicable one holds. D1/D3 against the publication of an applicable versus a non-applicable conditional stage. Re-confirmation only when applicable. Resolution failure gives `WORKFLOW_STAGE_CHECK_UNAVAILABLE`. An unescalated `basis_conflict` holds the send. Escalation releases the hold only once every condition's stage is confirmed. A recording mock GoldTier shows exact call counts |
 | CT-26 | Simulation: per-scenario step sets differ as specified. No case read, provider call or write |
 | CT-27 | Permanent-obligation set includes new conditional obligations and `APPLICABILITY_BROADENED`. An inexact acknowledgement is refused |
 | CT-28 | Rollout: conditional authoring refused before enablement. Pre-ADR-018 code against conditional content fails closed with 0 provider calls |
 | CT-29 | Privacy: runs, definitions, simulation and logs hold no `party_type` text or PII. Frontend option parity with `ConditionalLegalForm`. UI disabled-state and accessibility tests (Vitest, Playwright) |
 | CT-30 | Emergency fallback (§4.3a): it is refused when its permanent-obligation set is not empty (each of `NEW_REQUIRED_STAGE`, `NEW_REQUIRED_FIELD`, `TIGHTENED`, `APPLICABILITY_BROADENED`, and a new conditional obligation). An accepted fallback leaves `required_baseline` byte-identical. The safe target never broadens beyond the baseline (the union proof as a property test) |
-| CT-31 (optional) | If owner decision 10 chooses the gate: a frozen snapshot of the `classify_registry_legal_form` table. Any change fails until it is reviewed |
+| CT-31 | Mandatory (B10): a frozen snapshot of the `classify_registry_legal_form` table. Any change fails until it is reviewed. Unrecognised and conflicting inputs give `UNVERIFIED` (A4) |
+| CT-32 | Freeze-once: the first committed binding freezes. Freeze and an answer write race under the case lock. A second binding never changes a frozen basis. Insert-only create and the `frozen != true` filter refuse a second freeze across two processes. A lost freeze write leaves `UNVERIFIED`. Memory and Mongo at parity |
+| CT-33 | Too late to narrow: each touched kind (an answer from each source, a confirmation, sent, a dispatch confirmation, a dispatch claim) gives `TOO_LATE_TO_NARROW`, and nothing is removed. Untouched excluded items are dropped. The late-freeze eligibility rule (F4) gives `AMBIGUOUS_BINDING` otherwise |
+| CT-34 | Conflict: a different form, status or identity after the freeze writes `basis_conflict`, keeps the frozen copy and holds the send. The escalation is add-only, audited and reauthorized in the lock. No path narrows after the freeze |
+| CT-35 | Anchor eligibility: conditional content anchored before `ACRA_REGISTRY` (or with no anchor) is refused at validate, submit and approve, including a move to an earlier anchor. Locked stages can never be conditional (RR-9) |
 
 The D-136 E1–E4, P2-0 fence, nonce-writer, CT-0 to CT-20, RBAC, AI Assistant and
 identity-provenance suites must stay green.
@@ -455,7 +606,7 @@ identity-provenance suites must stay green.
 | Treat unverified entities as matching no condition | Rejected. It fails open (CA-4) |
 | A new classification for listed companies or financial institutions | Out of scope. It needs a separate decision (D-10) |
 | Store applicability outside the payload (a top-level map) | Rejected. It splits the content hash from what is published, and complicates run copies and the cold archive |
-| `OTHER` as a selectable condition | Rejected. It is redundant under fail-closed (owner decision 5) |
+| `OTHER` as a selectable condition | Rejected. It is redundant under fail-closed (B5) |
 
 ## Consequences
 
@@ -466,7 +617,9 @@ identity-provenance suites must stay green.
 - **Accepted costs:**
   - A mistaken conditional obligation is permanent and can only broaden.
   - Unverified entities carry every conditional obligation.
-  - Under the onboarding default (owner decision 1), conditions do nothing on onboarding.
+  - A conditional onboarding stage that an RM touches before registry binding stays for that
+    case (F3).
+  - An applicability conflict holds the send until a person escalates (F6).
   - A wrong but known legal form drops conditional obligations for the true form (§3.1).
   - A rollback below PR-9 after use stops affected workflows (fail closed).
 - **Unchanged:** RBAC, the dispatch fence, ledgers, D-136, the mandatory engine order, case
@@ -480,22 +633,27 @@ identity-provenance suites must stay green.
   until reviewed, and is treated as unverified until then.
 - Another jurisdiction's registry.
 - A request for non-legal-form conditions or for conditional optionality.
-- A change to onboarding run creation or rebasing (owner decisions 1–3).
+- A change to onboarding run creation, rebasing or the registry binding event (§3.5).
+- A binding for the government register path, which would let `GOVERNMENT` conditions narrow.
 - A fix to the `companyType` decoder defect (§3.1).
 
-## Owner decisions
+## Owner decisions (2026-11-18, given to the integrator)
 
-1. **Onboarding basis:** every onboarding run is `UNVERIFIED` (proposed), or the basis is fixed once at the first registry binding.
-2. **Conditional authoring on onboarding:** refused (proposed), or allowed with a "has no effect" warning.
-3. **Rebase:** reapplying the frozen basis to a newer version counts as "never re-evaluated" (proposed: yes).
-4. **Mock ACRA binding:** counts as registry-bound and is labelled Mock (proposed), or only Sandbox/Live counts.
-5. **`OTHER`:** unverified and not selectable (proposed), unlike the C-5 placeholder.
-6. **Non-onboarding minimum:** a version keeps at least one ALL stage with an ALL field (proposed: yes).
-7. **Rollback:** fail-closed rollback with the PR-9 enablement gate (proposed), or a reviewed reverse migration first.
-8. **Emergency fallback:** its permanent-obligation set must be empty and the baseline byte-identical. **Decided by the owner on 2026-11-18** (ADR-017 §4); recorded in §4.3a.
-9. **Optional ALL → conditional required:** refused, so the field stays optional ALL beside a new conditional field (proposed), or allowed.
-10. **Misclassification risk:** accept the residual risk, or require the CT-31 gate on the mapping table (proposed: gate).
-11. **Status naming:** `REGISTRY_BOUND` / `UNVERIFIED`, always shown with the environment (proposed), or `VERIFIED` / `UNVERIFIED`.
+1. **B1, decided (revised):** onboarding starts `UNVERIFIED`. The basis freezes once, at the first eligible authoritative registry binding. It stays `UNVERIFIED` if the binding is missing, ambiguous, conflicting or too late (§3.5).
+2. **B2, decided (revised):** onboarding supports conditional stages only at `ACRA_REGISTRY` or later anchors. Earlier anchors are refused (§2.1).
+3. **B3, decided:** a rebase reapplies the current (frozen) basis and never re-evaluates.
+4. **B4, decided:** a Mock ACRA binding counts, labelled Mock.
+5. **B5, decided:** `OTHER` is unverified and not selectable.
+6. **B6, decided:** a non-onboarding version keeps at least one ALL stage with an ALL field.
+7. **B7, decided:** fail-closed rollback with the PR-9 enablement gate.
+8. **B8, decided (earlier, 2026-11-18):** an emergency fallback's permanent-obligation set is empty, and the baseline stays byte-identical (§4.3a).
+9. **B9, decided:** optional ALL → conditional required is refused.
+10. **B10, decided:** the CT-31 gate on the mapping table. A4: the canonical mapping, failing closed.
+11. **B11, decided:** the status names are `REGISTRY_BOUND` / `UNVERIFIED`, always shown with the environment.
+
+**For the design review (within B1/B2, not new owner decisions):**
+- the F6 hold code, the escalation route and the case event kind
+- optional run `write_nonce` hardening (F2)
 
 ## Related decisions
 
