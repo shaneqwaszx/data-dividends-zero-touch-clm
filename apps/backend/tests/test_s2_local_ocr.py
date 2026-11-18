@@ -458,9 +458,14 @@ def test_signature_and_decoded_format_rejections(name: str, media: str, content:
     assert error.value.code == "DOCUMENT_STRUCTURE_INVALID"
 
 
-@pytest.mark.parametrize(("size", "frames"), [((8001, 1), 1), ((100, 80), 11)])
-def test_image_dimensions_and_tiff_frame_limits(size: tuple[int, int], frames: int) -> None:
-    with pytest.raises(DocumentRequestError, match="DOCUMENT_STRUCTURE_INVALID"):
+@pytest.mark.parametrize(
+    ("size", "frames", "code"),
+    [((8001, 1), 1, "DOCUMENT_PAGE_TOO_LARGE"), ((100, 80), 11, "DOCUMENT_TOO_MANY_PAGES")],
+)
+def test_image_dimensions_and_tiff_frame_limits(
+    size: tuple[int, int], frames: int, code: str
+) -> None:
+    with pytest.raises(DocumentRequestError, match=code):
         DocumentMediaRouter().extract(
             display_name="bounds.tiff",
             content_type="image/tiff",
@@ -469,7 +474,12 @@ def test_image_dimensions_and_tiff_frame_limits(size: tuple[int, int], frames: i
 
 
 def test_pdf_page_bounds_encryption_and_unsafe_actions_are_rejected() -> None:
-    for kind in ("pages", "encrypted", "script", "remote"):
+    for kind, code in (
+        ("pages", "DOCUMENT_TOO_MANY_PAGES"),
+        ("encrypted", "DOCUMENT_ENCRYPTED"),
+        ("script", "DOCUMENT_ACTIVE_CONTENT"),
+        ("remote", "DOCUMENT_ACTIVE_CONTENT"),
+    ):
         writer = PdfWriter()
         for _ in range(11 if kind == "pages" else 1):
             writer.add_blank_page(width=612, height=792)
@@ -490,11 +500,11 @@ def test_pdf_page_bounds_encryption_and_unsafe_actions_are_rejected() -> None:
             DocumentMediaRouter().extract(
                 display_name="unsafe.pdf", content_type="application/pdf", content=output.getvalue()
             )
-        assert error.value.code == "DOCUMENT_STRUCTURE_INVALID"
+        assert error.value.code == code
 
 
 def test_image_pixel_and_pdf_aggregate_pixel_limits_are_enforced_before_ocr() -> None:
-    with pytest.raises(DocumentRequestError, match="DOCUMENT_STRUCTURE_INVALID"):
+    with pytest.raises(DocumentRequestError, match="DOCUMENT_PAGE_TOO_LARGE"):
         DocumentMediaRouter().extract(
             display_name="pixels.png",
             content_type="image/png",
@@ -505,7 +515,7 @@ def test_image_pixel_and_pdf_aggregate_pixel_limits_are_enforced_before_ocr() ->
         writer.add_blank_page(width=1500, height=1500)
     output = BytesIO()
     writer.write(output)
-    with pytest.raises(DocumentRequestError, match="DOCUMENT_STRUCTURE_INVALID"):
+    with pytest.raises(DocumentRequestError, match="DOCUMENT_CONTENT_TOO_LARGE"):
         DocumentMediaRouter().extract(
             display_name="total.pdf", content_type="application/pdf", content=output.getvalue()
         )

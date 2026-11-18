@@ -32,6 +32,7 @@ from ai_assistant.model_admin_store import (
 )
 from ai_assistant.model_catalog import (
     BASELINE_ID,
+    MESSAGE_OVERHEAD_TOKENS,
     build_baseline_adapter,
     build_profile_model,
     load_catalogue,
@@ -46,6 +47,7 @@ from ai_assistant.model_qualification import (
     connection_test,
     gates,
     line_breakdown,
+    probe_target,
     qualification_basis,
     verify_capacity,
 )
@@ -162,26 +164,41 @@ class QualificationJob:
                 largest_bound=0,
             )
             return "failed", "CONNECTION_FAILED", summary
-        watched = WatchedModel(self.model, self._stop)
+        # D-142 R2 (D-1): a model on an endpoint that is not literal loopback is qualified
+        # through the privacy boundary, as it runs once activated (model_admin): every turn,
+        # token count and capacity probe sends only the protected payload, and the prompt bound
+        # is the protected payload's. A loopback model is unchanged.
+        target = probe_target(self.model, retain_largest=True)
+        bounded = target is not self.model
+        watched = WatchedModel(target, self._stop)
         snapshots = SnapshotSet.model_validate_json(
             (EVAL_FIXTURES / "snapshots.json").read_text(encoding="utf-8")
         )
-        with Workspace() as workspace:
-            result = run(
-                scenarios,
-                lambda capture: self.harness_model(capture, watched),
-                snapshots=snapshots,
-                workspace=workspace,
+        try:
+            with Workspace() as workspace:
+                result = run(
+                    scenarios,
+                    lambda capture: self.harness_model(capture, watched),
+                    snapshots=snapshots,
+                    workspace=workspace,
+                )
+            turns = list(result.turns)
+            overall = label_free(turns)
+            capacity = verify_capacity(
+                target,
+                declared_tokens=self.declared_tokens,
+                max_answer_tokens=self.max_answer_tokens,
+                largest_prompt=None if bounded else watched.largest,
+                stop=lambda: self._stop(len(turns)),
             )
-        turns = list(result.turns)
-        overall = label_free(turns)
-        capacity = verify_capacity(
-            self.model,
-            declared_tokens=self.declared_tokens,
-            max_answer_tokens=self.max_answer_tokens,
-            largest_prompt=watched.largest,
-            stop=lambda: self._stop(len(turns)),
-        )
+            largest_bound = (
+                target.largest_bytes + MESSAGE_OVERHEAD_TOKENS * target.largest_messages
+                if bounded
+                else watched.largest_bound
+            )
+        finally:
+            if bounded:
+                target.forget()  # the retained identity map lives no longer than the run
         summary["capacity"] = capacity
         summary["metrics"] = {
             key: overall.get(key)
@@ -199,7 +216,7 @@ class QualificationJob:
                 "mean_offered_lines",
             )
         }
-        summary["metrics"]["largest_prompt_bound"] = watched.largest_bound
+        summary["metrics"]["largest_prompt_bound"] = largest_bound
         summary["lines"] = line_breakdown(turns)
         if quality == "SCORED" and gold is not None:
             summary["quality"]["gold"] = gold_based(turns, gold, snapshots)
@@ -210,7 +227,7 @@ class QualificationJob:
             expected_turns=expected,
             overall=overall,
             capacity=capacity,
-            largest_bound=watched.largest_bound,
+            largest_bound=largest_bound,
         )
         summary["reproducibility"]["prompt_version"] = result.manifest.get("prompt_version")
         summary["reproducibility"]["drifted_turns"] = sum(1 for turn in turns if turn.drift)

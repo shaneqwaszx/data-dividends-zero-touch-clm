@@ -250,14 +250,17 @@ def test_limit_preserves_guarded_partial_or_deterministic_fallback(prefix: str) 
     source = Bytes([event(prefix)] + [event("x" * 1000)] * 70 + [event(finish="stop")])
     model = provider(httpx.MockTransport(lambda _: httpx.Response(200, stream=source)))
     response = _client(FakeBackend(), model).post(
-        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Tell me about this case."}
+        # D-142 R4: a supported intent, so the external endpoint is called at all.
+        f"/assistant/cases/{CASE_ID}/chat/stream",
+        json={"message": "Why is this case blocked?"},
     )
     events = [json.loads(line) for line in response.text.splitlines()]
     last = events[-1]
     assert last["type"] == "done" and source.closed
     if prefix:
         assert events[0] == {"type": "text", "text": prefix.strip()}
-        assert last["answer"] == prefix.strip() and "cut short" in last["notice"]
+        # R4: the canonical topic's required lines come first, then the model's checked text.
+        assert last["answer"].endswith(prefix.strip()) and "cut short" in last["notice"]
     else:
         assert last["answered_by"] == "case_data" and "Keep registry value" in last["answer"]
     assert source.reads < len(source.chunks)
@@ -513,7 +516,9 @@ def test_asgi_disconnect_closes_pending_model_read() -> None:
             nonlocal request_sent
             if not request_sent:
                 request_sent = True
-                return {"type": "http.request", "body": b'{"message":"Why?"}', "more_body": False}
+                # D-142 R4: a supported intent, so the external endpoint is called at all.
+                body = b'{"message":"Why is this case blocked?"}'
+                return {"type": "http.request", "body": body, "more_body": False}
             await waiting.wait()
             return {"type": "http.disconnect"}
 

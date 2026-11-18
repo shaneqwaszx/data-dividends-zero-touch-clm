@@ -59,6 +59,7 @@ from app.domain.target_classification import (
     bounded_classification_compatible,
 )
 from app.services.document_errors import (
+    DOCUMENT_REJECTION_MESSAGES,
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
 )
@@ -383,7 +384,10 @@ class DocumentProcessingService:
             except LocalDocumentProcessingError as error:
                 self._raise_terminal_failure(
                     record, code=error.code,
-                    message="Bounded local document processing could not be completed.",
+                    message=DOCUMENT_REJECTION_MESSAGES.get(
+                        error.code,
+                        "Bounded local document processing could not be completed.",
+                    ),
                 )
             except IdpProcessingError:
                 self._raise_terminal_failure(

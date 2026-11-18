@@ -214,12 +214,17 @@ def test_remote_explicit_question_remains_a_separate_boundary(streaming: bool) -
     assert browser.get(BRIEF).status_code == 200
     assert requests == []
     path = f"/assistant/cases/{CASE_ID}/chat" + ("/stream" if streaming else "")
-    reply = browser.post(path, json={"message": "Tell me about this case."})
+    # D-142 R4: a supported intent; the remote model receives only its canonical question.
+    reply = browser.post(path, json={"message": "Why is this case blocked?"})
     assert reply.status_code == 200
     body = json.loads(reply.text.splitlines()[-1]) if streaming else reply.json()
-    assert body["answered_by"] == "model" and body["answer"] == FakeModel.ANSWER
+    # R4: the canonical topic's required lines come first, then the model's checked text.
+    assert body["answered_by"] == "model" and body["answer"].endswith(FakeModel.ANSWER)
     assert len(requests) == 1
-    assert "11111999A" in json.loads(requests[0].content)["messages"][1]["content"]
+    # D-142: a model on a remote endpoint gets the case facts through the privacy boundary,
+    # so the UEN leaves as a placeholder.
+    facts = json.loads(requests[0].content)["messages"][1]["content"]
+    assert "CASE FACTS" in facts and "11111999A" not in facts and "[ID-" in facts
 
 
 def test_environment_flag_cannot_enable_remote_warm_up_in_normal_composition(
@@ -351,7 +356,8 @@ def test_remote_model_unavailable_falls_back_after_safe_brief(streaming: bool) -
     browser.cookies.set("clm_session", "valid-session")
     assert browser.get(BRIEF).status_code == 200 and requests == []
     path = f"/assistant/cases/{CASE_ID}/chat" + ("/stream" if streaming else "")
-    reply = browser.post(path, json={"message": "What next?"})
+    # D-142 R4: a supported intent, so the remote endpoint is tried before the fallback.
+    reply = browser.post(path, json={"message": "What is the next step?"})
     body = json.loads(reply.text.splitlines()[-1]) if streaming else reply.json()
     assert body["answered_by"] == "case_data"
     assert "model is not available" in body["notice"]

@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import io
 import json
+import re
 import shutil
 import subprocess
 import tarfile
@@ -531,11 +532,39 @@ def test_archive_identity_is_the_config_digest_and_refuses_a_damaged_archive() -
         assert refused.value.code == "ARCHIVE_INVALID"
 
 
+# Real commits on main whose case-snapshot schema is fixed history: the C9 release (#189) and
+# the parent of #195 write schema 20; #195 introduced schema 21. The repository needs full
+# history (the release tool already reads commits by id); no network is used.
+SCHEMA_HISTORY = (
+    ("db669caa67b7c4095703ad682fd6d3b7d5ca3793", 20),
+    ("68125abf9107cad18c1aa8796064cdccc904a1c4", 20),
+    ("8e1f87aada2866537fda1d6f950dd2e3382188d8", 21),
+)
+
+
 def test_backend_schema_version_is_read_from_the_commit() -> None:
+    def show(spec: str) -> str:
+        done = subprocess.run(
+            ["git", "show", spec], cwd=REPO, capture_output=True, text=True, check=False
+        )
+        assert done.returncode == 0, f"{spec} is not available in this clone"
+        return done.stdout
+
+    gate = local_gate()
+    for commit, expected in SCHEMA_HISTORY:
+        assert images.backend_snapshot_schema(gate, REPO, commit) == expected, commit
+    # HEAD's expectation comes from the type annotation at that commit, not a stale constant.
     head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True
-    ).stdout
-    assert images.backend_snapshot_schema(local_gate(), REPO, head.strip()) == 20
+        ["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    annotated = re.search(
+        r"^CASE_SNAPSHOT_SCHEMA_VERSION: Literal\[(\d+)\]",
+        show(f"{head}:{images.SCHEMA_SOURCE}"),
+        re.MULTILINE,
+    )
+    assert annotated, "the schema constant at HEAD has no Literal annotation"
+    assert int(annotated.group(1)) >= 21
+    assert images.backend_snapshot_schema(gate, REPO, head) == int(annotated.group(1))
 
 
 # -- effective configuration: policy ---------------------------------------------------------

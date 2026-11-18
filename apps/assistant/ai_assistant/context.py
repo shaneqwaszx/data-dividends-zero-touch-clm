@@ -413,7 +413,7 @@ MAX_OFFICER_RECORDS = 10
 _ROLE = re.compile(r"[A-Z_]{1,40}")
 
 
-def _registry_officer_records(summary: dict[str, Any]) -> list[dict[str, str]] | None:
+def _registry_officer_records(summary: dict[str, Any]) -> list[dict[str, str | None]] | None:
     """D-095 answer coverage: the current officers (name and role code only) that this case's
     own registry officer lookup returned, or None. Only when the lookup is COMPLETE for the
     case's UEN, the acquisition is COMPLETE or PARTIAL without error, the record count matches,
@@ -457,7 +457,17 @@ def _registry_officer_records(summary: dict[str, Any]) -> list[dict[str, str]] |
         name, role = officer.get("name"), officer.get("role")
         if not isinstance(name, str) or not isinstance(role, str) or not _ROLE.fullmatch(role):
             return None
-        records.append({"name": " ".join(name.split()), "role": role})
+        # D-142 R3 (officer identity): the backend's officer id travels beside the name so two
+        # officers of one name stay distinct; no model receives it
+        # (privacy_boundary.strip_entity_refs, qualify_entities).
+        officer_id = officer.get("officer_id")
+        records.append(
+            {
+                "name": " ".join(name.split()),
+                "role": role,
+                "officer_ref": officer_id if isinstance(officer_id, str) else None,
+            }
+        )
     return records or None
 
 

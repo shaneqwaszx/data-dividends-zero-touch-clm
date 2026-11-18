@@ -56,7 +56,6 @@
 # lags and is reconciled by hand, so drift can exist for up to the reconciliation window
 # (bounded by the daily cap, the lifetime ceiling and the workspace limit Anthropic enforces).
 
-import hashlib
 import json
 import logging
 import os
@@ -75,7 +74,7 @@ import anyio
 import httpx
 from pydantic import SecretStr
 
-from . import anthropic_profiles, key_sources, remote_test, synthetic_eligibility
+from . import anthropic_profiles, key_sources, privacy_boundary, remote_test, synthetic_eligibility
 from . import config as assistant_config
 from .anthropic_chat import (
     LIVE_NETWORK,
@@ -241,12 +240,18 @@ HOSTED_QUALIFICATION_TURNS: tuple[tuple[str, str], ...] = (
 )
 
 
+PRIVACY_CLOSED_PATHS: frozenset[str] = frozenset({"general", "support", "try_change"})
+
+
 def hosted_paths() -> frozenset[str]:
     # D-130: the chat paths hosted Claude may answer besides the case chat. Empty unless the
     # owner's decision is in the code and this process is the registered hosted deployment.
     if assistant_config.HOSTED_CHAT_DECISION is None or _hosted is None:
         return frozenset()
-    paths = set(assistant_config.HOSTED_CHAT_PATHS)
+    # D-142 R4 (R3-1, owner Option A): the general chat, Support chat and Try never go to an
+    # external model (they would carry person-written text); only the case chat (controlled
+    # intents) and the service-built insights may.
+    paths = set(assistant_config.HOSTED_CHAT_PATHS) - PRIVACY_CLOSED_PATHS
     if assistant_config.HOSTED_INSIGHTS_DECISION is not None:
         paths.add("dashboard_insights")
     return frozenset(paths)
@@ -854,11 +859,6 @@ def budget_status(
 # --- the model the chat uses -----------------------------------------------------------------
 
 
-def _digest(messages: list[dict[str, str]]) -> str:
-    text = json.dumps(messages, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 class ClaudeTestModel:
     # One Claude configuration as the chat uses it. Refuses a call (as an unavailable model, so
     # the RM gets the case-data answer) unless every condition in the header still holds.
@@ -928,7 +928,8 @@ class ClaudeTestModel:
             ) from None
         self._lock = threading.Lock()
         self._cleared_lock = threading.Lock()
-        self._cleared: dict[str, float] = {}
+        # D-142 R1: provider call id -> (when, by ticket); never keyed by a message digest.
+        self._cleared: dict[str, tuple[float, bool]] = {}
         self._inner: ChatModel | None = None
         self._credential: str | None = None
         self._checked_at: float | None = None
@@ -951,15 +952,22 @@ class ClaudeTestModel:
     def _admit_in_adapter(self, messages: list[dict[str, str]]) -> bool:
         # QG F2: decided again for the very messages sent: the ticket this model took for them
         # in ``_ready`` (still in D-095 mode now), or the D-094 text check.
+        # D-142: these are the protected messages, so the decision is the one ``_ready`` made
+        # for the originals moments ago (the ticket in D-095 mode, else the D-094 text check).
+        # R1 P1-2: the single-use clearance of this provider call (its id and the digest of
+        # exactly what is sent); a digest alone never identifies a call. R3 (QG P2): the
+        # clearance is taken in ``_ready``, before the guarded model reserves any budget; here
+        # the adapter only confirms that this very call was cleared and is not yet sent.
+        call_id = getattr(messages, "call_id", None)
+        if call_id is None or not privacy_boundary.call_cleared(messages):
+            return False
         with self._cleared_lock:
-            cleared = self._cleared.pop(_digest(messages), None)
-        if (
-            cleared is not None
-            and self._clock() - cleared <= synthetic_eligibility.TICKET_SECONDS
-            and (external_conversational(self._settings) or self.development_mode())
-        ):
-            return True
-        return check_messages(messages) is None
+            cleared = self._cleared.pop(call_id, None)
+        if cleared is None or self._clock() - cleared[0] > synthetic_eligibility.TICKET_SECONDS:
+            return False
+        if not cleared[1]:
+            return True  # the originals passed the D-094 text check in ``_ready``
+        return external_conversational(self._settings) or self.development_mode()
 
     def _build_inner(self, key: SecretStr) -> ChatModel:
         adapter = AnthropicChatModel(
@@ -969,6 +977,7 @@ class ClaudeTestModel:
             transport=LIVE_NETWORK if self._transport is None else self._transport,
             admit=self._admit_in_adapter,
             expected_workspace=workspace_id(self._settings),
+            wire_check=privacy_boundary.verify_wire,  # D-142: the exact HTTP body
         )
         return BudgetedChatModel(
             adapter,
@@ -982,9 +991,12 @@ class ClaudeTestModel:
         log.warning("Claude call refused: %s", reason)
         return ModelCallError("budget_refused")
 
-    def _ready(self, messages: list[dict[str, str]]) -> ChatModel:
+    def _ready(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[ChatModel, privacy_boundary.Protected]:
         # Blocking (ledger, preflight request): never on the event loop. Returns the guarded
-        # adapter to call (rebuilt when the key changed).
+        # adapter to call (rebuilt when the key changed) and the messages as they may be sent
+        # (D-142, the privacy boundary).
         ticket = synthetic_eligibility.admitted(messages)
         # D-122: conversational answers rest on the ticket alone, on any case.
         development = ticket and (
@@ -999,13 +1011,21 @@ class ClaudeTestModel:
             system_and_conversation(messages)
         except PromptShapeError:
             raise self._refuse("prompt shape") from None
-        if development:
-            now = self._clock()
-            with self._cleared_lock:
-                for digest, at in list(self._cleared.items()):
-                    if now - at > synthetic_eligibility.TICKET_SECONDS:
-                        del self._cleared[digest]
-                self._cleared[_digest(messages)] = now
+        # D-142: then the privacy boundary, before anything is reserved or sent. The adapter
+        # admits exactly these protected messages, on the decision just made for the originals.
+        try:
+            protected = privacy_boundary.outbound(messages)
+        except privacy_boundary.PrivacyRefused as refused:
+            raise self._refuse(f"privacy boundary ({refused.code})") from None
+        now = self._clock()
+        call_id = getattr(protected.messages, "call_id", None)
+        if call_id is None:
+            raise self._refuse("privacy boundary (CALL_UNCLEARED)")
+        with self._cleared_lock:
+            for stale, (at, _) in list(self._cleared.items()):
+                if now - at > synthetic_eligibility.TICKET_SECONDS:
+                    del self._cleared[stale]
+            self._cleared[call_id] = (now, bool(development))
         with self._lock:
             if readiness(self._settings) is not None:
                 raise self._refuse("not ready")
@@ -1053,7 +1073,12 @@ class ClaudeTestModel:
                 raise self._refuse("preflight")
             if network:
                 self._checked_at = now
-            return self._inner
+            # R3 (QG P2): the privacy clearance of this provider call, last, after every other
+            # check and before the guarded model reserves budget (as GPT-OSS and IT do). A call
+            # that cannot be cleared reserves and sends nothing.
+            if not privacy_boundary.clear_call(protected.messages):
+                raise self._refuse("privacy boundary (CALL_UNCLEARED)")
+            return self._inner, protected
 
     def verify_now(self) -> Preflight:
         # Verify every closed call not yet verified (in-band; no request).
@@ -1093,13 +1118,19 @@ class ClaudeTestModel:
         raise LlmUnavailableError("streaming only")
 
     async def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]:
-        inner = await anyio.to_thread.run_sync(self._ready, messages)
+        # D-142: only the protected messages are sent; the reply's placeholders are checked
+        # and restored before the caller's checks see it.
+        inner, protected = await anyio.to_thread.run_sync(self._ready, messages)
         try:
             # Closing this generator closes the guarded one, so its ledger settlement runs.
-            async with aclosing(inner.stream(messages)) as source:
-                async for piece in source:
+            async with (
+                aclosing(inner.stream(protected.messages)) as source,
+                aclosing(protected.restore_stream(source)) as restored,
+            ):
+                async for piece in restored:
                     yield piece
         finally:
+            privacy_boundary.release(protected)
             self._verify_after()
 
     def warm(self, messages: list[dict[str, str]]) -> None:

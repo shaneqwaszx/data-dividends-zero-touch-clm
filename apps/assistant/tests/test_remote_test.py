@@ -22,6 +22,7 @@ from ai_assistant.budget import BudgetLedger
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.config import AiAssistantSettings
 from ai_assistant.context import build_case_facts
+from ai_assistant.controlled_intents import CANONICAL
 from ai_assistant.knowledge.ingest import GUIDANCE_DIR, parse_guidance
 from ai_assistant.llm import ModelCallError
 from ai_assistant.main import REMOTE_BOUNDARY_NOTICE, REMOTE_NOTICE, create_app
@@ -63,6 +64,13 @@ D094 = {
     "local_api_test_qualification_questions": "P01#1,P02#0",
     "local_api_test_qualification_count": 2,
 }
+# A question outside the D-094 text boundary, or (D-142 R4) with no supported intent: nothing
+# is sent either way, and the notice names the closed reason only.
+TEXT_REFUSED = (
+    "Reason: SYNTHETIC_TEXT_NOT_APPROVED.",
+    "Reason: INTENT_UNSUPPORTED.",
+    "Reason: INTENT_AMBIGUOUS.",
+)
 
 
 def config(tmp_path: Path, profiles_file: Path | None = None, **extra: Any) -> AiAssistantSettings:
@@ -736,15 +744,22 @@ def test_a_case_outside_the_boundary_sends_nothing(
     monkeypatch.setattr("tests.test_model_management.SUMMARY", SUMMARY)
     reply = journey.ask("Is Tan Ah Kow, NRIC S1234567D, a director here?")
     assert reply["answered_by"] == "case_data"
-    assert reply["notice"].endswith("Reason: SYNTHETIC_TEXT_NOT_APPROVED.")
+    assert reply["notice"].endswith(TEXT_REFUSED)  # R4: or no supported intent
     assert "Tan" not in reply["notice"] and "S1234567D" not in reply["notice"]
-    # QG F-1 and R2-1: the probes that used to reach OpenRouter, on both routes.
+    assert len(journey.openrouter.chats) == before and journey.baseline.calls == 0
+    # QG F-1 and R2-1: the probes that used to reach OpenRouter, on both routes. D-142 R4
+    # (R3-1): what the person wrote never leaves; a probe whose words also ask a supported
+    # question ("What should I do next?") is sent as that intent's canonical question only.
     for probe in (QG_PROBE, HIDDEN[0], HIDDEN[1]):
         for stream in (False, True):
-            reply = journey.ask(probe, stream=stream)
-            assert reply["answered_by"] == "case_data"
-            assert reply["notice"].endswith("Reason: SYNTHETIC_TEXT_NOT_APPROVED.")
-    assert len(journey.openrouter.chats) == before and journey.baseline.calls == 0
+            journey.ask(probe, stream=stream)
+    for chat in journey.openrouter.chats[before:]:
+        text = json.dumps(chat, ensure_ascii=False)
+        for secret in ("S1234567D", "Ｓ１２３４５６７Ｄ", "陈伟明", "1985-03-12", "TAN AH KOW"):
+            assert secret not in text
+        users = [m["content"] for m in chat["messages"] if m["role"] == "user"]
+        assert users and all(user in CANONICAL.values() for user in users), users
+    assert journey.baseline.calls == 0
 
 
 def test_a_document_list_that_fails_to_load_sends_nothing(

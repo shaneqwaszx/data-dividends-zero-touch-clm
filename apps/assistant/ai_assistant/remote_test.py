@@ -61,7 +61,7 @@ from urllib.parse import urlsplit
 import anyio
 
 from . import config as assistant_config
-from . import key_sources, synthetic_eligibility
+from . import key_sources, privacy_boundary, synthetic_eligibility
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     BudgetedChatModel,
@@ -424,12 +424,14 @@ class RemoteTestModel:
                 transport=self._transport,
                 environ=environ,
                 budget_ledger=self._ledger_file,
+                wire_check=privacy_boundary.verify_wire,
             )
         return build_chat_model(
             remote,
             environ=environ,
             budget_ledger=self._ledger_file,
             allow_live_network=True,
+            wire_check=privacy_boundary.verify_wire,  # D-142: the exact HTTP body
         )
 
     @property
@@ -467,9 +469,12 @@ class RemoteTestModel:
         log.warning("remote test call refused: %s", reason)
         return ModelCallError("budget_refused")
 
-    def _ready(self, messages: list[dict[str, str]]) -> ChatModel:
+    def _ready(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[ChatModel, privacy_boundary.Protected]:
         """Blocking (preflight requests, a bounded metadata wait): never on the event loop.
-        Returns the guarded adapter to call (rebuilt when the key changed)."""
+        Returns the guarded adapter to call (rebuilt when the key changed) and the messages as
+        they may be sent (D-142, the privacy boundary)."""
 
         # Defence in depth, whoever the caller is: the messages passed the D-095 eligibility
         # check (their single-use ticket) or the text part of the D-094 synthetic boundary.
@@ -479,6 +484,11 @@ class RemoteTestModel:
         )
         if not cleared and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
+        # D-142: then the privacy boundary, before anything is reserved or sent.
+        try:
+            protected = privacy_boundary.outbound(messages)
+        except privacy_boundary.PrivacyRefused as refused:
+            raise self._refuse(f"privacy boundary ({refused.code})") from None
         with self._lock:
             if readiness(self._settings) is not None:
                 raise self._refuse("not ready")
@@ -524,13 +534,13 @@ class RemoteTestModel:
                     self._checked_at = None
                     raise self._refuse("preflight")
                 self._account, self._checked_at = account, now
-                return self._inner
+                return self._inner, protected
             assert self._account is not None
             report = Preflight()
             verify_earlier_calls(report, ledger, self._account, self._endpoint)
             if not report.passed or ledger.status().breaker_open:
                 raise self._refuse("verification")
-            return self._inner
+            return self._inner, protected
 
     def verify_now(self) -> Preflight:
         """Verify every closed call not yet verified (bounded wait for its metadata)."""
@@ -564,21 +574,34 @@ class RemoteTestModel:
         threading.Thread(target=work, name="remote-verification", daemon=True).start()
 
     def complete(self, messages: list[dict[str, str]]) -> ModelAnswer:
-        inner = self._ready(messages)
+        # D-142: only the protected messages are sent; the reply's placeholders are checked
+        # and restored before the caller's checks see it.
+        inner, protected = self._ready(messages)
         try:
-            answer: ModelAnswer = inner.complete(messages)
-            return answer
+            # D-142 R1: this provider call's single-use clearance (by its call id), taken
+            # before the budget guard reserves anything.
+            if not privacy_boundary.clear_call(protected.messages):
+                raise self._refuse("privacy boundary (CALL_UNCLEARED)")
+            answer: ModelAnswer = inner.complete(protected.messages)
+            return protected.restore_answer(answer)
         finally:
+            privacy_boundary.release(protected)
             self._verify_after()
 
     async def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]:
-        inner = await anyio.to_thread.run_sync(self._ready, messages)
+        inner, protected = await anyio.to_thread.run_sync(self._ready, messages)  # D-142
         try:
+            if not privacy_boundary.clear_call(protected.messages):  # D-142 R1, as above
+                raise self._refuse("privacy boundary (CALL_UNCLEARED)")
             # Closing this generator closes the guarded one, so its ledger settlement runs.
-            async with aclosing(inner.stream(messages)) as source:
-                async for piece in source:
+            async with (
+                aclosing(inner.stream(protected.messages)) as source,
+                aclosing(protected.restore_stream(source)) as restored,
+            ):
+                async for piece in restored:
                     yield piece
         finally:
+            privacy_boundary.release(protected)
             self._verify_after()
 
     def warm(self, messages: list[dict[str, str]]) -> None:

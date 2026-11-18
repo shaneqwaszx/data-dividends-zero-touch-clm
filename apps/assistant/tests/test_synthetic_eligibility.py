@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from ai_assistant import remote_test, synthetic_eligibility
+from ai_assistant import privacy_boundary, remote_test, synthetic_eligibility
 from ai_assistant.budget import BudgetLedger
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.config import AiAssistantSettings
@@ -38,6 +38,13 @@ UAT = ASSISTANT_DIR.parent / "backend" / "tests" / "fixtures" / "uat"
 D095 = {"synthetic_dev_decision": "D-095"}
 MOCK = {"provider": "ACRA", "environment": "MOCK"}
 ALEX = "The ACRA (MOCK) record for this case lists Alex Synthetic as an officer (role: DIRECTOR)."
+# A question outside the D-094 text boundary, or (D-142 R4) with no supported intent: nothing
+# is sent either way, and the notice names the closed reason only.
+TEXT_REFUSED = (
+    "Reason: SYNTHETIC_TEXT_NOT_APPROVED.",
+    "Reason: INTENT_UNSUPPORTED.",
+    "Reason: INTENT_AMBIGUOUS.",
+)
 
 
 def _fixture(name: str) -> bytes:
@@ -579,10 +586,10 @@ def test_the_model_sends_d095_messages_only_with_their_single_use_ticket(tmp_pat
     assert provider.chats == []
     digests = digests_for(list(snapshot.documents))
     assert check(snapshot, facts, messages, [], digests=digests) is None
-    model.complete(messages)
+    model.complete(privacy_boundary.admit(messages, person_written=False))  # R1, R4
     assert len(provider.chats) == 1
-    with pytest.raises(ModelCallError):  # used once
-        model.complete(messages)
+    with pytest.raises(ModelCallError):  # the ticket was used once (a new admission is no help)
+        model.complete(privacy_boundary.admit(messages, person_written=False))
     assert len(provider.chats) == 1
 
 
@@ -636,7 +643,8 @@ def test_hr_activates_and_the_rm_chat_answers_several_synthetic_companies(
     for case in (GARDEN, MULTIPLE_OWNER, ORION):
         serve(monkeypatch, case)
         for stream in (False, True):
-            reply = journey.ask("Could you walk me through the ownership picture?", stream=stream)
+            # D-142 R4: a supported intent (readiness), sent as its canonical question.
+            reply = journey.ask("Is this case ready to be sent to GoldTier?", stream=stream)
             assert reply["answered_by"] == "model", reply
             assert reply["notice"].startswith(REMOTE_DEV_NOTICE)
     assert len(journey.openrouter.chats) == sent + 6
@@ -671,7 +679,7 @@ def test_an_ineligible_case_or_question_sends_nothing(
     assert reply["notice"].endswith("Reason: SYNTHETIC_DOCUMENT_NOT_VERIFIED.")
     serve(monkeypatch, GARDEN)
     reply = journey.ask("Is Tan Ah Kow, NRIC S1234567D, a director here?")
-    assert reply["notice"].endswith("Reason: SYNTHETIC_TEXT_NOT_APPROVED.")
+    assert reply["notice"].endswith(TEXT_REFUSED)  # R4: or no supported intent
     assert "S1234567D" not in reply["notice"]
     assert len(journey.openrouter.chats) == sent and journey.baseline.calls == 0
 
