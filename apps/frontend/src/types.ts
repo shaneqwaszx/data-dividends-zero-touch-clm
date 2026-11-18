@@ -1199,6 +1199,28 @@ export type ProcessingNodeStatus =
   | "FAILED"
   | "NOT_REACHED";
 
+/** OPQ S1: backend-authored display verdict for one top-level pipeline stage (never persisted). */
+export type StagePresentationState =
+  | "NOT_STARTED"
+  | "RUNNING"
+  | "COMPLETE"
+  | "REVIEW_ADVISED"
+  | "ACTION_REQUIRED"
+  | "BLOCKED"
+  | "FAILED"
+  | "SKIPPED";
+
+export interface StagePresentation {
+  state: StagePresentationState;
+  reason_code: string | null;
+  /** Open exceptions owned and counted by this stage. */
+  owned_exception_ids: string[];
+  /** Open exceptions owned (and counted) by another stage; shown here as links only. */
+  linked_exception_ids: string[];
+  counts_as_done: boolean;
+  blocks_send: boolean;
+}
+
 export interface ProcessingNode {
   node_id: string;
   label: string;
@@ -1214,6 +1236,8 @@ export interface ProcessingNode {
   retained_goldtier_id?: string | null;
   /** D-141: OWNERSHIP_UBO is complete for readiness while a D-121 advisory review stays open. */
   advisory_review?: boolean | null;
+  /** OPQ S1: present on top-level nodes from current backends; null on children and older backends. */
+  presentation?: StagePresentation | null;
   children: ProcessingNode[];
 }
 

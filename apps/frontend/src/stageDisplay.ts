@@ -1,4 +1,4 @@
-import type { AutomationStage, AutomationStatus, ProcessingNode, ProcessingNodeStatus, ZeroTouchCaseSummary } from "./types";
+import type { AutomationStage, AutomationStatus, ProcessingNode, ProcessingNodeStatus, StagePresentation, StagePresentationState, ZeroTouchCaseSummary } from "./types";
 
 /*
  * Presentation only. The backend reports a later stage as BLOCKED when its prerequisites are
@@ -117,4 +117,121 @@ export const ADVISED_STAGE_SUMMARY = "Not blocking. Review ownership before Revi
 
 export function isAdvisoryReview(node: ProcessingNode): boolean {
   return node.advisory_review === true;
+}
+
+/*
+ * OPQ S2: one shared rendering of the backend presentation verdict (OPQ S1) for every surface
+ * (pipeline sidebar, section headers, progress tiles and counters). The frontend only renders the
+ * backend verdict; it derives no state of its own and never changes send availability. A node
+ * without a recognised verdict (an older backend, a child or a presentation-only step) keeps the
+ * legacy rendering exactly.
+ */
+
+/** Rail marker class; "" is the neutral not-started marker. */
+export type RailState = "done" | "now" | "attention" | "advised" | "";
+
+export interface PresentationDisplay {
+  state: StagePresentationState;
+  rail: RailState;
+  label: string;
+  /** Text marker shown beside the label; colour is never the only signal. */
+  symbol: string;
+  /** Plain reason line, when the backend reason needs one. */
+  note?: string;
+  waiting: boolean;
+  advised: boolean;
+}
+
+const PRESENTATION_STATES: ReadonlySet<StagePresentationState> = new Set<StagePresentationState>([
+  "NOT_STARTED", "RUNNING", "COMPLETE", "REVIEW_ADVISED", "ACTION_REQUIRED", "BLOCKED", "FAILED", "SKIPPED",
+]);
+
+/** A3: wording for the reason an action is required; any other code is shown in plain words. */
+const ACTION_REASON_TEXT: Readonly<Record<string, string>> = {
+  IDENTITY_CONFIRMATION_REQUIRED: "confirm UEN",
+  FINAL_CONFIRMATION_REQUIRED: "review and confirm",
+};
+const SILENT_ACTION_REASONS: ReadonlySet<string> = new Set(["OPEN_EXCEPTION"]);
+
+/** Reason lines; zero-UBO (a valid result) and absent evidence (review advised) stay distinct. */
+const REASON_NOTES: Readonly<Record<string, string>> = {
+  NO_QUALIFYING_UBO: "No qualifying UBOs identified.",
+  EVIDENCE_ABSENT: "No ownership evidence was available to analyse.",
+  REVIEW_ISSUES: "Ownership review items remain open.",
+  OWNERSHIP_SOURCE_PARTIAL: "Identity validated; the registry ownership source was partial.",
+  VERIFIED_GOLDTIER_MATCH: "Skipped after a verified GoldTier match.",
+  EARLIER_STAGE_BLOCKERS: "Held by issues in earlier stages.",
+};
+
+const PRESENTATION_SYMBOLS: Readonly<Record<StagePresentationState, string>> = {
+  NOT_STARTED: "○",
+  RUNNING: "●",
+  COMPLETE: "✓",
+  SKIPPED: "↷",
+  REVIEW_ADVISED: "!",
+  ACTION_REQUIRED: "!",
+  BLOCKED: "■",
+  FAILED: "×",
+};
+
+function plainReason(code: string): string {
+  return code.replaceAll("_", " ").toLowerCase();
+}
+
+/** The node's backend verdict when it is well formed; otherwise null (legacy rendering). */
+export function stagePresentation(node: ProcessingNode): StagePresentation | null {
+  const presentation = node.presentation;
+  if (!presentation || typeof presentation !== "object") return null;
+  if (!PRESENTATION_STATES.has(presentation.state)) return null;
+  if (!Array.isArray(presentation.owned_exception_ids) || !Array.isArray(presentation.linked_exception_ids)) return null;
+  if (typeof presentation.counts_as_done !== "boolean") return null;
+  return presentation;
+}
+
+/** The single state to colour, label and marker mapping for a backend verdict. */
+export function presentationDisplay(presentation: StagePresentation): PresentationDisplay {
+  const { state } = presentation;
+  const reason = typeof presentation.reason_code === "string" && /^[A-Z0-9_]{1,64}$/.test(presentation.reason_code)
+    ? presentation.reason_code : null;
+  const waiting = state === "NOT_STARTED" && reason === "WAITING_FOR_EARLIER_STEPS";
+  const note = reason ? REASON_NOTES[reason] : undefined;
+  let label: string;
+  let rail: RailState;
+  switch (state) {
+    case "NOT_STARTED": label = waiting ? WAITING_STAGE_LABEL : "Not started yet"; rail = ""; break;
+    case "RUNNING": label = "In progress"; rail = "now"; break;
+    case "COMPLETE": label = reason === "NO_RECORDS" ? "Complete — no records" : "Complete"; rail = "done"; break;
+    case "SKIPPED": label = "Skipped"; rail = "done"; break;
+    case "REVIEW_ADVISED": label = ADVISED_STAGE_LABEL; rail = "advised"; break;
+    case "ACTION_REQUIRED": {
+      const text = reason && !SILENT_ACTION_REASONS.has(reason) ? ACTION_REASON_TEXT[reason] ?? plainReason(reason) : null;
+      label = text ? `Action required — ${text}` : "Action required";
+      rail = "attention";
+      break;
+    }
+    case "BLOCKED": label = "Blocked"; rail = "attention"; break;
+    case "FAILED": label = "Failed"; rail = "attention"; break;
+  }
+  return { state, rail, label, symbol: PRESENTATION_SYMBOLS[state], note, waiting, advised: state === "REVIEW_ADVISED" };
+}
+
+/** Every top-level backend stage carries a verdict, so counters may use it. */
+function pipelineHasPresentation(pipeline: readonly ProcessingNode[]): boolean {
+  return pipeline.length > 0 && pipeline.every(node => stagePresentation(node) !== null);
+}
+
+/**
+ * Open-issue count from the verdicts: each owned exception id once. Linked ids are display links
+ * owned by another stage and are never counted. Null when any stage lacks a verdict (legacy count).
+ */
+export function presentationIssueCount(summary: ZeroTouchCaseSummary): number | null {
+  const pipeline = summary.processing_pipeline ?? [];
+  if (!pipelineHasPresentation(pipeline)) return null;
+  const owned = new Set(pipeline.flatMap(node => stagePresentation(node)!.owned_exception_ids));
+  return owned.size + (summary.technical_failure ? 1 : 0);
+}
+
+/** The stage that owns an exception id, for a linked-issue reference. */
+export function exceptionOwnerNode(pipeline: readonly ProcessingNode[], exceptionId: string): ProcessingNode | undefined {
+  return pipeline.find(node => stagePresentation(node)?.owned_exception_ids.includes(exceptionId));
 }
