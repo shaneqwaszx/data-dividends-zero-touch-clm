@@ -375,21 +375,28 @@ def test_the_evaluator_has_no_classifier_of_its_own():
 
 def test_resolution_drops_only_what_does_not_apply_and_is_deterministic():
     company = resolve_stages(STAGES, ConditionalLegalForm.COMPANY)
-    assert [s.stage_id for s in company] == ["registry-notes", "signatory", "lp-notice"]
+    # ADR-018 3.3: a zero-field LP-only stage follows its own condition, so COMPANY drops it.
+    assert [s.stage_id for s in company] == ["registry-notes", "signatory"]
     llp = resolve_stages(STAGES, ConditionalLegalForm.LLP)
     assert {s.stage_id: len(s.fields) for s in llp} == {
         "registry-notes": 1,
         "llp-partners": 1,
         "signatory": 1,
-        "lp-notice": 0,
     }
-    # The zero-field stage is copied unchanged; anchors and order never change.
-    assert [s.after_node_id for s in llp] == [s.after_node_id for s in STAGES]
+    # The zero-field LP-only stage follows its own condition; anchors and order never change.
+    assert [s.after_node_id for s in llp] == [
+        s.after_node_id for s in STAGES if s.stage_id != "lp-notice"
+    ]
+    lp = resolve_stages(STAGES, ConditionalLegalForm.LP)
+    assert "lp-notice" in [s.stage_id for s in lp]
     assert resolve_stages(STAGES, None) == STAGES  # UNVERIFIED: everything applies
     assert resolve_stages(STAGES, ConditionalLegalForm.LLP) == llp  # deterministic
     plain = (REGISTRY_NOTES,)
     assert resolve_stages(plain, ConditionalLegalForm.LP)[0] is REGISTRY_NOTES
-    assert excluded_items(STAGES, ConditionalLegalForm.LLP) == {("signatory", "company-secretary")}
+    assert excluded_items(STAGES, ConditionalLegalForm.LLP) == {
+        ("signatory", "company-secretary"),
+        ("lp-notice", None),
+    }
 
 
 # --- CT-32 / CT-36: freeze at the first binding (end to end, Mock) ------------------------
@@ -411,7 +418,6 @@ def test_an_llp_binding_freezes_and_its_llp_stage_holds_the_send():
         "registry-notes": ("reference",),
         "llp-partners": ("partner-count",),
         "signatory": ("full-name",),
-        "lp-notice": (),
     }
     world.complete(
         case.case_id,

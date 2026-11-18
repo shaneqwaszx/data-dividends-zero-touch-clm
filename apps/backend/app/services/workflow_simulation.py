@@ -29,8 +29,8 @@ from app.domain.workflows import (
     ONBOARDING_LOCKED_STAGES,
     AppliesTo,
     WorkflowStage,
-    effective_applies_to,
 )
+from app.services.workflow_applicability import resolve_stages as _resolve_for_run
 from app.services.workflow_management import stage_blocks_send
 
 MAX_SUMMARY = 240
@@ -129,29 +129,15 @@ def _applies(applies_to: AppliesTo | None, form: SimulationLegalForm) -> bool:
 def resolve_stages(
     stages: tuple[WorkflowStage, ...], form: SimulationLegalForm
 ) -> tuple[WorkflowStage, ...]:
-    """The resolved stage copy for one synthetic legal form (ADR-018 §3.3). Pure.
+    """The resolved stage copy for one synthetic legal form (ADR-018 3.3). Pure.
 
-    A kept stage keeps the fields whose effective applicability (stage ∩ field) applies. A
-    stage is dropped when it does not apply, or when resolution emptied it (it had fields and
-    none applies); a stage authored with zero fields is kept unchanged. ``applies_to`` stays on
-    the copy. Local helper: the run evaluator needs the same rule (the integrator dedupes).
+    Delegates to the run evaluator's single rule (``workflow_applicability.resolve_stages``),
+    so simulation and real runs can never diverge. UNVERIFIED and OTHER map to the
+    unverified basis (None), which receives every condition.
     """
 
-    resolved: list[WorkflowStage] = []
-    for stage in stages:
-        if not _applies(stage.applies_to, form):
-            continue
-        fields = tuple(
-            field
-            for field in stage.fields
-            if _applies(effective_applies_to(stage.applies_to, field.applies_to), form)
-        )
-        if stage.fields and not fields:
-            continue
-        if fields != stage.fields:
-            stage = stage.model_copy(update={"fields": fields})
-        resolved.append(stage)
-    return tuple(resolved)
+    legal_form = None if form in _UNVERIFIED_FORMS else ConditionalLegalForm(form)
+    return _resolve_for_run(stages, legal_form)
 
 
 def _added_step(stage: WorkflowStage) -> SimulatedStep:

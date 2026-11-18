@@ -211,6 +211,7 @@ def test_module_imports_no_case_store_provider_or_io() -> None:
         "app.domain.registry_legal_form",
         "app.domain.workflow_governance",
         "app.domain.workflows",
+        "app.services.workflow_applicability",
         "app.services.workflow_management",
     }
 

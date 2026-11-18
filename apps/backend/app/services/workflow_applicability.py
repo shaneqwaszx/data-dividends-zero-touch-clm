@@ -163,8 +163,13 @@ def resolve_stages(
 
     result: list[WorkflowStage] = []
     for stage in stages:
-        if not stage.is_conditional or not stage.fields:
+        if not stage.is_conditional:
             result.append(stage)
+            continue
+        if not stage.fields:
+            # A stage authored with no fields follows its own condition (ADR-018 3.3).
+            if applies(stage.applies_to, legal_form) or (stage.stage_id, None) in keep:
+                result.append(stage)
             continue
         stage_applies = applies(stage.applies_to, legal_form)
         fields = tuple(
