@@ -1,5 +1,5 @@
-"""ADR-017 1.4 / B-0 2: the P2-1 migration library, its dry-run CLI, the P2-1 startup
-verification and the mixed-version owner conditions.
+"""ADR-017 1.4 / B-0 2: the P2-1 migration library, its CLI (dry run and the guarded
+apply mode), the P2-1 startup verification and the mixed-version owner conditions.
 
 Dict-backed doubles only (no Mongo server, no mongomock).
 """
@@ -7,11 +7,15 @@ Dict-backed doubles only (no Mongo server, no mongomock).
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pymongo.errors import WTimeoutError
 from scripts import p2_1_migration as cli
 from test_workflow_governance_cold_store import FakeClient, FakeCollection
 
@@ -54,14 +58,20 @@ from app.persistence.adr017_migrations import (
 )
 from app.persistence.errors import PersistenceOutcomeAmbiguousError
 from app.persistence.p2_1_migration import (
+    MIGRATION_LOCK_COLLECTION,
+    MIGRATION_LOCK_ID,
+    WINDOW_APPROVAL_FORMAT,
     MigrationRefusedError,
     PlannedMigration,
     apply_p2_1_migration,
+    live_dispatch_leases,
     plan_p2_1_migration,
+    read_migration_lock,
     store_cold_inserts,
 )
 from app.persistence.workflow_governance_store import (
     InMemoryColdHistoryStore,
+    MongoColdHistoryStore,
     decode_governance_fields,
     dict_hash,
 )
@@ -576,86 +586,487 @@ def test_accidental_old_writer_startup_fails_closed_without_writes() -> None:
     assert verify_p2_1_definitions(definitions.find({}), cold=cold) == []
 
 
-# --- the dry-run CLI ------------------------------------------------------------------
+# --- the CLI: dry run and the owner-approved apply mode -------------------------------
+
+APPLY_NOW = datetime(2031, 3, 2, 10, 0, tzinfo=UTC)
+URI = f"mongodb://synthetic-user:synthetic-secret@localhost:1/{DATABASE}"
+ENV = {cli.URI_ENVIRONMENT_KEY: URI}
+
+
+class LockCollection(FakeCollection):
+    """The fake collection plus ``delete_one`` (the lock release)."""
+
+    def with_options(self, **kwargs: Any) -> FakeCollection:
+        view = LockCollection(self.documents, self.log, True, self.faults)
+        view.indexes = self.indexes
+        return view
+
+    def delete_one(self, query: dict[str, Any]) -> Any:
+        self.log.append(("delete_one", self.durable, copy.deepcopy(query)))
+        for key, document in list(self.documents.items()):
+            if all(document.get(field) == value for field, value in query.items()):
+                del self.documents[key]
+                return SimpleNamespace(deleted_count=1)
+        return SimpleNamespace(deleted_count=0)
+
+
+def world(*raws: dict[str, Any], cases: tuple[dict[str, Any], ...] = ()) -> FakeClient:
+    client = FakeClient()
+    database = client[DATABASE]
+    database.collections["clm_workflow_definitions"] = collection(*(raws or (p2_0_raw(),)))
+    database.collections["clm_case_snapshots"] = FakeCollection(
+        {item["_id"]: copy.deepcopy(item) for item in cases}
+    )
+    database.collections[MIGRATION_LOCK_COLLECTION] = LockCollection()
+    return client
+
+
+def write_approval(
+    folder: Path,
+    *,
+    database: str = DATABASE,
+    approval: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+    manifest_sha256: str | None = None,
+    archive: bool = True,
+) -> Path:
+    archive_bytes = b"synthetic encrypted archive"
+    (folder / "backup.cms").write_bytes(archive_bytes)
+    body = {
+        "format": "mongo-gzip-archive/cms-aes-256-gcm/v1",
+        "database": database,
+        "boundary_utc": "2031-03-02T09:30:00Z",
+        "sha256": hashlib.sha256(archive_bytes).hexdigest(),
+        "bytes": len(archive_bytes),
+        **(manifest or {}),
+    }
+    manifest_path = folder / "manifest.json"
+    manifest_path.write_text(json.dumps(body), encoding="utf-8")
+    backup: dict[str, Any] = {
+        "manifest_path": "manifest.json",
+        "manifest_sha256": manifest_sha256
+        or hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    }
+    if archive:
+        backup["archive_path"] = "backup.cms"
+    content = {
+        "format": WINDOW_APPROVAL_FORMAT,
+        "database": database,
+        "window_id": "W-P21-001",
+        "start_utc": "2031-03-02T09:00:00Z",
+        "end_utc": "2031-03-02T12:00:00Z",
+        "approver": "repository-owner",
+        "backup": backup,
+        **(approval or {}),
+    }
+    path = folder / "approval.json"
+    path.write_text(json.dumps(content), encoding="utf-8")
+    return path
+
+
+def run(
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
+    *,
+    client: FakeClient | None = None,
+    environ: dict[str, str] | None = None,
+    now: datetime = APPLY_NOW,
+) -> tuple[int, dict[str, Any], str]:
+    def factory(_uri: str) -> Any:
+        if client is None:
+            raise AssertionError("a refused run never connects")
+        return client
+
+    code = cli.main(
+        argv,
+        client_factory=factory,
+        seed_baseline=Seeder(),
+        now=now,
+        environ=ENV if environ is None else environ,
+    )
+    out = capsys.readouterr().out
+    assert "synthetic-secret" not in out and URI not in out
+    return code, json.loads(out), out
+
+
+def dry_run_hash(client: FakeClient, capsys: pytest.CaptureFixture[str]) -> str:
+    code, report, _ = run(["--database", DATABASE, "--dry-run"], capsys, client=client)
+    assert code == 0 and report["status"] == "READY"
+    return str(report["plan_hash"])
+
+
+def apply_argv(approval: Path, digest: str, *extra: str) -> list[str]:
+    return [
+        "--database",
+        DATABASE,
+        "--apply",
+        "--window-approval",
+        str(approval),
+        "--expect-plan-hash",
+        digest,
+        *extra,
+    ]
 
 
 @pytest.mark.parametrize(
     ("argv", "reason"),
     [
-        (["--database", DATABASE, "--apply"], "APPLY_NOT_AVAILABLE"),
-        (["--database", DATABASE, "--dry-run", "--apply"], "APPLY_NOT_AVAILABLE"),
-        (["--database", DATABASE, "--execute"], "APPLY_NOT_AVAILABLE"),
-        (["--database", DATABASE], "DRY_RUN_REQUIRED"),
+        (["--database", DATABASE, "--apply"], "APPLY_REQUIRES_APPROVAL_AND_PLAN_HASH"),
+        (["--database", DATABASE, "--dry-run", "--apply"], "CHOOSE_DRY_RUN_OR_APPLY"),
+        (["--database", DATABASE], "CHOOSE_DRY_RUN_OR_APPLY"),
+        (["--database", DATABASE, "--execute"], "UNSUPPORTED_APPLY_FLAG"),
+        (["--database", DATABASE, "--dry-run", "--force"], "UNSUPPORTED_APPLY_FLAG"),
         (["--database", DATABASE, "--dry-run", "--yes"], "UNKNOWN_ARGUMENT"),
-        (["--database", "clm_poc", "--dry-run"], "FORBIDDEN_DATABASE"),
-        (["--database", "CLM_POC", "--dry-run"], "FORBIDDEN_DATABASE"),
+        (["--database", DATABASE, "--dry-run", "--resume-lock", "x"], "RESUME_LOCK_REQUIRES_APPLY"),
+        (["--database", "clm_poc", "--dry-run"], "PROTECTED_DATABASE_NOT_APPROVED"),
+        (["--database", "CLM_POC", "--dry-run"], "PROTECTED_DATABASE_NOT_APPROVED"),
+        (["--database", "clm_staging", "--dry-run"], "PROTECTED_DATABASE_NOT_APPROVED"),
     ],
 )
-def test_cli_refuses_anything_but_a_dry_run(
+def test_cli_refuses_bad_invocations_without_connecting(
     argv: list[str], reason: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def no_client(_uri: str) -> Any:
-        raise AssertionError("a refused run never connects")
-
-    assert cli.main(argv, client_factory=no_client, seed_baseline=Seeder()) == 2
-    report = json.loads(capsys.readouterr().out)
-    assert report["status"] == "REFUSED" and report["reason"] == reason
+    code, report, _ = run(argv, capsys)
+    assert code == 2 and report == {"status": "REFUSED", "reason": reason}
 
 
 def test_cli_refuses_without_the_baseline_seeder(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_default_seeder", lambda: None)
-    assert cli.main(["--database", DATABASE, "--dry-run"]) == 2
+    assert cli.main(["--database", DATABASE, "--dry-run"], environ=ENV) == 2
     assert json.loads(capsys.readouterr().out)["reason"] == "BASELINE_SEEDER_UNAVAILABLE"
 
 
-def test_cli_dry_run_reads_only_and_never_prints_the_uri(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_cli_dry_run_reads_only_and_prints_a_stable_plan_hash(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    uri = "mongodb://synthetic-user:synthetic-secret@localhost:1/x"
-    monkeypatch.setenv(cli.URI_ENVIRONMENT_KEY, uri)
-    client = FakeClient()
-    client[DATABASE].collections["clm_workflow_definitions"] = collection(p2_0_raw())
-    assert (
-        cli.main(
-            ["--database", DATABASE, "--dry-run"],
-            client_factory=lambda _uri: client,
-            seed_baseline=Seeder(),
-            now=LATER,
-        )
-        == 0
+    client = world()
+    first = dry_run_hash(client, capsys)
+    # The hash does not depend on the run's clock, only on what would be written.
+    code, report, _ = run(
+        ["--database", DATABASE, "--dry-run"],
+        capsys,
+        client=client,
+        now=APPLY_NOW + timedelta(hours=1),
     )
-    out = capsys.readouterr().out
-    assert "synthetic-secret" not in out and uri not in out
-    report = json.loads(out)
-    assert report["status"] == "READY" and report["mode"] == "DRY_RUN"
+    assert report["plan_hash"] == first and len(first) == 64
     assert [item["id"] for item in report["to_migrate"]] == ["refresh"]
     database = client[DATABASE]
     assert all(not item.log and not item.indexes for item in database.collections.values())
     assert client.closed
 
 
-def test_cli_failure_reports_only_the_error_type(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    uri = "mongodb://synthetic-user:synthetic-secret@localhost:1/x"
-    monkeypatch.setenv(cli.URI_ENVIRONMENT_KEY, uri)
+def test_cli_failure_reports_only_the_error_type(capsys: pytest.CaptureFixture[str]) -> None:
     client = FakeClient()
     client[DATABASE].collections["clm_workflow_definitions"] = FakeCollection(
-        faults={"find": [RuntimeError(uri)]}
+        faults={"find": [RuntimeError(URI)]}
+    )
+    code, report, _ = run(["--database", DATABASE, "--dry-run"], capsys, client=client)
+    assert code == 3 and report == {"status": "FAILED", "error_type": "RuntimeError"}
+
+
+def _break(folder: Path, kind: str) -> Path:
+    path = write_approval(folder)
+    if kind == "missing":
+        return folder / "absent.json"
+    if kind == "invalid_json":
+        path.write_text("{not json", encoding="utf-8")
+    elif kind == "wrong_format":
+        write_approval(folder, approval={"format": "something-else"})
+    elif kind == "database":
+        write_approval(folder, approval={"database": "clm_p12_ffffffffffffffffffffffff"})
+    elif kind == "too_long":
+        write_approval(folder, approval={"end_utc": "2031-03-03T09:00:00Z"})
+    elif kind == "naive_time":
+        write_approval(folder, approval={"start_utc": "2031-03-02T09:00:00"})
+    elif kind == "before_window":
+        write_approval(folder, approval={"start_utc": "2031-03-02T10:30:00Z"})
+    elif kind == "after_window":
+        write_approval(folder, approval={"end_utc": "2031-03-02T09:45:00Z"})
+    elif kind == "no_backup":
+        write_approval(folder, approval={"backup": None})
+    elif kind == "manifest_missing":
+        write_approval(
+            folder, approval={"backup": {"manifest_path": "gone.json", "manifest_sha256": "a" * 64}}
+        )
+    elif kind == "manifest_hash":
+        write_approval(folder, manifest_sha256="b" * 64)
+    elif kind == "manifest_database":
+        write_approval(folder, manifest={"database": "clm_other"})
+    elif kind == "manifest_format":
+        write_approval(folder, manifest={"format": "tarball"})
+    elif kind == "boundary_before_window":
+        write_approval(folder, manifest={"boundary_utc": "2031-03-02T08:00:00Z"})
+    elif kind == "boundary_future":
+        write_approval(folder, manifest={"boundary_utc": "2031-03-02T11:00:00Z"})
+    elif kind == "archive_hash":
+        write_approval(folder)
+        (folder / "backup.cms").write_bytes(b"tampered archive bytes!!!!!")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("kind", "reason"),
+    [
+        ("missing", "WINDOW_APPROVAL_MISSING"),
+        ("invalid_json", "WINDOW_APPROVAL_INVALID"),
+        ("wrong_format", "WINDOW_APPROVAL_INVALID"),
+        ("database", "WINDOW_APPROVAL_DATABASE_MISMATCH"),
+        ("too_long", "WINDOW_APPROVAL_INVALID"),
+        ("naive_time", "WINDOW_APPROVAL_INVALID"),
+        ("before_window", "OUTSIDE_APPROVED_WINDOW"),
+        ("after_window", "OUTSIDE_APPROVED_WINDOW"),
+        ("no_backup", "BACKUP_NOT_NAMED"),
+        ("manifest_missing", "BACKUP_MANIFEST_MISSING"),
+        ("manifest_hash", "BACKUP_MANIFEST_HASH_MISMATCH"),
+        ("manifest_database", "BACKUP_DATABASE_MISMATCH"),
+        ("manifest_format", "BACKUP_MANIFEST_INVALID"),
+        ("boundary_before_window", "BACKUP_NOT_IN_WINDOW"),
+        ("boundary_future", "BACKUP_NOT_IN_WINDOW"),
+        ("archive_hash", "BACKUP_ARCHIVE_HASH_MISMATCH"),
+    ],
+)
+def test_apply_refuses_an_unapproved_window_or_unverified_backup(
+    tmp_path: Path, kind: str, reason: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    approval = _break(tmp_path, kind)
+    code, report, _ = run(apply_argv(approval, "0" * 64), capsys)
+    assert code == 2 and report == {"status": "REFUSED", "reason": reason}
+
+
+@pytest.mark.parametrize(
+    ("environ", "reason"),
+    [
+        (
+            {cli.URI_ENVIRONMENT_KEY: "mongodb://localhost:1/clm_p12_ffffffffffffffffffffffff"},
+            "DATABASE_MISMATCH",
+        ),
+        ({cli.URI_ENVIRONMENT_KEY: "mongodb://localhost:1/"}, "DATABASE_NOT_CONFIRMED"),
+        (
+            {
+                cli.URI_ENVIRONMENT_KEY: "mongodb://localhost:1/",
+                cli.DATABASE_ENVIRONMENT_KEY: "clm_p12_ffffffffffffffffffffffff",
+            },
+            "DATABASE_MISMATCH",
+        ),
+        ({cli.URI_ENVIRONMENT_KEY: "not-a-uri"}, "URI_INVALID"),
+        ({}, "URI_NOT_CONFIGURED"),
+    ],
+)
+def test_apply_refuses_when_the_connection_names_another_database(
+    tmp_path: Path, environ: dict[str, str], reason: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, report, _ = run(apply_argv(write_approval(tmp_path), "0" * 64), capsys, environ=environ)
+    assert code == 2 and report == {"status": "REFUSED", "reason": reason}
+
+
+def test_apply_refuses_while_a_dispatch_lease_is_live(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lease = {
+        "_id": "case-1",
+        "target_executions": [
+            {
+                "state": "IN_PROGRESS",
+                "workflow_dispatch": {"state": "TENTATIVE", "lease_until": APPLY_NOW},
+            }
+        ],
+    }
+    client = world(cases=(lease,))
+    digest = dry_run_hash(client, capsys)
+    code, report, _ = run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)
+    assert code == 2 and report["reason"] == "WRITERS_NOT_QUIESCED"
+    database = client[DATABASE]
+    assert all(not item.log for item in database.collections.values())
+
+
+def test_live_dispatch_leases_counts_only_possibly_live_claims() -> None:
+    def entry(state: str, lease: Any) -> dict[str, Any]:
+        return {"state": state, "workflow_dispatch": {"state": "AUTHORISED", "lease_until": lease}}
+
+    cases = FakeCollection(
+        {
+            "a": {"_id": "a", "target_executions": [entry("IN_PROGRESS", APPLY_NOW)]},
+            "b": {"_id": "b", "target_executions": [entry("FINALIZED", APPLY_NOW)]},
+            "c": {
+                "_id": "c",
+                "target_executions": [entry("IN_PROGRESS", APPLY_NOW - timedelta(hours=1))],
+            },
+            "d": {"_id": "d", "target_executions": [entry("IN_PROGRESS", None)]},
+            # Within the clock-skew margin: still treated as live (fail closed).
+            "e": {
+                "_id": "e",
+                "target_executions": [
+                    entry("IN_PROGRESS", (APPLY_NOW - timedelta(minutes=2)).replace(tzinfo=None))
+                ],
+            },
+            "f": {"_id": "f", "target_executions": [{"state": "IN_PROGRESS"}]},
+        }
+    )
+    assert live_dispatch_leases(cases, now=APPLY_NOW) == 3
+
+
+def test_apply_happy_path_migrates_verifies_and_releases_the_lock(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = world(p2_0_raw(), p2_0_raw("other", draft=False))
+    digest = dry_run_hash(client, capsys)
+    code, report, _ = run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED"
+    assert report["applied"] == 2 and report["plan_hash"] == digest
+    assert report["lock_released"] is True and report["backup_archive_verified"] is True
+    assert report["approval"]["window_id"] == "W-P21-001"
+    database = client[DATABASE]
+    assert database[MIGRATION_LOCK_COLLECTION].documents == {}
+    lock_writes = database[MIGRATION_LOCK_COLLECTION].log
+    assert [item[:2] for item in lock_writes] == [("insert_one", True), ("delete_one", True)]
+    definitions = database["clm_workflow_definitions"]
+    assert all("p2_1_migration_marker" in item for item in definitions.documents.values())
+    assert all(durable for op, durable, _ in definitions.log if op == "update_one")
+    cold = MongoColdHistoryStore(database)  # type: ignore[arg-type]
+    assert verify_p2_1_definitions(definitions.find({}), cold=cold) == []
+    # Re-running after success: a fresh dry run plans nothing; the apply is a no-op.
+    again = dry_run_hash(client, capsys)
+    assert again != digest
+    code, report, _ = run(apply_argv(write_approval(tmp_path), again), capsys, client=client)
+    assert (
+        code == 0 and report["applied"] == 0 and report["already_migrated"] == ["other", "refresh"]
+    )
+
+
+def test_apply_refuses_a_plan_that_differs_from_the_dry_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = world()
+    digest = dry_run_hash(client, capsys)
+    # A writer changed the definition after the dry run: its nonce moved.
+    client[DATABASE]["clm_workflow_definitions"].documents["refresh"]["write_nonce"] = "9" * 32
+    code, report, _ = run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    assert report["lock_released"] is True
+    definitions = client[DATABASE]["clm_workflow_definitions"]
+    assert definitions.log == []
+    assert "p2_1_migration_marker" not in definitions.documents["refresh"]
+
+
+def test_apply_refuses_a_plan_with_refusals(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    raw = p2_0_raw()
+    raw.pop("latest_version")
+    client = world(raw)
+    code, dry, _ = run(["--database", DATABASE, "--dry-run"], capsys, client=client)
+    assert code == 1 and dry["status"] == "REFUSED"
+    code, report, _ = run(
+        apply_argv(write_approval(tmp_path), str(dry["plan_hash"])), capsys, client=client
+    )
+    assert code == 1 and report["reason"] == "PLAN_HAS_REFUSALS"
+    assert report["lock_released"] is True
+    assert client[DATABASE]["clm_workflow_definitions"].log == []
+
+
+def test_a_held_lock_refuses_and_is_never_overwritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = world()
+    digest = dry_run_hash(client, capsys)
+    locks = client[DATABASE][MIGRATION_LOCK_COLLECTION]
+    held = {
+        "_id": MIGRATION_LOCK_ID,
+        "lock_id": "f" * 32,
+        "state": "HELD",
+        "database": DATABASE,
+        "window_id": "W-OTHER",
+        "acquired_at": APPLY_NOW - timedelta(hours=30),
+        "expires_at": APPLY_NOW - timedelta(hours=27),
+    }
+    locks.documents[MIGRATION_LOCK_ID] = dict(held)
+    code, report, _ = run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)
+    assert code == 2 and report["reason"] == "MIGRATION_LOCK_HELD"
+    assert report["lock"]["window_id"] == "W-OTHER"
+    assert locks.documents[MIGRATION_LOCK_ID] == held
+    # An expired lock of another window is not resumable either: an operator must decide.
+    code, report, _ = run(
+        apply_argv(write_approval(tmp_path), digest, "--resume-lock", "f" * 32),
+        capsys,
+        client=client,
+    )
+    assert code == 2 and report["reason"] == "MIGRATION_LOCK_NOT_RESUMABLE"
+    assert locks.documents[MIGRATION_LOCK_ID] == held
+    assert client[DATABASE]["clm_workflow_definitions"].log == []
+    assert read_migration_lock(locks) == held
+
+
+def test_an_interrupted_apply_keeps_the_lock_and_resumes_in_the_same_window(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clean = world()
+    clean_hash = dry_run_hash(clean, capsys)
+    assert run(apply_argv(write_approval(tmp_path), clean_hash), capsys, client=clean)[0] == 0
+
+    client = world()
+    digest = dry_run_hash(client, capsys)
+    assert digest == clean_hash
+    versions = client[DATABASE]["workflow_versions"]
+    versions.faults["insert_one_after"] = [WTimeoutError("timeout")]
+    code, report, _ = run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)
+    assert code == 4 and report["status"] == "INTERRUPTED"
+    assert report["lock_released"] is False
+    lock_id = str(report["lock_id"])
+    definitions = client[DATABASE]["clm_workflow_definitions"]
+    assert "p2_1_migration_marker" not in definitions.documents["refresh"]
+    # The backend startup hook sees the lock.
+    assert read_migration_lock(client[DATABASE][MIGRATION_LOCK_COLLECTION]) is not None
+    # A new run without the lock id is refused; a wrong id is refused.
+    assert (
+        run(apply_argv(write_approval(tmp_path), digest), capsys, client=client)[1]["reason"]
+        == "MIGRATION_LOCK_HELD"
     )
     assert (
-        cli.main(
-            ["--database", DATABASE, "--dry-run"],
-            client_factory=lambda _uri: client,
-            seed_baseline=Seeder(),
-        )
-        == 3
+        run(
+            apply_argv(write_approval(tmp_path), digest, "--resume-lock", "0" * 32),
+            capsys,
+            client=client,
+        )[1]["reason"]
+        == "MIGRATION_LOCK_NOT_RESUMABLE"
     )
-    out = capsys.readouterr().out
-    assert json.loads(out) == {"status": "FAILED", "error_type": "RuntimeError"}
-    assert "synthetic-secret" not in out
+    # Resuming in the same window converges to the clean end state.
+    resumed_hash = dry_run_hash(client, capsys)
+    assert resumed_hash == digest  # cold copies alone change nothing the CAS asserts
+    code, report, _ = run(
+        apply_argv(write_approval(tmp_path), resumed_hash, "--resume-lock", lock_id),
+        capsys,
+        client=client,
+    )
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED" and report["lock_released"]
+    assert client[DATABASE][MIGRATION_LOCK_COLLECTION].documents == {}
+
+    def hot(target: FakeClient) -> dict[str, Any]:
+        stored = copy.deepcopy(target[DATABASE]["clm_workflow_definitions"].documents["refresh"])
+        stored.pop("write_nonce")
+        stored["p2_1_migration_marker"].pop("migrated_at")
+        for event in stored["governance_events"]:
+            event.pop("occurred_at")
+        for entry in stored["outbox"]:
+            entry.pop("content_hash")
+        return stored
+
+    assert hot(client) == hot(clean)
+
+
+def test_a_protected_database_needs_an_approval_naming_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = FakeClient()
+    client["clm_staging"].collections["clm_workflow_definitions"] = collection(p2_0_raw())
+    approval = write_approval(tmp_path, database="CLM_Staging")
+    code, report, _ = run(
+        ["--database", "clm_staging", "--dry-run", "--window-approval", str(approval)],
+        capsys,
+        client=client,
+    )
+    assert code == 0 and report["status"] == "READY"
 
 
 def test_planned_migration_is_frozen() -> None:
@@ -663,3 +1074,154 @@ def test_planned_migration_is_frozen() -> None:
     assert isinstance(planned, PlannedMigration)
     with pytest.raises(AttributeError):
         planned.revision = 5  # type: ignore[misc]
+
+
+# --- QG (migration apply): resumed locks are never released by a refusal -------------
+
+
+def interrupted(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> tuple[FakeClient, Path, str]:
+    """A run that wrote cold copies and then died: lock retained, no marker."""
+
+    client = world()
+    approval = write_approval(tmp_path)
+    digest = dry_run_hash(client, capsys)
+    client[DATABASE]["workflow_versions"].faults["insert_one_after"] = [WTimeoutError("t")]
+    code, report, _ = run(apply_argv(approval, digest), capsys, client=client)
+    assert code == 4 and report["lock_released"] is False
+    assert "fresh dry run" in report["next_step"]
+    return client, approval, str(report["lock_id"])
+
+
+def _lock(client: FakeClient) -> dict[str, Any] | None:
+    return read_migration_lock(client[DATABASE][MIGRATION_LOCK_COLLECTION])
+
+
+def _assert_kept(report: dict[str, Any], client: FakeClient) -> str:
+    assert report["lock_released"] is False
+    assert "fresh dry run" in report["next_step"] and "--resume-lock" in report["next_step"]
+    held = _lock(client)
+    assert held is not None and held["lock_id"] == report["lock_id"]
+    return str(report["lock_id"])
+
+
+def test_a_refused_resume_never_releases_the_lock(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client, approval, lock_id = interrupted(tmp_path, capsys)
+    good = dry_run_hash(client, capsys)
+    # 1. A stale or wrong plan hash.
+    code, report, _ = run(
+        apply_argv(approval, "0" * 64, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    lock_id = _assert_kept(report, client)
+    # 2. A writer is running again (lease appears after the resume took the lock).
+    cases = client[DATABASE]["clm_case_snapshots"]
+    calls = {"n": 0}
+    real_find = cases.find
+
+    def find(query: Any = None, *rest: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            return [
+                {
+                    "_id": "case",
+                    "target_executions": [
+                        {"state": "IN_PROGRESS", "workflow_dispatch": {"lease_until": APPLY_NOW}}
+                    ],
+                }
+            ]
+        return real_find(query, *rest)
+
+    cases.find = find  # type: ignore[method-assign]
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 2 and report["reason"] == "WRITERS_NOT_QUIESCED"
+    lock_id = _assert_kept(report, client)
+    cases.find = real_find  # type: ignore[method-assign]
+    # 3. The plan now has refusals.
+    definitions = client[DATABASE]["clm_workflow_definitions"]
+    saved = copy.deepcopy(definitions.documents["refresh"])
+    definitions.documents["refresh"].pop("latest_version")
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 1 and report["reason"] == "PLAN_HAS_REFUSALS"
+    lock_id = _assert_kept(report, client)
+    definitions.documents["refresh"] = saved
+    # 4. An unexpected failure before this run wrote anything.
+    definitions.faults["find"] = [RuntimeError("boom")]
+    code, report, _ = run(
+        apply_argv(approval, good, "--resume-lock", lock_id), capsys, client=client
+    )
+    assert code == 3 and report["status"] == "FAILED"
+    lock_id = _assert_kept(report, client)
+    # Finally the documented procedure converges and releases the lock.
+    code, report, _ = run(
+        apply_argv(approval, dry_run_hash(client, capsys), "--resume-lock", lock_id),
+        capsys,
+        client=client,
+    )
+    assert code == 0 and report["status"] == "APPLIED_VERIFIED" and report["lock_released"]
+    assert _lock(client) is None
+
+
+def test_apply_requires_a_verified_archive_but_a_dry_run_does_not(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    approval = write_approval(tmp_path, archive=False)
+    code, report, _ = run(apply_argv(approval, "0" * 64), capsys)
+    assert code == 2 and report == {"status": "REFUSED", "reason": "BACKUP_ARCHIVE_NOT_NAMED"}
+    code, report, _ = run(
+        ["--database", DATABASE, "--dry-run", "--window-approval", str(approval)],
+        capsys,
+        client=world(),
+    )
+    assert code == 0 and report["status"] == "READY"
+
+
+@pytest.mark.parametrize("tamper", ["archive", "approval"])
+def test_backup_and_approval_are_re_verified_after_quiescence(
+    tmp_path: Path,
+    tamper: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = world()
+    approval = write_approval(tmp_path)
+    digest = dry_run_hash(client, capsys)
+    calls = {"n": 0}
+
+    def leases(_cases: Any, *, now: datetime) -> int:
+        calls["n"] += 1
+        if calls["n"] == 2:  # the re-check after the lock: change something meanwhile
+            if tamper == "archive":
+                (tmp_path / "backup.cms").write_bytes(b"swapped archive bytes......")
+            else:
+                content = json.loads(approval.read_text(encoding="utf-8"))
+                content["approver"] = "someone-else"
+                approval.write_text(json.dumps(content), encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(cli, "live_dispatch_leases", leases)
+    code, report, _ = run(apply_argv(approval, digest), capsys, client=client)
+    expected = "BACKUP_ARCHIVE_HASH_MISMATCH" if tamper == "archive" else "WINDOW_APPROVAL_CHANGED"
+    assert code == 2 and report["reason"] == expected
+    # A fresh lock with nothing written is released; nothing was migrated.
+    assert report["lock_released"] is True and _lock(client) is None
+    assert client[DATABASE]["clm_workflow_definitions"].log == []
+
+
+def test_srv_uri_database_is_read_without_dns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = world()
+    environ = {
+        cli.URI_ENVIRONMENT_KEY: f"mongodb+srv://u:synthetic-secret@cluster.invalid/{DATABASE}?tls=true"
+    }
+    code, report, out = run(
+        apply_argv(write_approval(tmp_path), "0" * 64), capsys, client=client, environ=environ
+    )
+    assert code == 2 and report["reason"] == "PLAN_HASH_MISMATCH"
+    assert "cluster.invalid" not in out
