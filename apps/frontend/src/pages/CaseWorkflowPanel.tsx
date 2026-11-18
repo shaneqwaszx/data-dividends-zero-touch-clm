@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { RunApplicabilityBasis } from "../components/workflow-governance/RunApplicabilityBasis";
 import StageDisclosure from "./StageDisclosure";
+import { CONDITIONAL_ONBOARDING_ANCHORS } from "../workflowGovernanceTypes";
 import {
   confirmStage,
   saveStageAnswers,
@@ -141,8 +142,12 @@ export function CaseWorkflowStages({ run, anchors, ...props }: StageSectionProps
   run: WorkflowRun | null | undefined; anchors: string[];
 }) {
   // The page renders one group per anchor; the basis is shown once, before the run's first added stage.
+  // A run whose resolved copy has no added stage (every stage was conditional and none applies) still
+  // shows its basis, at the registry step where the basis is frozen, so a held case keeps its
+  // escalation path (M3 QG P2-2).
   const first = run?.stages.find(stage => stage.after_node_id !== null);
-  const showBasis = run && first && anchors.includes(first.after_node_id!);
+  const basisAnchor = first ? first.after_node_id! : CONDITIONAL_ONBOARDING_ANCHORS[0];
+  const showBasis = run && anchors.includes(basisAnchor);
   return <>
     {showBasis && <RunBasis run={run} caseId={props.caseId} userId={props.userId} canFill={props.canFill} />}
     {run?.stages.filter(stage => stage.after_node_id !== null && anchors.includes(stage.after_node_id))

@@ -943,6 +943,7 @@ class WorkflowGovernanceService:
             if entry.record is None:
                 # Archived to cold; the governance port reads only cold versions.
                 raise WorkflowGovernanceError(GovernanceErrorCode.HISTORY_UNAVAILABLE)
+            self._refuse_not_enabled(entry.record.stages)  # a copy is authoring (B7)
             number, _active = self._active(governed)
             kind = ProposalKind.REACTIVATE if self._deactivated(governed) else ProposalKind.CHANGE
             copied = _proposal(
@@ -1604,18 +1605,25 @@ FALLBACK_OBLIGATION_MESSAGE = (
 )
 
 
-_BASELINE_BOOKKEEPING = {"first_published_version", "last_published_version"}
-
-
 def _obligation_shape(baseline: RequiredBaseline) -> tuple[Any, ...]:
-    """Everything a baseline enforces or renders (stage and field applicability, signatures,
-    representatives), without only its version bookkeeping (ADR-018 §4.3a, QG P3-5)."""
+    """What a baseline enforces: each stage's id, normalised name and applicability, and each
+    field's id and signature (which carries the field applicability). Rendering choices
+    (representative names, placement, representative fields) and version bookkeeping are left
+    out, so a fallback to a version that placed a stage elsewhere is not mistaken for a new
+    obligation (ADR-018 §4.3a; QG P3-5, M3 QG P2-1)."""
 
     return tuple(
         sorted(
             (
                 stage.stage_id,
-                canonical_json(stage.model_dump(mode="json", exclude=_BASELINE_BOOKKEEPING)),
+                stage.normalised_name,
+                canonical_json(stage.applicability),
+                tuple(
+                    sorted(
+                        (item.field_id, canonical_json(item.signature.model_dump(mode="json")))
+                        for item in stage.fields
+                    )
+                ),
             )
             for stage in baseline.stages
         )

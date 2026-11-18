@@ -191,7 +191,13 @@ built by the M3 workstreams against it.
   "CLM_WORKFLOW_CONDITIONAL_APPLICABILITY_ENABLED"`, and
   `CONDITIONAL_APPLICABILITY_ENABLED_DEFAULT = False`. While the gate is off, any
   `applies_to` is refused with `422 WORKFLOW_PROPOSAL_INVALID` and
-  `CONDITIONAL_NOT_ENABLED_ISSUE`.
+  `CONDITIONAL_NOT_ENABLED_ISSUE`. The gate covers every authoring path: create, update,
+  copy, validate, submit and decide.
+  - **Recorded exception: the emergency fallback.** A Director's fallback is not gated. It
+    already refuses any new or broadened condition (CT-30). Any `applies_to` it publishes
+    was therefore published under governance earlier, and its baseline must be kept. If the
+    fallback were gated, turning the gate off after conditional content was published would
+    block emergency recovery.
   - The other structure issue texts are frozen as constants:
     - `CONDITIONAL_BEFORE_REGISTRY_ISSUE`
     - `CONDITIONAL_FULL_SET_ISSUE`
@@ -207,7 +213,8 @@ built by the M3 workstreams against it.
   - `ApplicabilityEscalationRequest` has `run_id`, `expected_revision` and `reason`
     (10–240 characters), for
     `POST /api/clm/cases/{id}/workflow/applicability-escalation`: the filler role,
-    `ACTOR_ONLY`, reauthorized inside the case lock.
+    `CASE_SCOPED` (another team, HR and Support get the safe 404; a Director gets 403),
+    reauthorized inside the case lock.
 - **TypeScript.**
   - `workflowApi.ts` adds the optional `applies_to` to stages and fields, and the optional
     `applicability` to `WorkflowRun`.

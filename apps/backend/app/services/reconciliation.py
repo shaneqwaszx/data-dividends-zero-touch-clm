@@ -1,8 +1,8 @@
 """Deterministic Phase 11 reconciliation and backend-authorized decisions."""
 
-import contextlib
 import hmac
 import json
+import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -349,8 +349,12 @@ class ReconciliationService:
                 # ADR-018 3.5 F5: the committed legal-name change is an entity change, so the
                 # applicability basis hook runs now (under the same reentrant case lock). It
                 # fails safe; the send-time recompute still holds a send if it cannot run.
-                with contextlib.suppress(Exception):  # the decision is already committed
+                try:
                     self._cases.notify_registry_entity_changed(case_id)
+                except Exception:  # noqa: BLE001 - the decision is already committed
+                    logging.getLogger(__name__).warning(
+                        "workflow basis notification failed", extra={"case_id": str(case_id)}
+                    )
             return committed
 
     @staticmethod

@@ -6,13 +6,15 @@ views and the end-to-end Mock send with recording GoldTier counts (CT-36). Memor
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from test_workflow_governance_recovery import (
     DIRECTOR,
     HR,
+    copy,
+    release,
     snapshot,
 )
 from test_workflow_governance_recovery import World as BaseWorld
@@ -34,6 +36,7 @@ from app.domain.workflow_governance import (
     RatchetRule,
 )
 from app.domain.workflows import (
+    CONDITIONAL_ONBOARDING_ANCHORS,
     ONBOARDING_USE_CASE,
     ONBOARDING_WORKFLOW_ID,
     WorkflowDefinition,
@@ -306,6 +309,20 @@ def test_a_governed_broadening_publishes_and_the_store_refuses_narrowing():
     assert accepted == []
 
 
+def test_the_gate_refuses_copying_a_conditional_draft():
+    world = World()
+    world.publish((ALL_STAGE,))
+    draft = world.create(stages=(ALL_STAGE, LLP_STAGE))
+    world.now = world.now + timedelta(days=15)
+    release(world, draft)
+    world.governance = world.service(False)
+    before = snapshot(world)
+    with pytest.raises(WorkflowGovernanceError) as refused:
+        copy(world, draft.proposal_id)
+    assert refused.value.public_message == CONDITIONAL_NOT_ENABLED_ISSUE
+    assert snapshot(world) == before
+
+
 # --- CT-30 service half: an emergency fallback never broadens or adds conditions ---------------
 
 
@@ -325,6 +342,18 @@ def test_a_fallback_that_would_add_a_conditional_obligation_is_refused():
         world.fallback(target="VERSION", target_version=1)
     assert {item.stage_id for item in refused.value.issues} == {"partners"}
     assert snapshot(world) == before
+
+
+def test_a_fallback_to_a_version_that_placed_or_cased_a_stage_differently_publishes():
+    # M3 QG P2-1: rendering choices (placement, representative name) are not obligations.
+    last_anchor = sorted(CONDITIONAL_ONBOARDING_ANCHORS)[-1]
+    world = World()
+    world.publish((stage("signatory", [field("full-name")]),))
+    world.publish(
+        (stage("signatory", [field("full-name")], after=last_anchor, name="STAGE SIGNATORY"),)
+    )
+    published = world.fallback(target="VERSION", target_version=1)
+    assert published.published_version == 3
 
 
 def test_the_backstop_refuses_a_stage_only_broadening(monkeypatch):

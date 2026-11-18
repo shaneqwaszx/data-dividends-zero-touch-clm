@@ -73,7 +73,11 @@ function EscalationAction({ target }: { target: EscalationTarget }) {
       target.onChanged();
     },
     onError: error => {
-      if (error instanceof ApiError && error.status === 409) {
+      if (error instanceof ApiError && error.status === 409 && error.code === "WORKFLOW_APPLICABILITY_NOT_IN_CONFLICT") {
+        setMessage("There is no applicability conflict to escalate on this run any more. Nothing was changed. It has been reloaded.");
+        setOpen(false);
+        target.onChanged();
+      } else if (error instanceof ApiError && error.status === 409) {
         setMessage("This run changed while you were working. Nothing was changed. It has been reloaded; check it and try again.");
         setOpen(false);
         target.onChanged();

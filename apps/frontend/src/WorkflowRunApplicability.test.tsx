@@ -103,6 +103,15 @@ describe("case onboarding view (CaseWorkflowStages)", () => {
     expect(escalated.textContent).toContain("Escalated by rm-synthetic-1");
     expect(escalated.querySelector('[data-testid="run-applicability-escalation"]')).toBeNull();
   });
+  it("keeps a held run with no added stage escalatable, once, at the registry step (M3 QG P2-2)", () => {
+    const held = run({ applicability: unescalated(), stages: [] });
+    const host = render(<><CaseWorkflowStages {...shared} canFill run={held} anchors={["GOLDTIER_SEARCH"]} />
+      <CaseWorkflowStages {...shared} canFill run={held} anchors={["ACRA_REGISTRY"]} />
+      <CaseWorkflowStages {...shared} canFill run={held} anchors={["DOCUMENT_IDP", "RECONCILIATION"]} /></>);
+    expect(host.querySelectorAll('[data-testid="run-applicability"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="run-applicability-conflict"]')!.textContent).toContain("held before send");
+    expect(buttonByText(host, "Apply all conditional steps…")).toBeDefined();
+  });
 });
 
 describe("escalation (Apply all conditional steps)", () => {
@@ -147,6 +156,19 @@ describe("escalation (Apply all conditional steps)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("Nothing was changed. It has been reloaded");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["auth", "user", "workflows"] });
+  });
+
+  it("tells a run with no conflict left apart from a changed run", async () => {
+    const fetchMock = vi.fn(async () => json({ detail: { code: "WORKFLOW_APPLICABILITY_NOT_IN_CONFLICT", message: "No conflict." } }, 409));
+    vi.stubGlobal("fetch", fetchMock);
+    const host = render(<CaseWorkflowStages {...shared} canFill run={run({ applicability: unescalated() })} anchors={["DOCUMENT_IDP"]} />);
+    await click(host, "Apply all conditional steps…");
+    typeReason(host, "Registry now reports LP; apply every condition");
+    await click(host, "Apply all conditional steps");
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("no applicability conflict to escalate");
+    expect(host.textContent).not.toContain("changed while you were working");
   });
 
   it("clears the reason on Cancel", async () => {
