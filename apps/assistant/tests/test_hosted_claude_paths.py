@@ -19,7 +19,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_assistant import anthropic_runtime, copilot, support_chat
+from ai_assistant import anthropic_runtime, copilot, hosted_insights, support_chat
 from ai_assistant.anthropic_profiles import BALANCED
 from ai_assistant.anthropic_runtime import HOSTED_ANSWERED
 from ai_assistant.controlled_intents import CANONICAL
@@ -175,9 +175,10 @@ def test_the_decision_names_d130_and_all_three_paths() -> None:
         ("H-T1", "try_change"),
         ("H-D1", "dashboard_insights"),
     )
-    # The fifth path is prepared but disabled: its decision is not in the code, so its turn
-    # is never asked (test_hosted_dashboard_insights_generate covers it when enabled).
-    assert config.HOSTED_INSIGHTS_DECISION is None
+    # C11 P-B: the fifth path is enabled in the code for Claude only (owner approval required);
+    # test_hosted_dashboard_insights_generate covers it.
+    assert config.HOSTED_INSIGHTS_DECISION == "D-146"
+    assert config.HOSTED_INSIGHTS_PROVIDERS == frozenset({"anthropic"})
 
 
 def test_nothing_is_enabled_without_the_hosted_registration(
@@ -200,6 +201,9 @@ def test_r4_no_path_carrying_person_text_is_enabled_even_when_registered(
     monkeypatch.setattr(
         anthropic_runtime, "_hosted", anthropic_runtime.HostedDeployment("https://x.test", 1)
     )
+    # C11 P-B: start from the insights constants unset, then set them one at a time below.
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", None)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_PROVIDERS", frozenset())
 
     class Claudeish:
         hosted_claude = True
@@ -212,7 +216,13 @@ def test_r4_no_path_carrying_person_text_is_enabled_even_when_registered(
     assert anthropic_runtime.hosted_chat(Claudeish(), "general") is False
     # The service-built insights path keeps its own decision (disabled here).
     monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", "TEST")
+    # C11: the decision alone enables nothing while no provider is approved for insights.
+    assert anthropic_runtime.hosted_paths() == frozenset()
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_PROVIDERS", frozenset({"anthropic"}))
     assert anthropic_runtime.hosted_paths() == frozenset({"dashboard_insights"})
+    # The provider list alone enables nothing either.
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", None)
+    assert anthropic_runtime.hosted_paths() == frozenset()
 
 
 def test_no_setting_or_environment_variable_enables_the_paths(
@@ -236,18 +246,20 @@ def test_no_setting_or_environment_variable_enables_the_paths(
     monkeypatch.setattr(
         anthropic_runtime, "_hosted", anthropic_runtime.HostedDeployment("https://x.test", 1)
     )
-    assert anthropic_runtime.hosted_paths() == frozenset()
+    # C11 P-B: only the code's own insights decision adds a path; no setting adds any.
+    assert anthropic_runtime.hosted_paths() == frozenset({"dashboard_insights"})
 
 
-# --- qualification: the two case-chat questions only -------------------------------------------
+# --- qualification: the two case-chat questions, plus the insights turn (C11 P-B) ---------------
 
 
 def test_the_qualification_asks_the_case_chat_only(hosted: Hosted) -> None:
     hosted.setup_claude()
     result = hosted.qualify_and_activate()
-    assert hosted.claude.posts == QUALIFICATION_CALLS == 2
-    assert result["total_turns"] == result["done_turns"] == 2
-    assert result["metrics"]["remote_calls"] == result["metrics"]["remote_calls_verified"] == 2
+    # C11 P-B: 2 case-chat questions + H-D1 (the service-built insights prompt).
+    assert hosted.claude.posts == QUALIFICATION_CALLS == 3
+    assert result["total_turns"] == result["done_turns"] == 3
+    assert result["metrics"]["remote_calls"] == result["metrics"]["remote_calls_verified"] == 3
     # R4: no general chat, Support or "Try" prompt is sent.
     systems = [system_texts(body) for body in hosted.claude.messages]
     assert not any(copilot.NO_CASE_MESSAGE in texts for texts in systems)
@@ -255,7 +267,7 @@ def test_the_qualification_asks_the_case_chat_only(hosted: Hosted) -> None:
     assert not any("Address proof" in json.dumps(texts) for texts in systems)
     # The case-chat questions went as their canonical questions.
     users = [m["content"] for body in hosted.claude.messages for m in body["messages"]]
-    assert set(users) <= set(CANONICAL.values())
+    assert set(users) <= set(CANONICAL.values()) | {hosted_insights.QUESTION}
 
 
 def test_the_paid_estimate_counts_two_calls(hosted: Hosted) -> None:

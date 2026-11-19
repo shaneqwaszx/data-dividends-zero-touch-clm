@@ -7,7 +7,7 @@ readiness and every gate stay as they were (see test_stage_presentation_invarian
 from __future__ import annotations
 
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from test_marketplace_mock_partnerships import mock_lane, xyz_at_ownership
@@ -355,7 +355,7 @@ def test_a_closed_identity_discrepancy_returns_registry_to_complete(closed: str)
     [
         (0, ("INCOMPLETE_LEGAL_ENTITY", "OWNERSHIP_METHOD_UNSUPPORTED")),  # OPQ A1
         (0, ("OWNERSHIP_REQUIRED",)),  # OPQ A2, empty register
-        (2, ("OWNERSHIP_METHOD_UNSUPPORTED",)),
+        (0, ("OWNERSHIP_METHOD_UNSUPPORTED",)),
     ],
 )
 def test_advisory_review_without_evidence_is_advised_and_not_done(relationships, issues) -> None:
@@ -365,10 +365,33 @@ def test_advisory_review_without_evidence_is_advised_and_not_done(relationships,
     assert verdict(node) == ("REVIEW_ADVISED", "EVIDENCE_ABSENT", False, False)
 
 
-def test_advisory_review_with_a_calculated_structure_reports_review_issues() -> None:
-    owned = ownership_record(relationships=2, issues=("OWNERSHIP_DENOMINATOR_REQUIRED",))
+# F-1 (candidate, owner decision pending): the former row (2, ("OWNERSHIP_METHOD_UNSUPPORTED",))
+# pinned EVIDENCE_ABSENT although relationships were calculated. The S1 design assumed an
+# unsupported method always meant zero relationships (OPQ A1); a synthetic overlay on a legal
+# form OTHER root calculates a structure, so "No ownership evidence" was untrue. Such a record
+# now reports REVIEW_ISSUES (structure calculated, issues open). State, done and send flags are
+# unchanged: still REVIEW_ADVISED, never done, never verified.
+@pytest.mark.parametrize(
+    "issues",
+    [
+        ("OWNERSHIP_DENOMINATOR_REQUIRED",),
+        ("OWNERSHIP_METHOD_UNSUPPORTED",),
+        ("OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED",
+         "SYNTHETIC_OWNERSHIP_EVIDENCE"),
+    ],
+)
+def test_advisory_review_with_a_calculated_structure_reports_review_issues(issues) -> None:
+    owned = ownership_record(relationships=2, issues=issues)
     node = project(ownership=owned, advisory=True)["OWNERSHIP_UBO"]
+    assert (node.status, node.advisory_review) == ("COMPLETE", True)  # D-121/D-141 unchanged
     assert verdict(node) == ("REVIEW_ADVISED", "REVIEW_ISSUES", False, False)
+
+
+def test_a_calculated_structure_with_ownership_required_is_still_evidence_absent() -> None:
+    # Only OWNERSHIP_METHOD_UNSUPPORTED moved; OWNERSHIP_REQUIRED keeps the S1 rule.
+    owned = ownership_record(relationships=2, issues=("OWNERSHIP_REQUIRED",))
+    node = project(ownership=owned, advisory=True)["OWNERSHIP_UBO"]
+    assert verdict(node) == ("REVIEW_ADVISED", "EVIDENCE_ABSENT", False, False)
 
 
 def test_an_accepted_poc_basis_is_complete_with_its_reason() -> None:
@@ -462,6 +485,44 @@ def test_opq_like_zero_evidence_review_is_advised_and_not_done(constitution, com
         blockers = summary["clm"]["readiness"]["blockers"]
         assert readiness["blocks_send"] is bool(blockers)
         assert ("GOLDTIER_CLASSIFICATION_REQUIRED" in blockers) is (constitution is None)
+
+
+@pytest.mark.parametrize(
+    ("lane_name", "relationships", "people"),
+    [("opq-garden-abc", 8, 5), ("opq-garden-sim-lim", 6, 4)],
+)
+def test_f1_a_calculated_unsupported_method_structure_is_not_evidence_absent(
+    lane_name: str, relationships: int, people: int
+) -> None:
+    # F-1: the DEMO scenario garden_abc_multi_holder (8 links, 5 people, root legal form OTHER).
+    import test_poc_ownership_acceptance as acceptance
+    from test_opq_garden_scenario_acceptance import ADVISORY, onboarded
+
+    context, client, bundle, case_id = onboarded(lane_name, **ADVISORY)
+    try:
+        ownership = acceptance.ownership_of(client, case_id)
+        summary = acceptance.summary_of(client, case_id)
+    finally:
+        context.__exit__(None, None, None)
+    assert len(ownership["relationships"]) == relationships
+    assert len(ownership["candidates"]) == people
+    assert "OWNERSHIP_METHOD_UNSUPPORTED" in {item["code"] for item in ownership["issues"]}
+    node = stages(summary)["OWNERSHIP_UBO"]
+    assert (node["status"], node["advisory_review"]) == ("COMPLETE", True)  # D-121/D-141
+    presentation = node["presentation"]
+    assert presentation["reason_code"] == "REVIEW_ISSUES"
+    assert (presentation["state"], presentation["counts_as_done"], presentation["blocks_send"]) == (
+        "REVIEW_ADVISED", False, False
+    )
+    # Never verified: no accepted basis, no provisional UBO, every candidate held for review.
+    assert ownership["poc_basis_accepted"] is False
+    assert all(item["classification"] == "REVIEW_REQUIRED" for item in ownership["candidates"])
+    # Gates unchanged: only the human confirmation is open; nothing was sent.
+    assert summary["clm"]["readiness"]["blockers"] == []
+    assert [item["exception_type"] for item in summary["active_exceptions"]] == [
+        "TARGET_CONFIRMATION_REQUIRED"
+    ]
+    assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
 
 
 def test_xyz_advisory_and_blocking_modes(monkeypatch) -> None:

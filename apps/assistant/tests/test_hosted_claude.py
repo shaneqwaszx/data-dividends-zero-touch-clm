@@ -19,7 +19,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from ai_assistant import anthropic_runtime, model_admin
+from ai_assistant import anthropic_runtime, hosted_insights, model_admin
 from ai_assistant.anthropic_profiles import BALANCED, FAST
 from ai_assistant.anthropic_runtime import HOSTED_ANSWERED
 from ai_assistant.knowledge.ingest import ingest_guidance
@@ -62,7 +62,8 @@ CONFIRMATIONS = sorted(anthropic_runtime.OWNER_ATTESTATIONS)
 QUESTION = "Why is Garden Business blocked?"
 # D-130 (OD-G6): the two case-chat questions. D-142 R4 (Option A): the general, Support and Try
 # paths no longer go to Claude, so the run asks no turn on them.
-QUALIFICATION_CALLS = 2
+# C11 P-B: the 2 approved manifest questions plus the dashboard insights turn (H-D1).
+QUALIFICATION_CALLS = 3
 # What the mock Claude writes on a general-chat prompt (no case is open).
 GENERAL_REPLY = (
     "Onboarding usually needs the company's registry record and documents that show its "
@@ -85,6 +86,20 @@ def hosted_replies(monkeypatch: pytest.MonkeyPatch, scripted: list[str]) -> list
 
     def lines(body: dict[str, Any]) -> str:
         system = [block["text"] for block in body.get("system", [])]
+        # C11 P-B: the dashboard insights prompt (enabled in the code, asked by every hosted
+        # qualification as H-D1) gets a well-formed reply copying the first finding's number.
+        for text in system:
+            if text.startswith(hosted_insights.FINDINGS_HEADER):
+                data = json.loads(text[len(hosted_insights.FINDINGS_HEADER) :])
+                first = (data.get("findings") or [{}])[0]
+                numbers = [str(v) for v in first.get("facts", {}).values() if isinstance(v, int)]
+                note = "There are " + (numbers[0] if numbers else "no") + " open cases to watch."
+                reply = {
+                    "summary": "The cases are moving.",
+                    "notes": [{"id": first.get("id", "F1"), "text": note}],
+                    "actions": [],
+                }
+                return json.dumps(reply) + "\n"
         for text in system:
             if text.startswith("SOURCES (titles of the retrieved approved entries):"):
                 return _allowed_lines(text)[0] + "\n"

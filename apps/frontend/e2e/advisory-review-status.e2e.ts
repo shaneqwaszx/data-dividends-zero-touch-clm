@@ -8,9 +8,14 @@ import { openStage } from "./stage-disclosures";
 /*
  * D-141 (amends D-121 display only). The browser harness runs the blocking review mode
  * (scripts/e2e_backend_server.py), so a real case reaches a complete Ownership & UBO stage and
- * this spec sets or clears only the backend's presentation flag `advisory_review` on that node
- * in the case read. The flag itself is pinned against the official Mock lane in
+ * this spec sets or clears the backend's presentation flag `advisory_review` on that node in the
+ * case read. The flag itself is pinned against the official Mock lane in
  * apps/backend/tests/test_advisory_review_node_flag.py.
+ *
+ * OPQ S2 (c5a1c7f4): the frontend renders the backend `presentation` verdict first, so the
+ * advisory case also carries the verdict the backend computes for it (stage_presentation.py:
+ * an advisory COMPLETE node is REVIEW_ADVISED, not done, not blocking). Patching the flag alone
+ * produced a payload the backend never emits and rendered the backend's COMPLETE verdict.
  */
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -73,11 +78,22 @@ test("advisory ownership review shows amber Review advised, never green Complete
     }
     const response = await route.fetch();
     const payload = await response.json() as { processing_pipeline: Array<Record<string, unknown>> };
-    payload.processing_pipeline = payload.processing_pipeline.map((node) => (
-      node.node_id === "OWNERSHIP_UBO" && node.status === "COMPLETE"
-        ? { ...node, advisory_review: advisory ? true : null }
-        : node
-    ));
+    payload.processing_pipeline = payload.processing_pipeline.map((node) => {
+      if (node.node_id !== "OWNERSHIP_UBO" || node.status !== "COMPLETE") return node;
+      if (!advisory) return { ...node, advisory_review: null };
+      const verdict = (node.presentation ?? {}) as Record<string, unknown>;
+      return {
+        ...node,
+        advisory_review: true,
+        presentation: {
+          ...verdict,
+          state: "REVIEW_ADVISED",
+          reason_code: "REVIEW_ISSUES",
+          counts_as_done: false,
+          blocks_send: false,
+        },
+      };
+    });
     await route.fulfill({ response, json: payload });
   });
 

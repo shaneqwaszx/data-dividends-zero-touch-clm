@@ -47,7 +47,19 @@ HOSTED_CHAT_PATHS: frozenset[str] = frozenset({"general", "support", "try_change
 # insights as a fifth hosted Claude path (hosted_insights.py). DISABLED: None keeps the hosted
 # service refusing every insights route. Set only in a reviewed change, after the D-129
 # privacy amendment, the notice, the QG, egress, qualification and the owner's activation.
-HOSTED_INSIGHTS_DECISION: str | None = None
+# C11 P-B (D-146 C11-4, owner-approved 2026-11-19): the activation decision.
+HOSTED_INSIGHTS_DECISION: str | None = "D-146"
+# C11 (D-146, OD-I3 C-1/C-6): the hosted providers approved for dashboard insights.
+# Ships EMPTY: no provider writes insights, whatever the decision above says. A provider is
+# listed only in a reviewed change after its own data-term row and its insights qualification.
+# C11 P-B (D-146 C11-3): Claude only (data term D-129 g); GPT-OSS is not listed (OD-I4).
+HOSTED_INSIGHTS_PROVIDERS: frozenset[str] = frozenset({"anthropic"})
+# C11 (OD-I2, amends D-139 R5 for aggregates only): the dashboard insights eligibility rule,
+# aggregate labels and counts over the cases the backend returns to the user's own session.
+# None keeps the hosted case policy admitting no case to insights (D-139 R5 as it stands).
+# Set only in a reviewed change that records the owner's approval.
+# C11 P-B (D-146 C11-2, OD-I2 variant a): the aggregate rule.
+HOSTED_INSIGHTS_ELIGIBILITY_DECISION: str | None = "D-146"
 # D-134 (PROPOSED, not active): GPT-OSS 120B through OpenRouter as a second hosted model, on
 # the case chat only. DISABLED: None keeps the hosted service refusing the OpenRouter provider
 # mode at start-up and keeps remote_test refusing a hosted registration. Set only in a reviewed

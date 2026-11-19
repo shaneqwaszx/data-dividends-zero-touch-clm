@@ -1434,29 +1434,77 @@ def create_app(
             suggested_questions=suggestions,
         )
 
-    def with_ownership(prep: Prepared, case_id: UUID, request: Request) -> Prepared:
+    def with_ownership(
+        prep: Prepared, case_id: UUID, request: Request, snapshot: CaseSnapshot
+    ) -> Prepared:
         """Conversational answers only: the application's ownership analysis joins the case
         facts, read with the user's own session (the backend decides access). Without it, the
         ownership figures are reported as not available and no percentage is grounded."""
 
         analysis = backend.load_ownership(case_id, request.cookies.get(SESSION_COOKIE_NAME))
-        ownership = copilot.ownership_facts(analysis)
+        # D-145 (F-6): the backend's D-121 advisory verdict, only for this same analysis.
+        ownership = copilot.ownership_facts(
+            analysis,
+            review_advisory=copilot.advisory_review_current(snapshot.summary, analysis),
+        )
+        if controlled_intents.asks_ubo_calculation(prep.question):
+            # UBO_CALCULATION: the case-data answer is the application's own figures (local
+            # facts, shown only to this user), whether or not a model then answers.
+            prep = replaced(prep, fallback=copilot.ubo_calculation_answer(ownership))
         if prep.external_facts is None:
-            return replaced(prep, facts={**prep.facts, "ownership": ownership})
-        # D-142 R2: the ownership analysis may rest on a withheld upload (uploaded evidence
-        # rows), so an external prompt does not receive it while any upload is withheld.
-        external = ownership if not prep.withheld else OWNERSHIP_WITHHELD
+            owned = replaced(prep, facts={**prep.facts, "ownership": ownership})
+        else:
+            # D-142 R2: the ownership analysis may rest on a withheld upload (uploaded evidence
+            # rows), so an external prompt does not receive it while any upload is withheld.
+            external = ownership if not prep.withheld else OWNERSHIP_WITHHELD
+            owned = replaced(
+                prep,
+                facts={**prep.facts, "ownership": ownership},
+                external_facts={**prep.external_facts, "ownership": external},
+            )
+        return ubo_calculation_intent(owned, snapshot)
+
+    def ubo_calculation_intent(prep: Prepared, snapshot: CaseSnapshot) -> Prepared:
+        """D-142 R4 for UBO_CALCULATION: prepare() recognised the question on facts without the
+        ownership projection, so this one intent is recognised again now that the projection
+        the external prompt will carry is attached (the external view when one exists). Only
+        this intent may be admitted here; every other outcome of prepare() stands."""
+
+        if (
+            not (prep.external or prep.remote)
+            or prep.canonical is not None
+            or prep.intent_reason == controlled_intents.TRY_LOCAL
+            or not controlled_intents.asks_ubo_calculation(prep.question)
+        ):
+            return prep
+        base = prep.facts if prep.external_facts is None else prep.external_facts
+        found = controlled_intents.recognise(base, prep.question)
+        if found.intent is None or found.intent.kind != controlled_intents.UBO_CALCULATION:
+            return prep
+        canonical = found.intent.question
+        profile = snapshot.actor.get("profile") or {}
+        tagged = [
+            item
+            for item in external_knowledge(
+                canonical, prep.facts, profile.get("role"), profile.get("team_id")
+            )
+            if approved_entry(item.hit.entry)
+        ]
         return replaced(
             prep,
-            facts={**prep.facts, "ownership": ownership},
-            external_facts={**prep.external_facts, "ownership": external},
+            canonical=canonical,
+            intent_reason=None,
+            external_tagged=tagged,
+            plan=topic_plan(prep.facts, canonical),
         )
 
-    def local_ownership(prep: Prepared, case_id: UUID, request: Request, remote: bool) -> Prepared:
+    def local_ownership(
+        prep: Prepared, case_id: UUID, request: Request, remote: bool, snapshot: CaseSnapshot
+    ) -> Prepared:
         # D-115 X2: without D-122 an external model never gets the ownership analysis.
         if remote and not external_conversational(config):
             return prep
-        return with_ownership(prep, case_id, request)
+        return with_ownership(prep, case_id, request, snapshot)
 
     def refused_outcome(lead: str | None) -> _Outcome:
         # The case-data answer when no model may be used, with the reason recorded as in the
@@ -1495,10 +1543,30 @@ def create_app(
             person_written=not external,
         )
         line = copilot.read_only_line(prep.question)
+        required = [line] if line else []
+        ownership = prep.facts.get("ownership") or {}
+        if controlled_intents.asks_ubo_calculation(prep.question) and (
+            ownership.get("available") is True
+        ):
+            # UBO_CALCULATION: every answer says first that candidates are provisional.
+            required.append(copilot.UBO_PROVISIONAL_NOTE)
+            if ownership.get("analysis_state") == "REVIEW_REQUIRED":
+                # U-5: and, on a review-required analysis, that it awaits human review.
+                required.append(copilot.UBO_REVIEW_NOTE)
+                # D-145 (F-6): on the backend's advisory verdict for this analysis, say so and
+                # give the backend's own threshold comparison (service text, shown locally,
+                # never sent; the model's own outcome wording stays removed by U-5).
+                threshold = copilot.ubo_threshold_lines(ownership)
+                if (
+                    threshold is not None
+                    and controlled_intents.ubo_advisory_admission(prep.facts)
+                    and controlled_intents.ubo_calculation_ready(prep.facts)
+                ):
+                    required.extend([copilot.UBO_ADVISORY_NOTE, threshold])
         prepared = replaced(prep, messages=messages, plan=None, conversational=True)
         if on_prepared is not None:
             on_prepared(prepared)  # the evaluation harness sees the prompt actually sent
-        return prepared, [line] if line else []
+        return prepared, required
 
     def copilot_reply(
         check: copilot.CopilotCheck,
@@ -2077,9 +2145,28 @@ def create_app(
             and getattr(request.app.state, "case_gate", None) is not None
             and active.model is not None
             and hosted_chat(active.model, "dashboard_insights")
+            and insights_qualified(active)
         ):
             return active.model
         return None
+
+    def insights_qualified(active: Any) -> bool:
+        # C11 (C-1b): an activated configuration writes insights only if its own passed
+        # qualification answered the insights turn (its summary records "paths"). A fixed model
+        # (no model store: the qualification harness itself, tests) has no stored activation; a
+        # hosted Claude configuration exists only through a stored, qualified activation.
+        store = selector.store
+        if store is None:
+            return True
+        if not active.qualification_id:
+            return False
+        try:
+            item = store.qualification(active.qualification_id) or {}
+        except Exception:  # unreadable: fail closed
+            return False
+        summary = item.get("summary") if isinstance(item, dict) else None
+        paths = summary.get("paths") if isinstance(summary, dict) else None
+        return isinstance(paths, list) and "dashboard_insights" in paths
 
     def insights_unavailable() -> HTTPException:
         return HTTPException(
@@ -2140,12 +2227,17 @@ def create_app(
             gate,
             frozenset(getattr(gate, "refs", frozenset())),
             lambda case_id: backend.load_case(case_id, session).summary,
+            aggregate=getattr(gate, "aggregate", False) is True,
         )
         findings = hosted_insights.derive(eligible, datetime.now(UTC))
         if findings is None:
             raise insights_unavailable()
         messages = hosted_insights.build_messages(findings)
-        key = (user, hashlib.sha256(json.dumps(messages).encode("utf-8")).hexdigest())
+        # C11 (C-4): the writer is part of the key, so a model switch never serves an earlier
+        # model's reply.
+        active = selector.current()
+        writer = json.dumps([model.name, active.profile_id, active.qualification_id, messages])
+        key = (user, hashlib.sha256(writer.encode("utf-8")).hexdigest())
         now = time.monotonic()
         with insights_lock:
             cached = insights_cache.get(key)
@@ -2242,7 +2334,7 @@ def create_app(
                 names=names_for(active.model, snapshot.actor.get("profile")),
                 external=external_it(active),
             )
-            owned = local_ownership(prepared, case_id, request, remote)
+            owned = local_ownership(prepared, case_id, request, remote, snapshot)
             prep, required = copilot_prep(owned, history)
             # The exact prompt is checked (D-095) before any external call, as in exact lines.
             model, lead = remote_gate(
@@ -2332,7 +2424,7 @@ def create_app(
                 names=names_for(active.model, snapshot.actor.get("profile")),
                 external=external_it(active),
             )
-            owned = local_ownership(prepared, case_id, request, remote)
+            owned = local_ownership(prepared, case_id, request, remote, snapshot)
             prep, required = copilot_prep(owned, history)
             model, lead = remote_gate(
                 active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)

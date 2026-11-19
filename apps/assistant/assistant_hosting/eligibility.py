@@ -39,6 +39,7 @@ from uuid import UUID
 
 from ai_assistant import config as assistant_config
 from ai_assistant.privacy_boundary import DATA_POLICIES, PSEUDONYMISED, SYNTHETIC_ONLY
+from ai_assistant.synthetic_eligibility import registry_provenance_problem
 
 RETIRED_VARIABLES = (
     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
@@ -56,7 +57,8 @@ DATA_POLICY_INVALID = "DATA_POLICY_INVALID"
 PRIVACY_DECISION_REQUIRED = "PRIVACY_DECISION_REQUIRED"
 # The fifth path (dashboard insights) reads many cases at once and has no per-answer check, so
 # it admits no case until its own eligibility design is reviewed (HOSTED_INSIGHTS_DECISION is
-# None and the guard refuses the route as well).
+# None and the guard refuses the route as well). C11: the aggregate rule (OD-I2) is prepared
+# here and stays off until config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION is set.
 INSIGHTS_REFUSAL = "INSIGHTS_NOT_ELIGIBLE"
 
 log = logging.getLogger("assistant_hosting.eligibility")
@@ -105,8 +107,24 @@ class CasePolicy:
                 counts[reason] += count
             return dict(counts)
 
+    @property
+    def aggregate(self) -> bool:
+        """C11 (OD-I2): the aggregate-only insights rule is in force (its decision is in the
+        code). It never changes the case chat's per-answer external-inference check."""
+
+        return assistant_config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION is not None
+
     def __call__(self, case_id: UUID, summary: object) -> str | None:
-        return INSIGHTS_REFUSAL
+        # Dashboard insights only. Without the aggregate rule no case is admitted (D-139 R5).
+        # With it, a case the backend listed for this session and whose summary it then served
+        # to the same session counts toward labels and counts only when its registry
+        # provenance is synthetic (ACRA in MOCK mode, D-146 C11-2, owner decision 2); SANDBOX,
+        # unknown or uncertain provenance is not counted. Nothing of a case is sent as such.
+        if not self.aggregate or summary is None:
+            return INSIGHTS_REFUSAL
+        if registry_provenance_problem(summary) is not None:
+            return INSIGHTS_REFUSAL
+        return None
 
 
 def _policies(environ: Mapping[str, str]) -> dict[str, str]:
