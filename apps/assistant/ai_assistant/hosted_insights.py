@@ -42,6 +42,9 @@ SINGAPORE = timezone(timedelta(hours=8))
 # D-127 S1/S2: a case's SLA target is 10 days from creation; at risk within 2 days of it.
 SLA_TARGET_DAYS = 10
 AT_RISK_DAYS = 2
+# C11 (D-146 C11-5): the recent-flow finding gives counts for the last 7 days and the 7 days
+# before; descriptive only, no historical trend.
+TREND_DAYS = 7
 PERIOD = "Eligible cases"
 # A generated reply is reused for this long for the same user and the same findings.
 CACHE_SECONDS = 30 * 60
@@ -84,7 +87,7 @@ OTHER_STAGE = "Other step"
 DONE = frozenset({"COMPLETED"})
 
 INSTRUCTIONS = """You write a short management summary for a bank's client onboarding dashboard.
-You receive findings as JSON, computed from a fixed set of synthetic demonstration cases. Each
+You receive findings as JSON, computed from the cases this user may see on the dashboard. Each
 finding has an id, a topic, a severity and facts.
 
 What the topics mean:
@@ -93,6 +96,9 @@ What the topics mean:
 - WAITING_DRIVER: the exception type held by the most open cases, and how many have it.
 - STOP_HOTSPOT: the pipeline step where the most open cases currently are, and how many.
 - ZERO_TOUCH: of the completed cases, the share completed with no human intervention.
+- TURNAROUND: recent flow: cases opened and cases completed in the last 7 days (this week)
+  and in the 7 days before (last week). Describe only those two periods; say nothing about
+  any earlier period or about what will happen next.
 
 Rules:
 - Use only the facts given. Copy every number exactly as written in the facts.
@@ -163,7 +169,8 @@ def derive(items: Iterable[dict[str, Any]], now: datetime) -> InsightsRequest | 
     """Findings from the eligible cases' list items: enumerated labels and counts only.
 
     Only these fields are read: ``status``, ``current_stage``, ``created_at``,
-    ``human_interventions`` and ``active_exception_types``. None when there is nothing to say."""
+    ``completed_at``, ``human_interventions`` and ``active_exception_types``. None when there is
+    nothing to say."""
 
     cases = list(items)
     if not cases:
@@ -237,6 +244,26 @@ def derive(items: Iterable[dict[str, Any]], now: datetime) -> InsightsRequest | 
                 "zero_touch_rate": f"{round(100 * untouched / len(done))}%",
             },
         )
+    # C11: the recent flow, as plain counts per 7-day window (this week: the last 7 days; last
+    # week: the 7 days before). Descriptive only: no target, rate or judgement is derived.
+    week = timedelta(days=TREND_DAYS)
+
+    def window(field: str, start: timedelta, end: timedelta) -> int:
+        count = 0
+        for case in cases:
+            when = _when(case.get(field))
+            if when is not None and end < now - when <= start:
+                count += 1
+        return count
+
+    trend = {
+        "new_this_week": window("created_at", week, timedelta(0)),
+        "new_last_week": window("created_at", 2 * week, week),
+        "completed_this_week": window("completed_at", week, timedelta(0)),
+        "completed_last_week": window("completed_at", 2 * week, week),
+    }
+    if any(trend.values()):
+        add("TURNAROUND", "INFO", False, trend)
     if not findings:
         return None
     return InsightsRequest(period=PERIOD, findings=tuple(findings))
@@ -247,10 +274,16 @@ def eligible_items(
     gate: Callable[[UUID, object], str | None],
     refs: frozenset[str],
     load_summary: Callable[[UUID], object],
+    *,
+    aggregate: bool = False,
 ) -> list[dict[str, Any]]:
     """The list items of the cases the R2.1 gate admits. A case is read (its summary, with the
     user's own session) only when its reference is on the approved list; the gate then decides
-    exactly as for the case chat. Anything unreadable is left out."""
+    exactly as for the case chat. Anything unreadable is left out.
+
+    C11 ``aggregate`` (OD-I2, only when the hosted policy's aggregate rule is set): every case
+    the backend listed for this session is read with the same session and the gate still
+    decides; the retired reference list is not used."""
 
     kept: list[dict[str, Any]] = []
     for item in items:
@@ -260,7 +293,10 @@ def eligible_items(
             case_id = UUID(str(item.get("case_id")))
         except ValueError:
             continue
-        if hashlib.sha256(str(case_id).encode("utf-8")).hexdigest()[:12] not in refs:
+        if (
+            not aggregate
+            and hashlib.sha256(str(case_id).encode("utf-8")).hexdigest()[:12] not in refs
+        ):
             continue
         try:
             summary = load_summary(case_id)

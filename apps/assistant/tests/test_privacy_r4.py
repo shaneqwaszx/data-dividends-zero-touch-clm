@@ -34,7 +34,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ai_assistant import controlled_intents as ci
-from ai_assistant import model_qualification, synthetic_eligibility
+from ai_assistant import copilot, model_qualification, synthetic_eligibility
 from ai_assistant import privacy_boundary as pb
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.context import build_case_facts
@@ -545,11 +545,16 @@ def _garden_facts() -> dict[str, Any]:
 
 
 def test_r3_1_every_canonical_question_is_a_fixed_point_with_allowed_lines() -> None:
+    from tests.test_copilot import ANALYSIS
+
     facts = _garden_facts()
+    # UBO_CALCULATION is admitted only with a completed ownership projection in the facts.
+    owned = {**facts, "ownership": copilot.ownership_facts(ANALYSIS)}
     for kind in ci.CANONICAL:
         intent = ci.Intent(kind, ci.difference_fields(facts) if kind == ci.DIFFERENCE else ())
-        found = ci.recognise(facts, intent.question)
+        found = ci.recognise(owned if kind == ci.UBO_CALCULATION else facts, intent.question)
         assert found.intent == intent, (kind, found)
+    assert ci.recognise(facts, ci.CANONICAL[ci.UBO_CALCULATION]).intent is None
 
 
 @pytest.mark.parametrize(

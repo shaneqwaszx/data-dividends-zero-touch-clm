@@ -187,6 +187,16 @@ class FakeWorld:
     diff_lines: int | None = None
     rollback_runs_wrong_image: bool = False
     restore_fails: bool = False
+    # D-147: the ACRA lease controller's state: True/False, None (the check prints nothing and
+    # fails) or "denied" (sudo refuses).
+    acra_lease_open: bool | str | None = False
+    # D-147: compose.env switch reads: unreadable, or raw extra lines per variable (duplicates,
+    # export/spaced forms).
+    settings_unreadable: bool = False
+    extra_setting_lines: dict[str, list[str]] = field(default_factory=dict)
+    switch_edit_ignored: bool = False
+    # D-147: the previous backend predates the standing scope and refuses writes-on (P1).
+    old_backend_pre_d147: bool = False
 
     def __post_init__(self) -> None:
         self.env = {
@@ -306,6 +316,22 @@ class FakeWorld:
             return Result(0, f"ssh={self.ssh_sessions} ops=0\n")
         if text.startswith("test -e "):
             return Result(0, "held\n" if self.host_lock else "free\n")
+        if "clm-acra-window/state" in text and "lease-closed" in text:
+            if self.acra_lease_open == "denied":
+                return Result(1, "", "sudo: a password is required")
+            if self.acra_lease_open is None:
+                return Result(3, "")
+            return Result(0, "lease-open\n" if self.acra_lease_open else "lease-closed\n")
+        if "echo grep-rc=" in text:
+            if self.settings_unreadable:
+                return Result(0, "grep-rc=2\n")
+            found = re.search(r"(CLM_GOLDTIER_[A-Z_]+)", text)
+            assert found is not None
+            name = found.group(1)
+            lines = [f"{name}={self.env[name]}"] if name in self.env else []
+            lines += self.extra_setting_lines.get(name, [])
+            body = "".join(f"{line}\n" for line in lines)
+            return Result(0, body + f"grep-rc={0 if lines else 1}\n")
         if text == "date -u +%s":
             return Result(0, f"{int(self.clock().timestamp()) + self.clock_skew}\n")
         if "MemAvailable" in text:
@@ -377,6 +403,8 @@ class FakeWorld:
         if " sed -i " in text:
             found = re.search(r"s#\^([A-Z_]+)=(\S+)\$#([A-Z_]+)=(\S+)#", text)
             assert found is not None
+            if self.switch_edit_ignored and found.group(1) == "CLM_GOLDTIER_SANDBOX_ALLOW_WRITES":
+                return Result(0)
             if self.env.get(found.group(1)) == found.group(2):
                 self.env[found.group(1)] = found.group(4)
             return Result(0)
@@ -442,6 +470,13 @@ class FakeWorld:
     def _up(self, service: str) -> Result:
         if service in self.up_fails:
             return Result(1, "", "container is unhealthy")
+        if (
+            service == "backend"
+            and self.old_backend_pre_d147
+            and self.env.get("BACKEND_IMAGE") == OLD["backend"]
+            and self.env.get("CLM_GOLDTIER_SANDBOX_ALLOW_WRITES") == "true"
+        ):
+            return Result(1, "", "settings refused: writes without a D-137 window")
         variable = catalog.service(service).image_variable
         assert variable is not None
         self.counter += 1
@@ -468,6 +503,18 @@ class FakeWorld:
             body["image"] = self.env.get(variable or "", "")
             if self.host_summary_extra_network and name in self.manifest["services_changed"]:
                 body["networks"].append(self.host_summary_extra_network)
+            values = body.get("safe_values", {})
+            if name == "backend" and "GOLDTIER_SANDBOX_WRITE_SCOPE" in values:
+                # The R3 overlay interpolates the D-147 switches from compose.env.
+                values["GOLDTIER_SANDBOX_ALLOW_WRITES"] = self.env.get(
+                    "CLM_GOLDTIER_SANDBOX_ALLOW_WRITES", "false"
+                )
+                values["GOLDTIER_SANDBOX_WRITE_SCOPE"] = self.env.get(
+                    "CLM_GOLDTIER_SANDBOX_WRITE_SCOPE", "window"
+                )
+                values["GOLDTIER_CONNECTOR_MODE"] = self.env.get(
+                    "CLM_GOLDTIER_CONNECTOR_MODE", "mock"
+                )
         return summary
 
 

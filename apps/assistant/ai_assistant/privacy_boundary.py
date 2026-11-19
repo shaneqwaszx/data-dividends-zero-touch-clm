@@ -876,6 +876,28 @@ DOCUMENT_VALUE_FIELDS = (
     "compared_with_registry",
     "review_status",
 )
+# The ownership projection (copilot.ownership_facts, or the withheld/absent note): its top-level
+# keys, explicitly. U-4 (2026-11-19) adds poc_basis_accepted, the backend's accepted POC
+# acceptance (a boolean, no personal data). Party ids are already removed (strip_entity_refs).
+OWNERSHIP_FIELDS = (
+    "available",
+    "note",
+    "basis",
+    "analysis_state",
+    "source_environment",
+    "threshold_percent",
+    "threshold_rule",
+    "relationships",
+    "people",
+    "people_not_shown",
+    "issues",
+    "manual_review_recorded",
+    "poc_basis_accepted",
+)
+# D-145 (F-6): per-person ownership keys that only the service uses (its own threshold lines and
+# admission); removed from every person before any model receives the facts. The top-level
+# review_advisory flag is local only too: it is not in OWNERSHIP_FIELDS.
+OWNERSHIP_LOCAL_PERSON_FIELDS = ("assumed_basis_threshold_result",)
 
 
 def minimise_facts(facts: Mapping[str, Any], *, known_labels: frozenset[str]) -> dict[str, Any]:
@@ -908,6 +930,21 @@ def minimise_facts(facts: Mapping[str, Any], *, known_labels: frozenset[str]) ->
         documents.append({"name": kept.pop("name"), **kept})
     if "documents" in facts:
         out["documents"] = documents
+    ownership = out.get("ownership")
+    if isinstance(ownership, Mapping):
+        kept = {key: ownership[key] for key in OWNERSHIP_FIELDS if key in ownership}
+        if isinstance(kept.get("people"), list):
+            kept["people"] = [
+                {
+                    key: value
+                    for key, value in person.items()
+                    if key not in OWNERSHIP_LOCAL_PERSON_FIELDS
+                }
+                if isinstance(person, Mapping)
+                else person
+                for person in kept["people"]
+            ]
+        out["ownership"] = kept
     if "case_id" in out:
         out["case_id"] = None
     return _without_backend_text(_document_names(out, aliases))

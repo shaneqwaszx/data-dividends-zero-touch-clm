@@ -3,7 +3,9 @@
 Sandbox writes are on only inside one explicit window. The window is made of the write
 switch, an allowlist of operations, an optional exact list of case references, and an
 optional end time. Staging startup requires all four (see `Settings`); elsewhere only the
-switch matters, as before. The policy holds no secret and makes no network call.
+switch matters, as before. D-147's standing scope uses the same policy with no case list and
+no end time (Sandbox only, explicit operations; also validated in `Settings`). The policy
+holds no secret and makes no network call.
 """
 
 from __future__ import annotations

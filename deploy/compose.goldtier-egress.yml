@@ -3,7 +3,11 @@
 # Helper: dcg() { dc -f deploy/compose.goldtier-egress.yml "$@"; }
 #
 # - The connector mode stays Mock unless CLM_GOLDTIER_CONNECTOR_MODE says otherwise (OD-3).
-# - Sandbox writes stay refused: the value below is the literal string "false".
+# - Sandbox writes stay refused unless the host opts in (D-147 standing writes): all three
+#   CLM_GOLDTIER_SANDBOX_* lines in compose.env, with CLM_GOLDTIER_CONNECTOR_MODE=sandbox.
+#   Each defaults to off, so a host without them renders the literal "false", "window" and "".
+#   The backend refuses to start on an incoherent combination. The separate D-137 bounded
+#   window overlay, when applied, still overrides these values.
 # - The backend reaches GoldTier only through goldtier-egress (Smokescreen) on the internal
 #   goldtier-control network; the backend itself still has no route to the internet.
 # - goldtier-egress and goldtier-dns are the only services that reach goldtier-uplink, and the
@@ -17,7 +21,9 @@ services:
   backend:
     environment:
       GOLDTIER_CONNECTOR_MODE: ${CLM_GOLDTIER_CONNECTOR_MODE:-mock}
-      GOLDTIER_SANDBOX_ALLOW_WRITES: "false"
+      GOLDTIER_SANDBOX_ALLOW_WRITES: ${CLM_GOLDTIER_SANDBOX_ALLOW_WRITES:-false}
+      GOLDTIER_SANDBOX_WRITE_SCOPE: ${CLM_GOLDTIER_SANDBOX_WRITE_SCOPE:-window}
+      GOLDTIER_SANDBOX_WRITE_OPERATIONS: ${CLM_GOLDTIER_SANDBOX_WRITE_OPERATIONS:-}
       GOLDTIER_SANDBOX_EGRESS_PROXY_URL: http://clm-goldtier-egress:4750
       GOLDTIER_SANDBOX_EGRESS_FQDN: ${CLM_GOLDTIER_EGRESS_FQDN:?approved GoldTier egress FQDN required}
     networks:

@@ -95,7 +95,10 @@ _READINESS_NODES = {
     "READINESS": "READINESS",
     "GOLDTIER_TARGET": "READINESS",
 }
-_NO_EVIDENCE_ISSUES = frozenset({"OWNERSHIP_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED"})
+# F-1: OWNERSHIP_METHOD_UNSUPPORTED alone no longer means "no evidence". When relationships were
+# calculated (e.g. a synthetic overlay on a legal form ``OTHER`` root) the stage reports
+# REVIEW_ISSUES; with zero relationships it is still EVIDENCE_ABSENT via the relationship check.
+_NO_EVIDENCE_ISSUES = frozenset({"OWNERSHIP_REQUIRED"})
 _BASE_STATE: dict[str, StagePresentationState] = {
     "COMPLETE": "COMPLETE",
     "EMPTY": "COMPLETE",

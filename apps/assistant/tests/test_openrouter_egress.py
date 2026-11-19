@@ -507,7 +507,8 @@ def test_both_modes_report_each_providers_surfaces(both_site: Site) -> None:
     assert data["providers"] == ["anthropic", "openrouter"]
     assert data["surfaces"]["openrouter"] == ["case"]
     # Claude's surfaces follow D-130's hosted chat paths; insights only with their decision.
-    assert data["surfaces"]["anthropic"] == ["case", "general", "support", "try"]
+    # C11 P-B: insights is enabled for Anthropic only (never for OpenRouter).
+    assert data["surfaces"]["anthropic"] == ["case", "general", "support", "try", "insights"]
     assert data["active"] is None
 
 
