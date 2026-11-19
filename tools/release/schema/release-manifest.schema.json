@@ -40,7 +40,7 @@
         "commit": {"$ref": "#/$defs/git40"},
         "tree": {"$ref": "#/$defs/git40"},
         "base_ref": {"type": "string"},
-        "base_reason": {"enum": ["INTEGRATION_BASELINE", "N7A_READER_LINEAGE", "F2_FRONTEND_LINEAGE", "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE", "F2_C11_FALLBACK_FRONTEND_LINEAGE"]},
+        "base_reason": {"enum": ["INTEGRATION_BASELINE", "N7A_READER_LINEAGE", "F2_FRONTEND_LINEAGE", "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE", "F2_C11_FALLBACK_FRONTEND_LINEAGE", "B3_D147_BACKEND_LINEAGE", "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE"]},
         "clean": {"const": true},
         "pull_request": {"type": ["integer", "null"]}
       }
