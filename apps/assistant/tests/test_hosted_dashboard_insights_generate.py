@@ -48,6 +48,11 @@ ALLOWED_FACT_KEYS = {
     "open_cases_there",
     "completed_cases",
     "zero_touch_rate",
+    # C11: the recent-flow (TURNAROUND) counts.
+    "new_this_week",
+    "new_last_week",
+    "completed_this_week",
+    "completed_last_week",
 }
 
 
@@ -152,10 +157,26 @@ class _ListGate:
         return None if ref in self.refs else "NOT_LISTED"
 
 
+def _enable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The test-only decision and the provider approval (C11: both are needed).
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_PROVIDERS", frozenset({"anthropic"}))
+    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 3)
+
+
+def _disable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # C11 P-B: the P-A state (every insights constant unset), for the "disabled" checks.
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", None)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_PROVIDERS", frozenset())
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", None)
+    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 2)
+
+
 def _hosted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> Hosted:
     if enabled:
-        monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
-        monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 3)
+        _enable(monkeypatch)
+    else:
+        _disable(monkeypatch)
     hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
     hosted.setup_claude()
     hosted.qualify_and_activate()
@@ -167,8 +188,8 @@ def _hosted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -
 def test_under_d139_the_hosted_policy_admits_no_case_to_insights(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
 ) -> None:
-    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
-    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 3)
+    _enable(monkeypatch)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", None)
     hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
     hosted.setup_claude()
     hosted.qualify_and_activate()
@@ -200,10 +221,14 @@ def insights_bodies(hosted: Hosted) -> list[dict[str, Any]]:
 # --- disabled by default: the hard server-side gate ---------------------------------------------
 
 
-def test_the_fifth_path_is_off_in_the_code() -> None:
+def test_c11_pb_the_code_enables_the_fifth_path_for_claude_only() -> None:
     from ai_assistant import config
 
-    assert config.HOSTED_INSIGHTS_DECISION is None
+    # C11 P-B (owner approval required): decision, Claude only, the aggregate rule.
+    assert config.HOSTED_INSIGHTS_DECISION == "D-146"
+    assert frozenset({"anthropic"}) == config.HOSTED_INSIGHTS_PROVIDERS
+    assert "openrouter" not in config.HOSTED_INSIGHTS_PROVIDERS
+    assert config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION == "D-146"
     assert "dashboard_insights" not in config.HOSTED_CHAT_PATHS
 
 
@@ -500,6 +525,293 @@ def test_derive_uses_only_the_enumerated_fields() -> None:
     assert hosted_insights.derive([], now) is None
 
 
+# --- C11 P-A: enabling later is a reviewed constant change; until then nothing changes ----------
+
+
+def test_c11_the_decision_without_an_approved_provider_still_refuses_and_calls_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
+) -> None:
+    _disable(monkeypatch)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
+    hosted = Hosted(tmp_path, monkeypatch, InsightsClm())  # 2-call qualification: no H-D1
+    hosted.setup_claude()
+    hosted.qualify_and_activate()
+    hosted.client.app.state.case_gate = _ListGate()  # type: ignore[attr-defined]
+    assert anthropic_runtime.hosted_qualification_turns() == ()
+    before = len(hosted.claude.requests)
+    for method, path in (("GET", MODE), ("POST", GENERATE)):
+        reply = hosted.client.request(method, path, headers=post_headers("rm-a"))
+        assert reply.status_code == 503
+        assert reply.json()["detail"]["code"] == "DASHBOARD_INSIGHTS_UNAVAILABLE"
+    assert len(hosted.claude.requests) == before
+    assert insights_bodies(hosted) == []
+
+
+def test_c11_the_hosted_policy_admits_no_case_until_the_aggregate_rule_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from assistant_hosting.eligibility import INSIGHTS_REFUSAL, CasePolicy
+
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", None)
+    policy = CasePolicy()
+    assert policy.aggregate is False
+    assert policy(test_hosting.CASE_ID, test_hosting.SUMMARY) == INSIGHTS_REFUSAL
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", "TEST-OD-I2")
+    assert policy.aggregate is True
+    assert policy(test_hosting.CASE_ID, test_hosting.SUMMARY) is None  # ACRA in MOCK mode
+    assert policy(test_hosting.CASE_ID, None) == INSIGHTS_REFUSAL  # unreadable: never counted
+    # D-146 C11-2: a summary without registry provenance is uncertain: never counted.
+    assert policy(test_hosting.CASE_ID, {"status": "RUNNING"}) == INSIGHTS_REFUSAL
+    # The case chat's per-answer external-inference policy is not touched by the rule.
+    assert policy.data_policy("anthropic") == "synthetic_only"
+
+
+def test_c11_eligible_items_drops_the_retired_list_only_under_the_aggregate_rule() -> None:
+    first, second = uuid4(), uuid4()
+    items = [{"case_id": str(first)}, {"case_id": str(second)}, {"case_id": "not-a-uuid"}, "x"]
+    read: list[object] = []
+
+    def load(case_id: object) -> object:
+        read.append(case_id)
+        if case_id == second:
+            raise RuntimeError("404")
+        return {"status": "RUNNING"}
+
+    admit = lambda case_id, summary: None  # noqa: E731
+    assert hosted_insights.eligible_items(items, admit, frozenset(), load) == []
+    assert read == []  # without the rule nothing is even read
+    kept = hosted_insights.eligible_items(items, admit, frozenset(), load, aggregate=True)
+    assert kept == [{"case_id": str(first)}] and read == [first, second]
+
+
+def test_c11_with_the_aggregate_rule_the_real_policy_counts_session_visible_cases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
+) -> None:
+    _enable(monkeypatch)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", "TEST-OD-I2")
+    hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
+    hosted.setup_claude()
+    hosted.qualify_and_activate()  # the real CasePolicy from harden() stays installed
+    posts = hosted.claude.posts
+    reply = hosted.client.post(GENERATE, headers=post_headers("rm-a"))
+    assert reply.status_code == 200, reply.text
+    assert hosted.claude.posts == posts + 1
+    sent = insights_bodies(hosted)[-1]
+    text = json.dumps(sent)
+    for name in NAMES:
+        assert name not in text, name
+    assert str(test_hosting.CASE_ID) not in text and str(OTHER_CASE) not in text
+    payload = json.loads(sent["system"][1]["text"][len(hosted_insights.FINDINGS_HEADER) :])
+    for finding in payload["findings"]:
+        assert set(finding["facts"]) <= ALLOWED_FACT_KEYS
+        assert all(isinstance(v, int | str) for v in finding["facts"].values())
+
+
+def test_c11_pb_with_the_code_values_load_calls_nothing_and_generate_calls_once(
+    tmp_path: Path, insights_replies: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No monkeypatched constant: exactly what P-B ships (with the real hosted CasePolicy).
+    hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
+    hosted.setup_claude()
+    hosted.qualify_and_activate()
+    assert anthropic_runtime.hosted_qualification_turns() == ("H-D1",)
+    posts = hosted.claude.posts
+    mode = hosted.client.get(MODE, headers=post_headers("rm-a"))
+    assert mode.json() == {"mode": "generate", "remaining_user": 3, "remaining_site": 10}
+    assert hosted.claude.posts == posts  # page load: no call
+    assert hosted.client.post(GENERATE, headers=post_headers("rm-a")).status_code == 200
+    assert hosted.claude.posts == posts + 1
+    # PR #178's own route stays refused on the hosted service.
+    assert (
+        hosted.client.post(
+            "/assistant/dashboard/insights", headers=post_headers("rm-a"), json=FINDINGS
+        ).status_code
+        == 503
+    )
+    assert hosted.claude.posts == posts + 1
+
+
+def test_c11_the_qualification_records_the_insights_path(enabled: Hosted) -> None:
+    hosted = enabled
+    active = hosted.selector.current()
+    item = hosted.selector.store.qualification(active.qualification_id)
+    assert item is not None and item["status"] == "passed"
+    assert {"case_chat", "dashboard_insights"} <= set(item["summary"]["paths"])
+
+
+def test_c11_a_qualification_without_the_insights_turn_never_writes_insights(
+    enabled: Hosted, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hosted = enabled
+    store = hosted.selector.store
+    real = store.qualification
+
+    def without(qualification_id: str) -> Any:
+        item = real(qualification_id)
+        if item and item.get("summary"):
+            item["summary"]["paths"] = ["case_chat"]
+        return item
+
+    monkeypatch.setattr(store, "qualification", without)
+    posts = hosted.claude.posts
+    assert hosted.client.get(MODE, headers=post_headers("rm-a")).json()["mode"] == "off"
+    assert hosted.client.post(GENERATE, headers=post_headers("rm-a")).status_code == 503
+    assert hosted.claude.posts == posts
+
+
+def test_c11_the_trend_finding_is_counts_per_week_only() -> None:
+    now = datetime(2026, 11, 19, tzinfo=UTC)
+    request = hosted_insights.derive(
+        [
+            {"status": "RUNNING", "created_at": "2026-11-17T00:00:00Z", "legal_name": "Secret"},
+            {"status": "RUNNING", "created_at": "2026-11-09T00:00:00Z"},
+            {
+                "status": "COMPLETED",
+                "created_at": "2026-11-01T00:00:00Z",
+                "completed_at": "2026-11-18T00:00:00Z",
+            },
+        ],
+        now,
+    )
+    assert request is not None
+    facts = {f.topic: f.facts for f in request.findings}
+    assert facts["TURNAROUND"] == {
+        "new_this_week": 1,
+        "new_last_week": 1,
+        "completed_this_week": 1,
+        "completed_last_week": 0,
+    }
+    assert "Secret" not in request.model_dump_json()
+    old = hosted_insights.derive([{"status": "RUNNING", "created_at": "2026-01-01T00:00:00Z"}], now)
+    assert old is not None and "TURNAROUND" not in {f.topic for f in old.findings}
+
+
 # D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
 # test_hosted_case_policy.py runs the real provenance check.
 pytestmark = pytest.mark.usefixtures("hosted_case_eligible")
+
+
+# --- D-146 C11-2 (owner decision 2): synthetic-provenance aggregates only ----------------------
+
+SANDBOX_CASE = uuid4()
+UNKNOWN_CASE = uuid4()
+
+
+def _summary_with(change: Any) -> dict[str, Any]:
+    import copy
+
+    summary = copy.deepcopy(test_hosting.SUMMARY)
+    change(summary["case"])
+    return summary
+
+
+def _sandbox(case: dict[str, Any]) -> None:
+    case["entity"]["source"]["environment"] = "SANDBOX"
+
+
+def _unknown(case: dict[str, Any]) -> None:
+    case["entity"].pop("source", None)
+
+
+class MixedClm(InsightsClm):
+    """The synthetic fixture case plus two readable cases of the same shape: one from ACRA
+    Sandbox (sponsor data) and one with no registry provenance (uncertain)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.summaries = {
+            SANDBOX_CASE: _summary_with(_sandbox),
+            UNKNOWN_CASE: _summary_with(_unknown),
+        }
+        self.listed = [
+            _item(test_hosting.CASE_ID),
+            _item(SANDBOX_CASE, legal_name="Sandbox Holdings Pte Ltd"),
+            _item(UNKNOWN_CASE, legal_name="Unknown Origin Pte Ltd"),
+        ]
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        token = request.headers.get("cookie", "").removeprefix("clm_session=")
+        if token in test_hosting.SESSIONS:
+            for case_id, summary in self.summaries.items():
+                if request.url.path == f"/api/clm/zero-touch/cases/{case_id}":
+                    return httpx.Response(200, json=summary)
+        return super().handler(request)
+
+
+def test_c11_2_the_real_policy_admits_only_acra_mock_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from assistant_hosting.eligibility import INSIGHTS_REFUSAL, CasePolicy
+
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", "TEST-OD-I2")
+    policy = CasePolicy()
+
+    def officer_sandbox(case: dict[str, Any]) -> None:
+        case["registry_acquisition"]["officers"] = [
+            {"provenance": {"provider": "ACRA", "environment": "SANDBOX"}}
+        ]
+
+    def officer_unknown(case: dict[str, Any]) -> None:
+        case["registry_acquisition"]["officers"] = [{"provenance": None}]
+
+    def other_registry(case: dict[str, Any]) -> None:
+        case["entity"]["source"]["source_system"] = "OTHER"
+
+    assert policy(test_hosting.CASE_ID, test_hosting.SUMMARY) is None
+    for change in (_sandbox, _unknown, officer_sandbox, officer_unknown, other_registry):
+        assert policy(test_hosting.CASE_ID, _summary_with(change)) == INSIGHTS_REFUSAL, change
+    for summary in ({}, {"case": None}, [], "x"):
+        assert policy(test_hosting.CASE_ID, summary) == INSIGHTS_REFUSAL
+
+
+def _aggregate_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clm: InsightsClm
+) -> tuple[Hosted, Any]:
+    tmp_path.mkdir()
+    _enable(monkeypatch)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", "TEST-OD-I2")
+    hosted = Hosted(tmp_path, monkeypatch, clm)
+    hosted.setup_claude()
+    hosted.qualify_and_activate()  # the real CasePolicy from harden() stays installed
+    return hosted, hosted.client.post(GENERATE, headers=post_headers("rm-a"))
+
+
+def test_c11_2_mixed_cases_count_only_the_synthetic_one_and_the_payload_is_otherwise_equal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
+) -> None:
+    only = InsightsClm()
+    only.listed = [_item(test_hosting.CASE_ID)]
+    synthetic, reply = _aggregate_payload(tmp_path / "only", monkeypatch, only)
+    assert reply.status_code == 200, reply.text
+    expected = insights_bodies(synthetic)[-1]
+
+    hosted, reply = _aggregate_payload(tmp_path / "mixed", monkeypatch, MixedClm())
+    assert reply.status_code == 200, reply.text
+    sent = insights_bodies(hosted)[-1]
+    payload = json.loads(sent["system"][1]["text"][len(hosted_insights.FINDINGS_HEADER) :])
+    topics = {finding["topic"]: finding["facts"] for finding in payload["findings"]}
+    assert topics["SLA_OVERDUE"]["open_cases"] == 1  # not 3: Sandbox and unknown left out
+    # The same labels and counts as when only the synthetic case is visible: nothing else moves.
+    assert sent["system"] == expected["system"] and sent["messages"] == expected["messages"]
+    text = json.dumps(sent)
+    for case_id in (test_hosting.CASE_ID, SANDBOX_CASE, UNKNOWN_CASE):
+        assert str(case_id) not in text
+    assert "Sandbox" not in text and "Unknown Origin" not in text
+
+
+def test_c11_2_only_non_synthetic_cases_means_the_fallback_and_no_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
+) -> None:
+    clm = MixedClm()
+    clm.listed = clm.listed[1:]  # Sandbox and unknown provenance only
+    _enable(monkeypatch)
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_ELIGIBILITY_DECISION", "TEST-OD-I2")
+    hosted = Hosted(tmp_path, monkeypatch, clm)
+    hosted.setup_claude()
+    hosted.qualify_and_activate()
+    posts = hosted.claude.posts
+    before = len(insights_bodies(hosted))
+    reply = hosted.client.post(GENERATE, headers=post_headers("rm-a"))
+    assert reply.status_code == 503
+    assert reply.json()["detail"]["code"] == "DASHBOARD_INSIGHTS_UNAVAILABLE"
+    assert hosted.claude.posts == posts and len(insights_bodies(hosted)) == before

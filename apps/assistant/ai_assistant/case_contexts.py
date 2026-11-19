@@ -49,6 +49,8 @@ class _Context:
     used: float
     turns: deque[dict[str, str]] = field(default_factory=deque)
     generation: int = 0
+    reasoning_turns: int = 0
+    reasoning_basis: str | None = None
 
     @property
     def scope(self) -> Scope:
@@ -63,6 +65,8 @@ class Ticket:
     context_id: str
     generation: int
     history: tuple[dict[str, str], ...]
+    reasoning_history: tuple[dict[str, str], ...] = ()
+    reasoning_basis: str | None = None
 
 
 class ContextStore:
@@ -139,9 +143,24 @@ class ContextStore:
             if context.case_id != case_id:
                 raise ContextRefused("CONTEXT_SCOPE_MISMATCH")
             context.used = self._clock()
-            return Ticket(context_id, context.generation, tuple(dict(t) for t in context.turns))
+            history = tuple(dict(t) for t in context.turns)
+            return Ticket(
+                context_id,
+                context.generation,
+                history,
+                history[-context.reasoning_turns :] if context.reasoning_turns else (),
+                context.reasoning_basis,
+            )
 
-    def add(self, ticket: Ticket, question: str, answer: str) -> bool:
+    def add(
+        self,
+        ticket: Ticket,
+        question: str,
+        answer: str,
+        *,
+        verified_reasoning: bool = False,
+        reasoning_basis: str | None = None,
+    ) -> bool:
         """Add one exchange, only while the context is open under the ticket's generation
         (so a late answer never lands in a context that was closed or reopened)."""
 
@@ -149,10 +168,18 @@ class ContextStore:
             context = self._contexts.get(ticket.context_id)
             if context is None or context.generation != ticket.generation:
                 return False
+            if context.reasoning_basis != reasoning_basis:
+                context.reasoning_turns = 0
+            context.reasoning_basis = reasoning_basis if verified_reasoning else None
             context.turns.append({"role": "user", "content": question})
             context.turns.append({"role": "assistant", "content": answer})
             while len(context.turns) > self._max_turns:
                 context.turns.popleft()
+            # Only a contiguous suffix of verified-synthetic, model-answered exchanges may
+            # become external context. Older local, fallback or staff-derived answers reset it.
+            context.reasoning_turns = (
+                min(context.reasoning_turns + 2, len(context.turns)) if verified_reasoning else 0
+            )
             context.used = self._clock()
             return True
 

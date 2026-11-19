@@ -121,6 +121,12 @@
    "size_bytes": 567
   },
   {
+   "sha256": "27d315884468d0760410122decd094fdb4628a87f0066778dbab28ba98b44b01",
+   "display_name": "1. OPQ_Synthetic_Onboarding_GoldTier_Details_20261104_repaired.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 45330
+  },
+  {
    "sha256": "2f7935ab8304f9770b25f66087bda17caf4dfcf08b2269c357312c15d6438055",
    "display_name": "meridian-synthetic-infrastructure-client.pdf",
    "media_type": "application/pdf",
@@ -175,6 +181,12 @@
    "size_bytes": 1562
   },
   {
+   "sha256": "9adab758e9a9182ae6ee6847e056d6f9c1714bf3ee0ca7c3da8a7006f598f14f",
+   "display_name": "OPQ 201511222D onboarding_classification.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 2589
+  },
+  {
    "sha256": "a2d9b1985d53e31414b00af40ba3902689f4dffcd67a5fd7a620abe7e5555551",
    "display_name": "five-layer-marketplace-hybrid-client.pdf",
    "media_type": "application/pdf",
@@ -185,6 +197,12 @@
    "display_name": "straits-sponsor-demo-registry-annex.pdf",
    "media_type": "application/pdf",
    "size_bytes": 1996
+  },
+  {
+   "sha256": "b3871d115e50a4fec3faf4af2ad45ced553f3b5e58b7fa2f22a1b9d18eba60c6",
+   "display_name": "2. Garden_Synthetic_Onboarding_GoldTier_Details_20261104_repaired.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 45393
   },
   {
    "sha256": "bbd0fd4d7c08e40d74fa9e777902343ac5f7465d41262b1fd00c066c5b118e96",
