@@ -59,6 +59,10 @@ RELEASE_BASES: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"^origin/release/nl-synthetic-reasoning-b409077a$"),
         "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE",
     ),
+    # C4 closeout (owner-approved 2026-11-19): NL plus OPQ PTE. LTD. registered as an approved
+    # synthetic company (independent delta review PASS WITH NOTES, candidate f6e59a4a),
+    # assistant only. One commit on b409077a.
+    (re.compile(r"^origin/release/nl-opq-b409077a$"), "NL_OPQ_ASSISTANT_LINEAGE"),
 )
 # A lineage listed here accepts only this exact (commit, tree): never a later commit on the branch.
 PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
@@ -82,6 +86,10 @@ PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
         "bb7820614d4e1711fb5d25840214989e2d50d103",
         "aeeb96ad78c12652cec8303193c6cee00af544ec",
     ),
+    "NL_OPQ_ASSISTANT_LINEAGE": (
+        "1db9106fce7fee01b5f8ffe888c5f8da838fbea5",
+        "884028dd10c273965fe11044b0bec9379a8a2cf9",
+    ),
 }
 # A lineage listed here may change only these services.
 RELEASE_SERVICES: dict[str, frozenset[str]] = {
@@ -90,6 +98,7 @@ RELEASE_SERVICES: dict[str, frozenset[str]] = {
     "F2_C11_FALLBACK_FRONTEND_LINEAGE": frozenset({"frontend"}),
     "B3_D147_BACKEND_LINEAGE": frozenset({"backend"}),
     "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE": frozenset({"assistant"}),
+    "NL_OPQ_ASSISTANT_LINEAGE": frozenset({"assistant"}),
 }
 INTEGRATION_REASON = "INTEGRATION_BASELINE"
 
