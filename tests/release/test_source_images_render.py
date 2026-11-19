@@ -836,3 +836,18 @@ def test_no_other_f2_like_base_is_allowed(base: str) -> None:
     with pytest.raises(StopCondition) as refused:
         source.release_base_reason(base)
     assert refused.value.code == "BASE_REF_NOT_ALLOWED"
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "origin/release/c10-opq-assistant-backend-c5a1c7f5",
+        "origin/release/c10-opq-assistant-backend-c5a1c7f4-2",
+        "release/c10-opq-assistant-backend-c5a1c7f4",
+        "origin/release/c10-opq-assistant-backend-insights",
+    ],
+)
+def test_no_other_combined_like_base_is_allowed(base: str) -> None:
+    with pytest.raises(StopCondition) as refused:
+        source.release_base_reason(base)
+    assert refused.value.code == "BASE_REF_NOT_ALLOWED"
