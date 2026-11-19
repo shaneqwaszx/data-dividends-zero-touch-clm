@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     goldtier_sandbox_write_operations: str = "SHELL,POLICY,AMEND"
     goldtier_sandbox_write_case_references: str = ""
     goldtier_sandbox_writes_not_after: datetime | None = None
+    # D-147: "window" keeps the bounded D-137 window. "standing" is the owner-approved
+    # permanent Sandbox write mode: Sandbox only, explicit operations, no case list, no end.
+    goldtier_sandbox_write_scope: Literal["window", "standing"] = "window"
     # ST-7 standing read: Sandbox reads per UTC day (Search, exact-ID readback, recheck).
     # Unset means no application-imposed read limit in any environment.
     goldtier_sandbox_daily_read_limit: int | None = Field(default=None, ge=0, le=500)
@@ -401,10 +404,29 @@ class Settings(BaseSettings):
             write_policy = self.goldtier_sandbox_write_policy()
         except GoldTierWritePolicyError as exc:
             raise ValueError(str(exc)) from None
+        # D-147: standing Sandbox writes. Only the explicit "standing" scope removes the
+        # D-137 window; it never applies to Mock or production, it needs an explicit
+        # operation list, and it refuses a case list or an end time so the two modes can
+        # never be mixed. Every per-case control (RBAC, final confirmation, identity
+        # evidence, ledger, no-replay) stays in force downstream.
+        if self.goldtier_sandbox_write_scope == "standing":
+            if self.app_env == "production":
+                raise ValueError("standing GoldTier writes are Sandbox-only and never production")
+            if self.goldtier_sandbox_allow_writes and not (
+                self.goldtier_connector_mode == "sandbox"
+                and "goldtier_sandbox_write_operations" in self.model_fields_set
+                and write_policy.operations
+                and not write_policy.case_references
+                and write_policy.not_after is None
+            ):
+                raise ValueError(
+                    "standing GoldTier writes need Sandbox mode and explicit operations, "
+                    "with no case references and no end time (D-147)"
+                )
         # D-126 P1 / D-137: staging Sandbox stays read-only unless one bounded write window
         # is configured in full. A window that has already ended is accepted at startup (a
         # restart must not take the site down) and simply keeps writes off.
-        if (
+        elif (
             self.app_env == "staging"
             and self.goldtier_sandbox_allow_writes
             and not (

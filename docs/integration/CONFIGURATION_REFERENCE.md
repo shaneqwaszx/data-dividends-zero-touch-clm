@@ -46,7 +46,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `GOLDTIER_SANDBOX_USER_ID` | backend-only secret | empty | Supplied `user_id` header value; never returned, logged, or exposed to the browser |
 | `GOLDTIER_SANDBOX_TIMEOUT_SECONDS` | security | `10` | Per-request timeout, bounded to 30 seconds |
 | `GOLDTIER_SANDBOX_MAX_RESPONSE_BYTES` | security | `131072` | Maximum retained response body, bounded to 1 MiB |
-| `GOLDTIER_SANDBOX_ALLOW_WRITES` | safety | `false` | Separate opt-in for customer mutations; false still permits bounded search diagnostics. `true` is refused in `APP_ENV=staging`; see [AWS readiness](GOLDTIER_SANDBOX_AWS_READINESS.md) |
+| `GOLDTIER_SANDBOX_ALLOW_WRITES` | safety | `false` | Separate opt-in for customer mutations; false still permits bounded search diagnostics. In `APP_ENV=staging`, `true` needs either a complete D-137 window or the D-147 standing scope; see [AWS readiness](GOLDTIER_SANDBOX_AWS_READINESS.md) |
+| `GOLDTIER_SANDBOX_WRITE_SCOPE` | safety | `window` | D-147. `window` keeps the bounded D-137 write window. `standing` permits Sandbox writes for any authorised case with no case list, no end time and no application count; it requires `GOLDTIER_CONNECTOR_MODE=sandbox` and an explicit `GOLDTIER_SANDBOX_WRITE_OPERATIONS`, refuses case references and an end time, and is refused in production. Per-case RBAC, final confirmation, identity evidence and the ledger still apply |
 | `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |

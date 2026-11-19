@@ -1382,3 +1382,103 @@ def test_d137_a_blank_end_time_means_no_end_outside_staging_only() -> None:
     assert settings.goldtier_sandbox_write_policy().not_after is None
     with pytest.raises(ValidationError, match="D-137 write window"):
         window_settings(goldtier_sandbox_writes_not_after="")
+
+
+# -- D-147: standing Sandbox writes (owner-approved 2026-11-19) -------------------------------
+
+
+def standing_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "goldtier_sandbox_allow_writes": True,
+        "goldtier_sandbox_write_scope": "standing",
+        "goldtier_sandbox_write_operations": "SHELL,POLICY,AMEND",
+    }
+    return staging_settings(**(values | overrides))
+
+
+def standing() -> GoldTierSandboxWritePolicy:
+    return GoldTierSandboxWritePolicy(enabled=True)
+
+
+def test_d147_standing_staging_starts_with_writes_open_for_any_case_and_no_end() -> None:
+    settings = standing_settings()
+    policy = settings.goldtier_sandbox_write_policy()
+
+    assert policy.operations == {"SHELL", "POLICY", "AMEND"}
+    assert policy.case_references == frozenset() and policy.not_after is None
+    for case in ("CASE-201511222D-3772111a", "CASE-ANY-OTHER-00000000"):
+        for operation in ("SHELL", "POLICY", "AMEND", None):
+            assert policy.permits(
+                source_case_id=case, operation=operation, now=T0 + timedelta(days=3650)
+            )
+    assert composed(settings, FakeXpiTransport()).target_writes_enabled is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"goldtier_connector_mode": "mock"},
+        {"goldtier_sandbox_write_operations": ""},
+        {"goldtier_sandbox_write_case_references": "CASE-202400001A-0000abcd"},
+        {"goldtier_sandbox_writes_not_after": datetime.now(UTC) + timedelta(hours=2)},
+    ],
+    ids=["mock-mode", "no-operations", "case-list-mixed-in", "end-time-mixed-in"],
+)
+def test_d147_standing_refuses_an_incoherent_configuration(overrides: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="D-147"):
+        standing_settings(**overrides)
+
+
+def test_d147_standing_requires_operations_to_be_named_not_defaulted() -> None:
+    with pytest.raises(ValidationError, match="D-147"):
+        staging_settings(
+            goldtier_sandbox_allow_writes=True, goldtier_sandbox_write_scope="standing"
+        )
+
+
+def test_d147_standing_is_never_production() -> None:
+    with pytest.raises(ValidationError, match="never production"):
+        Settings(_env_file=None, app_env="production", goldtier_sandbox_write_scope="standing")
+
+
+def test_d147_the_scope_alone_opens_nothing() -> None:
+    settings = staging_settings(goldtier_sandbox_write_scope="standing")
+    assert settings.goldtier_sandbox_write_policy().enabled is False
+    assert composed(settings, FakeXpiTransport()).target_writes_enabled is False
+
+
+def test_d147_window_scope_keeps_the_d137_rules() -> None:
+    with pytest.raises(ValidationError, match="D-137 write window"):
+        staging_settings(
+            goldtier_sandbox_allow_writes=True,
+            goldtier_sandbox_write_operations="SHELL,POLICY,AMEND",
+        )
+
+
+def test_d147_an_unlisted_case_sends_after_its_own_confirmation_without_replay() -> None:
+    zero, transport, record = read_only_case_at_confirmation()
+    cases = zero._cases  # noqa: SLF001
+    transport.responses.extend([ok([]), *full_path_transport().responses])
+    set_window(cases, transport, standing(), Clock())
+
+    zero.confirm_target_dispatch(**confirmation(zero, record))
+
+    assert methods(transport) == ["GET", "GET", "POST", "POST", "POST", "GET"]
+    result = cases.get_case(record.case_id).goldtier_result
+    assert result is not None and result.party_id == "12345"
+    # Duplicate prevention is unchanged: a second confirmation never sends again.
+    posts = methods(transport).count("POST")
+    with pytest.raises(ZeroTouchRequestError):
+        zero.confirm_target_dispatch(**confirmation(zero, record))
+    assert methods(transport).count("POST") == posts
+
+
+def test_d147_the_final_confirmation_is_still_required() -> None:
+    zero, transport, record = read_only_case_at_confirmation()
+    cases = zero._cases  # noqa: SLF001
+    set_window(cases, transport, standing(), Clock())
+    case = cases.get_case(record.case_id)
+
+    assert case.target_dispatch_confirmation is None
+    assert cases.has_retained_target_execution(record.case_id) is False
+    assert "POST" not in methods(transport)

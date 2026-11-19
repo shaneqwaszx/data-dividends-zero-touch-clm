@@ -177,7 +177,9 @@ On the staging host, two controls change how services may be stopped, started an
 - **D-137 GoldTier write windows and ACRA leases are mutually exclusive.** This is the
   owner-approved operating rule of 2026-11-17. Close the lease before opening a window, and
   reopen it only after the window has closed. No wrapper combines the write overlay with the
-  ACRA overlay.
+  ACRA overlay. **D-147 standing writes are the exception:** they come from the R3 overlay
+  (`dcg`, DCA and DCX alike), so they run with the ACRA lease open ("D-147 standing GoldTier
+  Sandbox writes" below).
 
 **Recover-by-hand start order:**
 1. Close the lease.
@@ -248,6 +250,53 @@ mutually exclusive: this is the owner-approved operating rule of 2026-11-17.
   console status must show writes disabled. Record each write's ledger outcome and readback.
 - Never use `dc` or `dca` for the backend. While a window is open, the release pipeline's drift
   check refuses any deployment, so run no pipeline release until the window is closed.
+
+## D-147 standing GoldTier Sandbox writes (owner-approved 2026-11-19; activation separately gated)
+
+Permanent Sandbox writes for any authorised case. There is no case list, no window, no
+end time and no application write count, and the mode runs concurrently with the ACRA lease.
+Every per-case control stays in force: RBAC, the creator's final confirmation, Marketplace
+Mock identity evidence, the ledger with no-replay, duplicate prevention, audit and the
+ownership safeguards. Sandbox only; the backend refuses this scope in production.
+
+- **Opt-in** (all four lines in `/etc/clm/compose.env`, nothing else):
+  `CLM_GOLDTIER_CONNECTOR_MODE=sandbox`, `CLM_GOLDTIER_SANDBOX_ALLOW_WRITES=true` (lower case),
+  `CLM_GOLDTIER_SANDBOX_WRITE_SCOPE=standing` and
+  `CLM_GOLDTIER_SANDBOX_WRITE_OPERATIONS=SHELL,POLICY,AMEND`. The owner-only Sandbox keys stay in
+  the backend env file as before. The backend refuses to start on any other combination
+  (for example writes on with Mock mode, a case list, an end time, or no operations).
+- **Apply** in a lease cycle, as for any backend change: close the lease, edit `compose.env`,
+  recreate the backend with `dcg` (lease closed), check, then reopen the lease. The lease's
+  DCX keeps the values. Host checks that record "writes false" (`h_checks` H-4/H-6, W-1) must
+  record "writes true / standing" in the same window.
+- **Check:** the backend environment filtered to `^GOLDTIER_(CONNECTOR_MODE|SANDBOX_ALLOW_WRITES|SANDBOX_WRITE_)`,
+  and the HR console GoldTier status `writes_enabled: true`.
+- **Release pipeline:** its render and deploy checks accept writes only as exactly
+  `true` / `standing` / `sandbox`. Any other "writes on" render is still refused.
+- **Rollback (owner decision only):** set `CLM_GOLDTIER_SANDBOX_ALLOW_WRITES=false` (or remove the
+  three `CLM_GOLDTIER_SANDBOX_*` lines) and recreate the backend in a lease cycle. That stops
+  writes. GoldTier stays in Sandbox, because D-147 S5 never reverts to Mock automatically.
+- **Release-tool backend rollback (P1 remediation, R2).** A previous backend may predate D-147
+  and refuse to start with writes on. So on every backend rollback (automatic or
+  owner-requested, first attempt or retry, writes on or already off), before stopping the
+  running backend, the tool:
+  1. requires the ACRA lease to be **confirmed** closed. A root check must find the
+     controller's directory and no state file; permission denied, a failed command or any
+     other answer refuses. Close the lease with the lease controller first.
+  2. reads the two switch lines strictly. It refuses an unreadable file, a duplicate, an
+     `export`/spaced/quoted form or an unexpected value. On the GoldTier wrapper the mode line
+     must be present.
+  3. switches only a `true` `CLM_GOLDTIER_SANDBOX_ALLOW_WRITES` to `false`.
+  4. keeps `CLM_GOLDTIER_CONNECTOR_MODE` unchanged (Sandbox stays Sandbox, never Mock).
+  5. renders the backend on the host before and after, and requires writes off with the same
+     mode.
+
+  Otherwise it refuses with `ROLLBACK_INCOMPATIBLE` and leaves the running backend and its
+  image untouched. After a rollback, the owner re-enables writes with the opt-in above, only
+  for a backend that supports D-147. Frontend- and assistant-only rollbacks do not touch the
+  switch.
+- Do not combine the standing scope with the D-137 window overlay; that overlay's values
+  would be refused under the standing scope.
 
 ## ST-7 GoldTier Sandbox daily read budget
 

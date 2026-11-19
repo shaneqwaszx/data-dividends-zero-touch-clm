@@ -150,6 +150,40 @@ def test_c3_mode_defaults_to_mock_and_writes_stay_false(env: dict[str, str]) -> 
     ]
     assert selected["GOLDTIER_CONNECTOR_MODE"] == "sandbox"
     assert selected["GOLDTIER_SANDBOX_ALLOW_WRITES"] == "false"
+    assert selected["GOLDTIER_SANDBOX_WRITE_SCOPE"] == "window"
+    assert selected["GOLDTIER_SANDBOX_WRITE_OPERATIONS"] == ""
+
+
+STANDING = {
+    "CLM_GOLDTIER_CONNECTOR_MODE": "sandbox",
+    "CLM_GOLDTIER_SANDBOX_ALLOW_WRITES": "true",
+    "CLM_GOLDTIER_SANDBOX_WRITE_SCOPE": "standing",
+    "CLM_GOLDTIER_SANDBOX_WRITE_OPERATIONS": "SHELL,POLICY,AMEND",
+}
+
+
+def test_d147_standing_writes_need_the_explicit_host_opt_in(env: dict[str, str]) -> None:
+    closed = full(env | {"CLM_GOLDTIER_CONNECTOR_MODE": "sandbox"})
+    opened = full(env | STANDING)
+    after = opened["services"]["backend"]["environment"]
+    assert after["GOLDTIER_SANDBOX_ALLOW_WRITES"] == "true"
+    assert after["GOLDTIER_SANDBOX_WRITE_SCOPE"] == "standing"
+    assert after["GOLDTIER_SANDBOX_WRITE_OPERATIONS"] == "SHELL,POLICY,AMEND"
+    # No case list and no end time are ever rendered for the standing mode.
+    assert "GOLDTIER_SANDBOX_WRITE_CASE_REFERENCES" not in after
+    assert "GOLDTIER_SANDBOX_WRITES_NOT_AFTER" not in after
+    # Only those three backend values differ; networks, egress and every other service are equal.
+    assert opened["networks"] == closed["networks"]
+    for name, svc in opened["services"].items():
+        if name != "backend":
+            assert svc == closed["services"][name], name
+    before = closed["services"]["backend"]["environment"]
+    changed = {k for k, v in after.items() if before.get(k) != v}
+    assert changed == {
+        "GOLDTIER_SANDBOX_ALLOW_WRITES",
+        "GOLDTIER_SANDBOX_WRITE_SCOPE",
+        "GOLDTIER_SANDBOX_WRITE_OPERATIONS",
+    }
 
 
 def test_c4_hardening_capabilities_ports_and_dns(env: dict[str, str]) -> None:
@@ -236,8 +270,12 @@ def test_w1_window_changes_only_four_backend_values(env: dict[str, str]) -> None
     }
     assert changed == WINDOW_KEYS
     assert before["environment"]["GOLDTIER_SANDBOX_ALLOW_WRITES"] == "false"
+    # D-147: the R3 overlay always renders the off defaults for the standing-write switches.
+    assert before["environment"]["GOLDTIER_SANDBOX_WRITE_SCOPE"] == "window"
+    assert before["environment"]["GOLDTIER_SANDBOX_WRITE_OPERATIONS"] == ""
     assert not any(k.startswith("GOLDTIER_SANDBOX_WRITE") for k in before["environment"]
-                   if k != "GOLDTIER_SANDBOX_ALLOW_WRITES")
+                   if k not in {"GOLDTIER_SANDBOX_ALLOW_WRITES", "GOLDTIER_SANDBOX_WRITE_SCOPE",
+                                "GOLDTIER_SANDBOX_WRITE_OPERATIONS"})
 
 
 @pytest.mark.parametrize("missing", sorted(WINDOW_VALUES))

@@ -173,6 +173,8 @@ class HostProfile:
     max_backup_age_hours: int = 72
     wait_timeout_seconds: int = 180
     lock_dir: str = "/run/lock/clm-release.lock"
+    # The ACRA lease controller's state file; present while a lease is recorded (D-147 rollback).
+    acra_lease_state: str = "/var/lib/clm-acra-window/state"
     # Relative to the operator's home directory (the SSH session's working directory).
     state_dir: str = "clm-release"
     containers: dict[str, str] = field(

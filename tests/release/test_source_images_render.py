@@ -648,6 +648,29 @@ def test_assistant_networking_is_protected_even_when_declared() -> None:
     assert "credential variable" in refuse("assistant-provider", key).message
 
 
+@pytest.mark.parametrize(
+    ("values", "accepted"),
+    [
+        ({"GOLDTIER_SANDBOX_ALLOW_WRITES": "true", "GOLDTIER_SANDBOX_WRITE_SCOPE": "standing",
+          "GOLDTIER_CONNECTOR_MODE": "sandbox"}, True),
+        ({"GOLDTIER_SANDBOX_ALLOW_WRITES": "true", "GOLDTIER_SANDBOX_WRITE_SCOPE": "window",
+          "GOLDTIER_CONNECTOR_MODE": "sandbox"}, False),
+        ({"GOLDTIER_SANDBOX_ALLOW_WRITES": "true", "GOLDTIER_SANDBOX_WRITE_SCOPE": "standing",
+          "GOLDTIER_CONNECTOR_MODE": "mock"}, False),
+        ({"GOLDTIER_SANDBOX_ALLOW_WRITES": "True", "GOLDTIER_SANDBOX_WRITE_SCOPE": "standing",
+          "GOLDTIER_CONNECTOR_MODE": "sandbox"}, False),
+    ],
+    ids=["standing-sandbox", "window-scope", "mock-mode", "non-literal-true"],
+)
+def test_d147_only_the_coherent_standing_sandbox_mode_may_render_writes_on(
+    values: dict[str, str], accepted: bool
+) -> None:
+    summary = baseline("goldtier")
+    summary["services"]["backend"]["safe_values"].update(values)
+    problems = render.invariant_violations("goldtier", summary)
+    assert ("backend: GoldTier Sandbox writes are not refused" not in problems) is accepted
+
+
 def test_goldtier_and_backend_networking_is_protected_even_when_declared() -> None:
     writes = baseline("goldtier")
     writes["services"]["backend"]["safe_values"]["GOLDTIER_SANDBOX_ALLOW_WRITES"] = "true"
