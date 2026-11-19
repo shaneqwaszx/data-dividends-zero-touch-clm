@@ -726,3 +726,46 @@ def test_c11_fallback_frontend_lineage_is_pinned_and_frontend_only() -> None:
     manifest["source"]["tree"] = "1" * 40
     with pytest.raises(ReleaseError):
         manifests.validate_manifest(manifest)
+
+
+SINGLE_SERVICE_PINS = {
+    "B3_D147_BACKEND_LINEAGE": (
+        "origin/release/b3-d147-c5a1c7f4",
+        "320fe7efc53a1f99e5d207107b9e39072f4bb0c4",
+        "88b14d5dfa6331fd1e696587b07d78c83edf0f71",
+        "backend",
+    ),
+    "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE": (
+        "origin/release/nl-synthetic-reasoning-b409077a",
+        "bb7820614d4e1711fb5d25840214989e2d50d103",
+        "aeeb96ad78c12652cec8303193c6cee00af544ec",
+        "assistant",
+    ),
+}
+
+
+@pytest.mark.parametrize("reason", sorted(SINGLE_SERVICE_PINS))
+def test_follow_up_lineages_are_pinned_and_single_service(reason: str) -> None:
+    base_ref, commit, tree, service = SINGLE_SERVICE_PINS[reason]
+
+    def manifest_for(services: list[str]) -> dict:
+        manifest = make_manifest(services)
+        manifest["source"]["base_ref"] = base_ref
+        manifest["source"]["base_reason"] = reason
+        manifest["source"]["commit"], manifest["source"]["tree"] = commit, tree
+        return manifest
+
+    manifests.validate_manifest(manifest_for([service]))
+    for services in (["frontend"], ["assistant", "backend"], ["backend" if service == "assistant" else "assistant"]):
+        try:
+            candidate = manifest_for(services)
+        except Exception:
+            continue
+        with pytest.raises(ReleaseError) as refused:
+            manifests.validate_manifest(candidate)
+        assert refused.value.code == "MANIFEST_INVALID"
+    for field in ("commit", "tree"):
+        wrong = manifest_for([service])
+        wrong["source"][field] = "1" * 40
+        with pytest.raises(ReleaseError):
+            manifests.validate_manifest(wrong)
