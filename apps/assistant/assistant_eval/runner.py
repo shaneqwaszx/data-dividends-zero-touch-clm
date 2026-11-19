@@ -39,6 +39,7 @@ from ai_assistant.llm import ChatModel, ModelAnswer, Piece
 from ai_assistant.main import create_app
 from ai_assistant.telemetry import MemorySink, prompt_version
 
+from . import guard_reasons
 from .models import Capture, TurnAware
 from .scenarios import Scenario, ScenarioSet
 from .snapshot import (
@@ -173,6 +174,10 @@ class TurnResult:
     drift: bool
     metrics: dict[str, Any]
     answer_text: str = field(repr=False, default="")
+    # G-6 diagnostics (R0): closed reason codes of the sentences the guard left out, and the
+    # model lines the D-142 restore dropped (only while guard_reasons.recording() is active).
+    left_out_reasons: dict[str, int] = field(default_factory=dict)
+    restore_dropped_lines: int = 0
 
 
 @dataclass
@@ -314,7 +319,11 @@ def _scenario(
             model.begin(key, rep)
         capture.latest = None
         before = len(sink.records)
+        recorder = guard_reasons.active()
+        if recorder is not None:
+            recorder.take()  # nothing from before this turn is counted as this turn's
         response = client.post(chat, json={"message": question, "history": history})
+        reasons, dropped = recorder.take() if recorder is not None else ({}, 0)
         done = _done(response)
         prep = capture.latest
         recorded = len(sink.records) == before + 1
@@ -334,6 +343,8 @@ def _scenario(
                     drift=False,
                     metrics=sink.records[-1].to_dict(),
                     answer_text=str(done.get("answer") or ""),
+                    left_out_reasons=reasons,
+                    restore_dropped_lines=dropped,
                 )
             )
             # Not kept in the chat, as the service never keeps a refused exchange.
@@ -374,6 +385,8 @@ def _scenario(
                 drift=drift,
                 metrics=record.to_dict(),
                 answer_text=answer,
+                left_out_reasons=reasons,
+                restore_dropped_lines=dropped,
             )
         )
         if scenario.conversation:

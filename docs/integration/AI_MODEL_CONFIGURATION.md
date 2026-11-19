@@ -800,3 +800,16 @@ its admission check and before anything is reserved or sent.
 - **Basis.** The qualification basis includes the controlled-intent source. Changes to its
   matching rules or canonical questions make earlier qualifications ineligible. External
   models need a separately approved paid requalification before they answer on the new image.
+
+## D-142 NL: synthetic case reasoning (local candidate, 2026-11-19)
+
+CASE_REASONING_DECISION records the owner's bounded natural-language case-chat approval.
+With conversational answers enabled, a verified synthetic case may use natural questions
+and at most three server-held pairs from this user on this case. Every turn is protected
+and independently validated; history is untrusted context, current evidence remains the
+source of truth. Browser history is excluded. Unknown/unsafe evidence falls back.
+Exact-lines mode restores canonical questions without this context. General, Support and
+Try remain closed externally. HOSTED_PRIVACY_DECISION stays None; this does not adopt the
+broader pseudonymised data policy or permit real clients. Qualification basis changes;
+paid requalification, deployment and activation need separate approval. B3 UBO explanation
+controls and D-146 synthetic-only Insights stay in place.

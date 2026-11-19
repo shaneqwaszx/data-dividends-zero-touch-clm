@@ -85,7 +85,19 @@ def companies() -> list[dict[str, str]]:
             pairs.add((payload.uen, payload.entity_name))
     for company in (*SYNTHETIC_COMPANIES, *SPONSOR_DEMO_COMPANIES):
         pairs.add((company.uen, company.legal_name))
+    # Owner-approved 2026-11-19 (C4 closeout): the D-077 five-layer demo root, served by ACRA's
+    # API Marketplace Mock (environment MOCK) with only local synthetic ownership below it; its
+    # NL-7 PDFs are already approved fixtures. Exactly this one company; per-answer registry,
+    # document, viewer and value checks still apply.
+    from app.connectors.hybrid_ownership_overlay import FIVE_LAYER_ROOT_UEN
+
+    pairs.add((FIVE_LAYER_ROOT_UEN, MARKETPLACE_MOCK_ROOT_LEGAL_NAME))
     return [{"uen": uen, "legal_name": name} for uen, name in sorted(pairs)]
+
+
+# The name ACRA's Marketplace Mock returns for the five-layer root (the backend's
+# local_display_name for FIVE_LAYER_ROOT_UEN).
+MARKETPLACE_MOCK_ROOT_LEGAL_NAME = "OPQ PTE. LTD."
 
 
 def documents() -> list[dict[str, object]]:

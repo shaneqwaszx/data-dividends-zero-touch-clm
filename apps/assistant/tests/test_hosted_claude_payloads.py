@@ -18,7 +18,6 @@ import pytest
 
 from ai_assistant import model_qualification, support_chat
 from ai_assistant.anthropic_runtime import HOSTED_ANSWERED
-from ai_assistant.controlled_intents import BLOCKERS, CANONICAL
 from ai_assistant.evidence import LEGEND
 from ai_assistant.llm import LlmUnavailableError, ModelAnswer
 from ai_assistant.provider_payload import (
@@ -112,8 +111,10 @@ def test_an_identifier_in_case_data_or_the_question_is_removed(
     assert status == 200 and done(events)["answered_by"] == "model"
     body = hosted.claude.messages[-1]
     no_identifier(body)
-    # Only the canonical question is sent, with the backend's timeline prose removed.
-    assert body["messages"] == [{"role": "user", "content": CANONICAL[BLOCKERS]}]
+    # D-142 NL: the natural question is protected and backend timeline prose is removed.
+    assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
+    assert body["messages"][0]["content"].startswith("Why is [COMPANY-")
+    assert body["messages"][0]["content"].endswith("] blocked?")
     assert "Address reviewed by" not in json.dumps(body)
 
 
@@ -428,7 +429,8 @@ def test_try_sends_neither_the_owner_nor_support_by_id_or_display_name(
     status, events = hosted.ask("I am Maya Lim. Why is Garden Business blocked?")
     first = done(events)
     assert status == 200 and first["conversation_id"]
-    assert first["answered_by"] == "case_data"
+    assert first["answered_by"] == "model"
+    no_identifier(hosted.claude.messages[-1])
     ended = hosted.client.post(
         f"/assistant/conversations/{first['conversation_id']}/end",
         headers=post_headers("rm-a"),

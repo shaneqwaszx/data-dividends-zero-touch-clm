@@ -209,6 +209,7 @@ class HostedGuard:
             return
         if _dashboard_insights(path) and (
             assistant_config.HOSTED_INSIGHTS_DECISION is None
+            or not assistant_config.HOSTED_INSIGHTS_PROVIDERS
             or (method, path) not in HOSTED_INSIGHTS_ROUTES
         ):
             await _refuse(
@@ -298,7 +299,10 @@ class HostedGuard:
             names = ["case"] + [
                 CHAT_PATH_SURFACES[p] for p in sorted(paths) if p in CHAT_PATH_SURFACES
             ]
-            if assistant_config.HOSTED_INSIGHTS_DECISION is not None:
+            if (
+                assistant_config.HOSTED_INSIGHTS_DECISION is not None
+                and "anthropic" in assistant_config.HOSTED_INSIGHTS_PROVIDERS
+            ):
                 names.append("insights")
             surfaces["anthropic"] = names
         if self._openrouter:

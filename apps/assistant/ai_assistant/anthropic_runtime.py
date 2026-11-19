@@ -252,7 +252,12 @@ def hosted_paths() -> frozenset[str]:
     # external model (they would carry person-written text); only the case chat (controlled
     # intents) and the service-built insights may.
     paths = set(assistant_config.HOSTED_CHAT_PATHS) - PRIVACY_CLOSED_PATHS
-    if assistant_config.HOSTED_INSIGHTS_DECISION is not None:
+    # C11 (C-1a, C-6): insights needs its decision AND Anthropic on the approved provider list
+    # (shipped empty), so neither constant alone enables the path or its qualification turn.
+    if (
+        assistant_config.HOSTED_INSIGHTS_DECISION is not None
+        and "anthropic" in assistant_config.HOSTED_INSIGHTS_PROVIDERS
+    ):
         paths.add("dashboard_insights")
     return frozenset(paths)
 

@@ -54,6 +54,7 @@ from .guide import (
     MOCK_NOT_LIVE,
     NO_CONTACT,
     NOT_READY,
+    OWNERSHIP_REVIEW_ADVISED,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
     SEND_BEFORE_SUBMISSION,
@@ -384,6 +385,21 @@ _UBO_COMPLETION_REQUEST = re.compile(
     r"\b(?:complete|completed|done|finished|closed|passed)\b"
     r"|\b(?:complete|finish|close|sign off)\b\s+(?:the\s+|this\s+)?(?:ubos?|ownership)\b"
 )
+# The canonical question of the controlled UBO_CALCULATION intent (controlled_intents). Its plan
+# holds the provisional-analysis line and where to look; the figures come only from the
+# ownership projection on the conversational path. Matched exactly, so no other question's
+# exact-line plan changes.
+UBO_CALCULATION_QUESTION = (
+    "How did the application calculate the ownership percentages and the provisional UBO "
+    "candidates?"
+)
+_PROVISIONAL_OWNERSHIP = (
+    "Ownership and UBO analysis is provisional; it does not establish legal verification."
+)
+
+
+def _is_ubo_calculation_question(text: str) -> bool:
+    return " ".join(text.split()).rstrip("?.") == UBO_CALCULATION_QUESTION.lower().rstrip("?")
 
 
 # Phase B answer quality (D-092 P12 to P14, proposed): company directors, the UEN, the entity
@@ -493,6 +509,12 @@ def _source_or_owners_lines(facts: dict[str, Any], question: str) -> tuple[str, 
         _, lines, _ = _topic_lines(OWNERSHIP, [], facts)
         # The direct answer first; topic_plan keeps it only where it is an allowed line.
         return "who the ultimate beneficial owners are", [UBO_CHECK_NOT_RUN, *lines]
+    if _is_ubo_calculation_question(text):
+        return "how the application calculated ownership and the provisional UBO candidates", [
+            _PROVISIONAL_OWNERSHIP,
+            OWNERSHIP_REVIEW_ADVISED,
+            _open_section("Ownership & UBO"),
+        ]
     source = registry_source_line(facts, acra_only=True)
     if _UEN_QUESTION.search(text):
         return "what the UEN is and where the company details came from", [

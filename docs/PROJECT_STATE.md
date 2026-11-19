@@ -1778,3 +1778,17 @@ was migrated or backfilled.
     (claims, unfinalised write markers)
   - a caller inventory for the legacy routes
   - the backfill dry run, then its apply, in an approved window before the writer release runs
+
+## D-142 NL synthetic case reasoning - local candidate, 2026-11-19
+
+The owner approved the case-chat-only P30/P31 and OD-3 amendment; see DECISION_LOG.md,
+D-142 amendment NL and integration/SYNTHETIC_CASE_REASONING_IMPLEMENTATION.md.
+The existing assistant main/copilot owners construct natural questions and bounded context;
+privacy_boundary protects and independently checks every turn before reservation and at the
+exact wire boundary. D-095 verified synthetic provenance remains mandatory. The existing
+in-memory case_contexts owner exposes only verified-synthetic model exchanges as external
+history; fallback/local exchanges reset it, and a changed current-evidence fingerprint drops
+old context. No new service, repository, persistence schema or authorization owner.
+B3 UBO/Decimal/advisory behavior and D-146 synthetic-only Insights are preserved. General,
+Support and Try remain closed externally. HOSTED_PRIVACY_DECISION remains None. No real
+client approval, provider-status upgrade, deployment, activation or paid call is included.

@@ -420,3 +420,13 @@ def test_verified_fixture_documents_point_at_the_tracked_file() -> None:
         _digests([{"display_name": "../uat/" + VERIFIED_GARDEN_DOCUMENT}])[0]["content_sha256"]
         is None
     )
+
+
+@pytest.fixture(autouse=True)
+def canonical_policy_rollback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retain this R4 contract suite on the explicit pre-NL rollback policy.
+
+    Natural synthetic reasoning with the real provenance check is exercised separately in
+    test_synthetic_case_reasoning.py; these tests still verify the canonical rollback.
+    """
+    monkeypatch.setattr("ai_assistant.config.CASE_REASONING_DECISION", None)
