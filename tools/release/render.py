@@ -198,7 +198,16 @@ def invariant_violations(set_name: str, summary: Summary) -> list[str]:
     services = summary["services"]
     backend = services.get("backend")
     if backend is not None:
-        if backend["safe_values"].get("GOLDTIER_SANDBOX_ALLOW_WRITES") != "false":
+        values = backend["safe_values"]
+        # D-147: writes may be on only as the coherent standing Sandbox mode. The backend
+        # itself refuses any other combination at startup; this keeps a release from
+        # deploying around it.
+        standing = (
+            values.get("GOLDTIER_SANDBOX_ALLOW_WRITES") == "true"
+            and values.get("GOLDTIER_SANDBOX_WRITE_SCOPE") == "standing"
+            and values.get("GOLDTIER_CONNECTOR_MODE") == "sandbox"
+        )
+        if values.get("GOLDTIER_SANDBOX_ALLOW_WRITES") != "false" and not standing:
             found.append("backend: GoldTier Sandbox writes are not refused")
         if "default" in backend["networks"]:
             found.append("backend: attached to a network with an internet route")
