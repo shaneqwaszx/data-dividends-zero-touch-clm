@@ -18,6 +18,8 @@ from .core import Command, Effect, Gate, ReleaseError, Result, Secret, StopCondi
 
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9._/:@-]+$")
 SUMMARY_SOURCE = Path(__file__).with_name("effective_summary.py")
+# D-147: the only non-image compose.env lines the tool may read. Neither holds a secret.
+GOLDTIER_SWITCHES = frozenset({"CLM_GOLDTIER_SANDBOX_ALLOW_WRITES", "CLM_GOLDTIER_CONNECTOR_MODE"})
 INSPECT_FORMAT = (
     "{{.Name}} {{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}} "
     "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} "
@@ -261,3 +263,42 @@ class Host:
         if fields[1] != catalog.PLATFORM:
             raise StopCondition("WRONG_PLATFORM", f"host image is {fields[1]}")
         return fields[0]
+
+    def acra_lease_open(self) -> bool | None:
+        """D-147 rollback: whether the ACRA lease controller has a lease recorded (read-only).
+
+        Only a script that ran as root, found the controller's state directory and printed
+        exactly one verdict line counts. A permission refusal, a failed command, a missing
+        directory, a skipped read or any other output is unknown (None): callers fail closed.
+        """
+
+        path = shlex.quote(self.profile.acra_lease_state)
+        script = (
+            f'p={path}; d=$(dirname "$p"); [ -d "$d" ] || exit 3; '
+            'if [ -e "$p" ]; then echo lease-open; else echo lease-closed; fi'
+        )
+        result = self.read(
+            f"sudo -n sh -c {shlex.quote(script)}", "check whether the ACRA lease is closed"
+        )
+        if result.skipped or result.returncode != 0:
+            return None
+        return {"lease-open": True, "lease-closed": False}.get(result.stdout.strip())
+
+    def compose_env_setting_lines(self, variable: str) -> list[str] | None:
+        """D-147 rollback: every compose.env line that sets ``variable`` (also with ``export``
+        or spaces), so duplicates and malformed lines are visible. None: unreadable."""
+
+        if variable not in GOLDTIER_SWITCHES:
+            raise StopCondition("UNSAFE_VALUE", "only the two D-147 GoldTier switches")
+        pattern = shlex.quote(f"^[[:space:]]*(export[[:space:]]+)?{variable}[[:space:]]*=")
+        script = f"grep -E {pattern} {shlex.quote(self.profile.compose_env)}; echo grep-rc=$?"
+        result = self.read(f"sudo -n sh -c {shlex.quote(script)}", f"read the {variable} lines")
+        if result.skipped or result.returncode != 0:
+            return None
+        lines = result.stdout.splitlines()
+        if not lines or lines[-1] not in {"grep-rc=0", "grep-rc=1"}:
+            return None
+        found = lines[:-1]
+        if (lines[-1] == "grep-rc=0") != bool(found):
+            return None
+        return found

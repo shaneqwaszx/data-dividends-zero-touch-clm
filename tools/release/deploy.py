@@ -10,6 +10,7 @@ approved automatic rollback; otherwise the run stops and holds for an owner deci
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -1451,6 +1452,120 @@ def _pins_restored(ctx: Context, state: RunState) -> None:
             )
 
 
+STANDING_WRITES = "CLM_GOLDTIER_SANDBOX_ALLOW_WRITES"
+GOLDTIER_MODE = "CLM_GOLDTIER_CONNECTOR_MODE"
+# The backend Settings' `goldtier_connector_mode` values (apps/backend/app/config.py);
+# tests/release/test_d147_rollback.py fails if the two ever differ.
+SUPPORTED_GOLDTIER_MODES = frozenset({"mock", "sandbox"})
+
+
+def _refuse_incompatible(message: str) -> StopCondition:
+    return StopCondition(
+        "ROLLBACK_INCOMPATIBLE",
+        f"{message}; the running backend was not stopped and no image was changed",
+    )
+
+
+def _single_setting(ctx: Context, variable: str, *, required: bool) -> str | None:
+    """One D-147 switch, read strictly: exactly ``VARIABLE=value`` once (or absent when allowed).
+
+    Unreadable, duplicated, ``export``/spaced/quoted or otherwise ambiguous lines are refused.
+    """
+
+    lines = ctx.host.compose_env_setting_lines(variable)
+    if lines is None:
+        raise _refuse_incompatible(f"{variable} could not be read")
+    if len(lines) > 1:
+        raise _refuse_incompatible(f"{variable} is set more than once")
+    if not lines:
+        if required:
+            raise _refuse_incompatible(f"{variable} is not set")
+        return None
+    found = re.fullmatch(rf"{variable}=([a-z_]+)", lines[0])
+    if found is None:
+        raise _refuse_incompatible(f"{variable} is not a single plain setting")
+    return found.group(1)
+
+
+def _rendered_backend(ctx: Context, wrapper: str) -> dict[str, Any]:
+    result = ctx.host.read(
+        ctx.host.compose_summary(wrapper), f"summarise {wrapper} on the host", quiet=True
+    )
+    if result.skipped or result.returncode != 0:
+        raise _refuse_incompatible("the backend configuration could not be rendered")
+    try:
+        values = json.loads(result.stdout)["services"]["backend"]["safe_values"]
+    except (ValueError, KeyError, TypeError):
+        raise _refuse_incompatible("the backend configuration could not be rendered") from None
+    if not isinstance(values, dict):
+        raise _refuse_incompatible("the backend configuration could not be rendered")
+    return values
+
+
+def _prepare_backend_rollback(ctx: Context, state: RunState) -> None:
+    """D-147: establish that compose.env is safe for a previous (possibly pre-D-147) backend.
+
+    A pre-D-147 backend does not know the standing write scope: started with Sandbox writes on
+    it refuses to start, and the rollback would leave no backend. So on EVERY backend rollback
+    (automatic or owner-requested, first attempt or retry, writes on or already off), before
+    the running backend is stopped:
+    - the ACRA lease must be confirmed closed (any unknown lease state refuses);
+    - the two switch lines are read strictly (unreadable, duplicate or ambiguous refuses);
+    - only a ``true`` write switch is changed, to ``false``; nothing else is edited;
+    - the GoldTier mode is preserved (Sandbox stays Sandbox, never Mock): the mode line and the
+      rendered mode must not change;
+    - the backend is rendered on the host before and after and must end writes-off.
+    Any failure refuses the rollback before the backend is touched. Writes are re-enabled only
+    by the owner's documented opt-in (deploy/LIGHTSAIL_RUNTIME.md, D-147).
+    """
+
+    host = ctx.host
+    wrapper = ctx.wrapper("backend")
+    lease = host.acra_lease_open()
+    if lease is None:
+        raise _refuse_incompatible("the ACRA lease state could not be confirmed")
+    if lease:
+        raise _refuse_incompatible(
+            "the ACRA lease is open; close it with the lease controller before a backend rollback"
+        )
+    writes = _single_setting(ctx, STANDING_WRITES, required=False)
+    if writes not in {None, "true", "false"}:
+        raise _refuse_incompatible(f"{STANDING_WRITES} has an unexpected value")
+    # The R3 overlay interpolates the mode from compose.env, so there it must be explicit.
+    mode = _single_setting(ctx, GOLDTIER_MODE, required=wrapper == "goldtier")
+    if mode is not None and mode not in SUPPORTED_GOLDTIER_MODES:
+        raise _refuse_incompatible(f"{GOLDTIER_MODE} is not a mode the backend supports")
+    before = _rendered_backend(ctx, wrapper)
+    rendered_mode = before.get("GOLDTIER_CONNECTOR_MODE")
+    if rendered_mode not in SUPPORTED_GOLDTIER_MODES:
+        raise _refuse_incompatible("the rendered GoldTier mode is not one the backend supports")
+    if mode is not None and rendered_mode != mode:
+        raise _refuse_incompatible("the rendered GoldTier mode does not match compose.env")
+    if writes == "true":
+        _intent(ctx, state, "switch standing GoldTier Sandbox writes off for the previous backend")
+        edited = host.write(
+            f"sudo -n sed -i 's#^{STANDING_WRITES}=true$#{STANDING_WRITES}=false#' "
+            f"{shlex.quote(host.profile.compose_env)}",
+            "switch standing GoldTier Sandbox writes off before the backend rollback",
+        )
+        if edited.returncode != 0 or _single_setting(ctx, STANDING_WRITES, required=True) != "false":
+            raise _refuse_incompatible("standing writes could not be switched off")
+        if _single_setting(ctx, GOLDTIER_MODE, required=mode is not None) != mode:
+            raise _refuse_incompatible("the GoldTier connector mode changed")
+        _step_done(state)
+    after = _rendered_backend(ctx, wrapper)
+    if after.get("GOLDTIER_SANDBOX_ALLOW_WRITES") != "false":
+        raise _refuse_incompatible("the rendered backend configuration still has writes on")
+    if after.get("GOLDTIER_CONNECTOR_MODE") != rendered_mode:
+        raise _refuse_incompatible("the rendered GoldTier mode changed")
+    state.events.append(
+        "backend rollback compatibility verified: ACRA lease closed, GoldTier writes off, "
+        f"GoldTier mode kept ({rendered_mode})"
+        + ("; standing writes switched off, re-enable only by the owner's D-147 opt-in"
+           if writes == "true" else "")
+    )
+
+
 def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool = False) -> None:
     """Return every touched service to its previous image and verify the site is serving.
 
@@ -1474,6 +1589,7 @@ def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool
         _step_done(state)
     with_backend = "backend" in touched
     if with_backend:
+        _prepare_backend_rollback(ctx, state)
         _intent(ctx, state, "stop ingress", ingress=True)
         stopped = host.write(
             host.compose_stop("base", "frontend"), "stop ingress for the backend rollback"

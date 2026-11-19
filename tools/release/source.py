@@ -50,6 +50,15 @@ RELEASE_BASES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     # The frontend for B2: the deployed F-2 + notice frontend plus the reviewed C11 fallback (P-C).
     (re.compile(r"^origin/release/f2-c11-fallback-c5a1c7f4$"), "F2_C11_FALLBACK_FRONTEND_LINEAGE"),
+    # Combined B3 follow-up (owner-directed 2026-11-19): D-147 standing GoldTier Sandbox writes
+    # on B3 (QG PASS e4cf2c6f; tree = B3 + D-147, committed on c5a1c7f4), backend only.
+    (re.compile(r"^origin/release/b3-d147-c5a1c7f4$"), "B3_D147_BACKEND_LINEAGE"),
+    # Synthetic case reasoning on origin/main b409077a (QG PASS, reviewed identity 2703e572),
+    # assistant only. One commit whose parent is on main.
+    (
+        re.compile(r"^origin/release/nl-synthetic-reasoning-b409077a$"),
+        "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE",
+    ),
 )
 # A lineage listed here accepts only this exact (commit, tree): never a later commit on the branch.
 PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
@@ -65,12 +74,22 @@ PINNED_RELEASE_IDENTITIES: dict[str, tuple[str, str]] = {
         "5dd4d3cf6026541c9f7e9221a23fc4ba8f1437be",
         "7efa88622ef1bddb1a710feb97b25474321c06c2",
     ),
+    "B3_D147_BACKEND_LINEAGE": (
+        "320fe7efc53a1f99e5d207107b9e39072f4bb0c4",
+        "88b14d5dfa6331fd1e696587b07d78c83edf0f71",
+    ),
+    "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE": (
+        "bb7820614d4e1711fb5d25840214989e2d50d103",
+        "aeeb96ad78c12652cec8303193c6cee00af544ec",
+    ),
 }
 # A lineage listed here may change only these services.
 RELEASE_SERVICES: dict[str, frozenset[str]] = {
     "F2_FRONTEND_LINEAGE": frozenset({"frontend"}),
     "C10_OPQ_ASSISTANT_BACKEND_INSIGHTS_LINEAGE": frozenset({"assistant", "backend"}),
     "F2_C11_FALLBACK_FRONTEND_LINEAGE": frozenset({"frontend"}),
+    "B3_D147_BACKEND_LINEAGE": frozenset({"backend"}),
+    "NL_SYNTHETIC_REASONING_ASSISTANT_LINEAGE": frozenset({"assistant"}),
 }
 INTEGRATION_REASON = "INTEGRATION_BASELINE"
 
