@@ -411,6 +411,21 @@ def _poc_registry_problem(snapshot: CaseSnapshot, approved: Manifest) -> str | N
     return None
 
 
+def registry_provenance_problem(summary: object) -> str | None:
+    """D-146 C11-2 (owner decision 2, synthetic-only aggregates): the registry provenance rule
+    above (``_poc_registry_problem``) on one case summary, with the approved manifest. None only
+    when the company and every registry record family came from ACRA in MOCK mode; SANDBOX,
+    unknown or missing provenance, an unreadable summary or manifest is a closed reason."""
+
+    if not isinstance(summary, dict):
+        return "POC_PROVENANCE_UNKNOWN"
+    try:
+        approved = manifest()
+    except (OSError, ValueError, KeyError, TypeError):
+        return "POC_ELIGIBILITY_UNAVAILABLE"
+    return _poc_registry_problem(CaseSnapshot(summary=summary, documents=[], actor={}), approved)
+
+
 def poc_check(
     snapshot: CaseSnapshot,
     facts: dict[str, Any],

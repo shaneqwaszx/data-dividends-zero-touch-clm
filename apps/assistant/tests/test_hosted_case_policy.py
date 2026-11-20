@@ -183,8 +183,8 @@ def test_a_screened_question_is_refused_before_any_call(live: Hosted) -> None:
     assert status == 200
     answer = done(events)
     assert answer["answered_by"] == "case_data"
-    # D-142 R4 (R3-1): not a supported intent, so nothing is sent (the address never leaves).
-    assert "INTENT_UNSUPPORTED" in (answer["notice"] or "")
+    # D-142 NL: the identifier screen refuses the natural question before any call.
+    assert "SYNTHETIC_TEXT_NOT_APPROVED" in (answer["notice"] or "")
     assert "sam.tan" not in (answer["notice"] or "")
     assert hosted.claude.posts == posts
     # A supported question with an independent instruction also falls back.
@@ -194,7 +194,7 @@ def test_a_screened_question_is_refused_before_any_call(live: Hosted) -> None:
     )
     answer = done(events)
     assert status == 200 and answer["answered_by"] == "case_data"
-    assert "INTENT_UNSUPPORTED" in (answer["notice"] or "")
+    assert "SYNTHETIC_TEXT_NOT_APPROVED" in (answer["notice"] or "")
     assert hosted.claude.posts == posts
 
 

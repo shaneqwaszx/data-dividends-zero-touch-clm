@@ -71,7 +71,14 @@ The mapping lives in this process for one call only. It is never sent, logged, s
 telemetry. The ownership figures are the application's own (the backend's Decimal engine): they
 are numbers, so they are kept exactly, and the model only explains them.
 
-OD-3 (owner decision of 2026-11-17: ambiguous personal information leakage is not accepted) and
+D-142 NL (owner-approved 2026-11-19): a case_reasoning admission verified by D-095
+may carry protected natural questions and bounded same-case history. All turns remain
+untrusted PERSON text. Only that exact admission enables the exception; all other
+paths retain the R4 rules below. The accepted residual applies to verified synthetic
+demonstrations only, never real clients.
+
+Historical OD-3 (owner decision of 2026-11-17: ambiguous personal information leakage is not
+accepted) and
 R4 (R3-1, owner Option A of 2026-11-17): nothing a person wrote ever leaves. Every external prompt
 is service-built: a case question is recognised locally as one supported intent and sent as its
 fixed canonical question (controlled_intents); the admission of any person-written text, or of
@@ -876,6 +883,28 @@ DOCUMENT_VALUE_FIELDS = (
     "compared_with_registry",
     "review_status",
 )
+# The ownership projection (copilot.ownership_facts, or the withheld/absent note): its top-level
+# keys, explicitly. U-4 (2026-11-19) adds poc_basis_accepted, the backend's accepted POC
+# acceptance (a boolean, no personal data). Party ids are already removed (strip_entity_refs).
+OWNERSHIP_FIELDS = (
+    "available",
+    "note",
+    "basis",
+    "analysis_state",
+    "source_environment",
+    "threshold_percent",
+    "threshold_rule",
+    "relationships",
+    "people",
+    "people_not_shown",
+    "issues",
+    "manual_review_recorded",
+    "poc_basis_accepted",
+)
+# D-145 (F-6): per-person ownership keys that only the service uses (its own threshold lines and
+# admission); removed from every person before any model receives the facts. The top-level
+# review_advisory flag is local only too: it is not in OWNERSHIP_FIELDS.
+OWNERSHIP_LOCAL_PERSON_FIELDS = ("assumed_basis_threshold_result",)
 
 
 def minimise_facts(facts: Mapping[str, Any], *, known_labels: frozenset[str]) -> dict[str, Any]:
@@ -908,6 +937,22 @@ def minimise_facts(facts: Mapping[str, Any], *, known_labels: frozenset[str]) ->
         documents.append({"name": kept.pop("name"), **kept})
     if "documents" in facts:
         out["documents"] = documents
+    ownership = out.get("ownership")
+    if isinstance(ownership, Mapping):
+        kept = {key: ownership[key] for key in OWNERSHIP_FIELDS if key in ownership}
+        people = kept.get("people")
+        if isinstance(people, list):
+            kept["people"] = [
+                {
+                    key: value
+                    for key, value in person.items()
+                    if key not in OWNERSHIP_LOCAL_PERSON_FIELDS
+                }
+                if isinstance(person, Mapping)
+                else person
+                for person in people
+            ]
+        out["ownership"] = kept
     if "case_id" in out:
         out["case_id"] = None
     return _without_backend_text(_document_names(out, aliases))
@@ -1447,6 +1492,7 @@ class Protected:
     # R3: the origin of each sent text (by its protected content), for the wire check.
     trusted: frozenset[str] = frozenset()
     person: frozenset[str] = frozenset()
+    case_reasoning: bool = False
 
     def restore_line(self, line: str) -> str | None:
         """The line with its placeholders restored, or None when it must be dropped: it holds a
@@ -1525,6 +1571,7 @@ def protect(
     *,
     person_written: bool = True,
     controlled: Iterable[str] = (),
+    case_reasoning: bool = False,
 ) -> Protected:
     """The messages as an external model may receive them; raises PrivacyRefused.
 
@@ -1534,15 +1581,30 @@ def protect(
     pass the controlled query on its own."""
 
     shield = Shield(known=list(known))
-    kept = forwarded(messages)
+    kept = [dict(m) for m in messages] if case_reasoning else forwarded(messages)
+    if case_reasoning:
+        turns = [m for m in kept if m.get("role") != "system"]
+        roles = [m.get("role") for m in turns]
+        if (
+            not roles
+            or len(roles) > 7
+            or roles[-1] != "user"
+            or roles != ["user" if i % 2 == 0 else "assistant" for i in range(len(roles))]
+            or any(len(m.get("content", "")) > 4000 for m in turns)
+        ):
+            raise PrivacyRefused("CONTEXT_SHAPE")
     modes = [_mode(message, person_written) for message in kept]
     # R4 (R3-1): no person-written text is ever admitted to an external model.
-    if PERSON in modes or any(text for text in controlled):
+    if (PERSON in modes and not case_reasoning) or any(text for text in controlled):
         raise PrivacyRefused("PERSON_TEXT")
     out = [
         {**message, "content": shield.protect_text(str(message.get("content", "")), mode)}
         for message, mode in zip(kept, modes, strict=True)
     ]
+    if case_reasoning:
+        final = out[-1]["content"]
+        if sum(1 for _ in ALIAS.finditer(final)) * 2 > max(1, _question_words(final)):
+            raise PrivacyRefused("QUESTION_UNREPRESENTABLE")
     for message, mode in zip(out, modes, strict=True):
         code = _scan_residual(message["content"], shield, mode=mode)
         if code is not None:
@@ -1553,6 +1615,7 @@ def protect(
     return Protected(
         messages=out,
         shield=shield,
+        case_reasoning=case_reasoning,
         emitted=emitted,
         trusted=frozenset(
             m["content"] for m, mode in zip(out, modes, strict=True) if mode == TRUSTED
@@ -1580,6 +1643,7 @@ class _Admission:
     created: float
     person_written: bool = True
     controlled: tuple[str, ...] = ()
+    synthetic_reasoning: bool = False
 
 
 @dataclass
@@ -1593,6 +1657,7 @@ class _Call:
     trusted: frozenset[str] = frozenset()
     person: frozenset[str] = frozenset()
     person_written: bool = True
+    case_reasoning: bool = False
     # R4 (R3-3): the exact ordered projection this call may send: (role, text) per message.
     projection: tuple[tuple[str, str], ...] = ()
 
@@ -1673,6 +1738,20 @@ def _peek(messages: list[dict[str, str]]) -> _Admission:
     return entry
 
 
+def permit_synthetic_reasoning(messages: list[dict[str, str]]) -> None:
+    # Called only after D-095 check succeeds for the exact final prompt in remote_gate.
+    from .config import CASE_REASONING_DECISION
+
+    entry = _peek(messages)
+    if CASE_REASONING_DECISION is None or entry.source != "case_reasoning":
+        raise PrivacyRefused("REASONING_NOT_APPROVED")
+    with _lock:
+        admission_id = getattr(messages, "admission_id", "")
+        if _admissions.get(admission_id) is not entry:
+            raise PrivacyRefused("ADMISSION_UNAVAILABLE")
+        entry.synthetic_reasoning = True
+
+
 def outbound(messages: list[dict[str, str]]) -> Protected:
     """Called by each external model right after its own admission check (the ticket or the
     D-094 text check, on the messages as built) and before anything is reserved or sent:
@@ -1696,6 +1775,7 @@ def outbound(messages: list[dict[str, str]]) -> Protected:
         entry.known,
         person_written=entry.person_written,
         controlled=entry.controlled,
+        case_reasoning=entry.synthetic_reasoning,
     )
     call_id = secrets.token_hex(16)
     sent = ProtectedMessages(protected.messages, call_id)
@@ -1709,6 +1789,7 @@ def outbound(messages: list[dict[str, str]]) -> Protected:
             trusted=protected.trusted,
             person=protected.person,
             person_written=entry.person_written,
+            case_reasoning=entry.synthetic_reasoning,
             projection=_projection(sent),
         )
     return replace(protected, messages=sent, call_id=call_id)
@@ -1913,8 +1994,9 @@ def verify_wire(messages: list[dict[str, str]], body: bytes) -> None:
         raise PrivacyRefused("WIRE_UNAPPROVED_SHAPE")
     items = list(projection)
     # R3: no history on the wire: system texts and one user turn only.
-    if any(role not in ("system", "user") for role, _ in items) or (
-        sum(1 for role, _ in items if role == "user") != 1 or items[-1][0] != "user"
+    if not call.case_reasoning and (
+        any(role not in ("system", "user") for role, _ in items)
+        or (sum(1 for role, _ in items if role == "user") != 1 or items[-1][0] != "user")
     ):
         raise PrivacyRefused("WIRE_HISTORY")
     # R4 (R3-3): exactly the cleared call's protected messages, in order.
@@ -1925,7 +2007,7 @@ def verify_wire(messages: list[dict[str, str]], body: bytes) -> None:
             mode = TRUSTED if text in call.trusted else SERVICE
         else:
             mode = PERSON if call.person_written else SERVICE
-        if mode == PERSON:
+        if mode == PERSON and not call.case_reasoning:
             raise PrivacyRefused("WIRE_PERSON_TEXT")  # R4 (R3-1): never person-written text
         code = _scan_residual(text, call.shield, issued=call.emitted, mode=mode)
         if code is not None:
@@ -1974,6 +2056,7 @@ def remeasure(protected: Protected, header: list[dict[str, str]]) -> Protected:
             # R4: the origin of the re-sent turn is the protected payload's (never person text,
             # which is not admitted); the call record's default stays fail-closed.
             person_written=bool(protected.person),
+            case_reasoning=protected.case_reasoning,
             projection=_projection(sent),
         )
     return Protected(
@@ -1983,6 +2066,7 @@ def remeasure(protected: Protected, header: list[dict[str, str]]) -> Protected:
         call_id=call_id,
         trusted=protected.trusted,
         person=protected.person,
+        case_reasoning=protected.case_reasoning,
     )
 
 
@@ -2005,6 +2089,7 @@ def preview(messages: list[dict[str, str]]) -> str | None:
             entry.known,
             person_written=entry.person_written,
             controlled=entry.controlled,
+            case_reasoning=entry.synthetic_reasoning,
         )
     except PrivacyRefused as refused:
         return f"PRIVACY_{refused.code}"

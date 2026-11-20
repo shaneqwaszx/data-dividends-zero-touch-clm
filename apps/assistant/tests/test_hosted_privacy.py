@@ -98,6 +98,8 @@ def build(
 ) -> Hosted:
     if decision:
         monkeypatch.setattr(assistant_config, "HOSTED_PRIVACY_DECISION", "D-142")
+        # Test-only adoption of the separate broad policy uses the canonical rollback.
+        monkeypatch.setattr(assistant_config, "CASE_REASONING_DECISION", None)
     if policy is not None:
         monkeypatch.setitem(CLAUDE_ENV, ANTHROPIC, policy)
     rm = test_hosting.actor("kowalczyk-nakamura", "RM", "team-a", "CASE_ACCESS")
@@ -293,6 +295,7 @@ def private_gptoss(
         test_hosted_gptoss.provider, "system_local_source", test_hosted_gptoss.on_internal_network
     )
     monkeypatch.setattr(assistant_config, "HOSTED_PRIVACY_DECISION", "D-142")
+    monkeypatch.setattr(assistant_config, "CASE_REASONING_DECISION", None)
     env = {
         **test_hosted_gptoss.GPTOSS_ENV,
         eligibility.DATA_POLICY_VARIABLES["openrouter"]: PSEUDONYMISED,

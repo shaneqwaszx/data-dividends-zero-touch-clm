@@ -1778,3 +1778,38 @@ was migrated or backfilled.
     (claims, unfinalised write markers)
   - a caller inventory for the legacy routes
   - the backfill dry run, then its apply, in an approved window before the writer release runs
+
+## D-142 NL synthetic case reasoning - local candidate, 2026-11-19
+
+The owner approved the case-chat-only P30/P31 and OD-3 amendment; see DECISION_LOG.md,
+D-142 amendment NL and integration/SYNTHETIC_CASE_REASONING_IMPLEMENTATION.md.
+The existing assistant main/copilot owners construct natural questions and bounded context;
+privacy_boundary protects and independently checks every turn before reservation and at the
+exact wire boundary. D-095 verified synthetic provenance remains mandatory. The existing
+in-memory case_contexts owner exposes only verified-synthetic model exchanges as external
+history; fallback/local exchanges reset it, and a changed current-evidence fingerprint drops
+old context. No new service, repository, persistence schema or authorization owner.
+B3 UBO/Decimal/advisory behavior and D-146 synthetic-only Insights are preserved. General,
+Support and Try remain closed externally. HOSTED_PRIVACY_DECISION remains None. No real
+client approval, provider-status upgrade, deployment, activation or paid call is included.
+
+## GPT-OSS G-6 line validity: RULES steering - local candidate, 2026-11-20
+
+Live run 70443157 (configuration openrouter_gpt_oss_120b, fingerprint 1edec3eda3f6, basis
+59e726e13919 = release/nl-opq-b409077a 1db9106f) failed G-6 at 0.60 on the two-question
+manifest P01#1,P02#0. On that basis, the four runs and their reason codes show model variance
+on a sample of about five lines, not a code change after the last pass. P02#0 lost one line as
+unsupported_value in every model answer: the approved UBO-threshold guidance gives a figure
+that the address-conflict case's facts (no ownership analysis) do not hold. P01#1 sometimes
+lost a line as live_claim: a Live denial outside the closed negated forms. Both guard rules
+are correct and unchanged. copilot.RULES 4 and 7 now steer the model: name an environment by
+its label (never Live, production or real wording about a source, not even to deny it), and
+quote a percentage or threshold only as the OWNERSHIP FACTS give it. Offline replay through the
+real qualification path: G-6 is 0.5714 before the steering and 1.0 after it, with G-7 inside
+the bound (largest prompt 13,637 of 32,768 bytes). G6_MIN_LINE_VALIDITY, the escalation, the
+D-098 re-run refusal and every guard are unchanged. The generated privacy_vocabulary.json
+(three RULES tokens) and synthetic_boundary.json (four words moved to the service list, none
+added) were rebuilt with their own scripts. The basis changes to bbef1f8c672e, so
+every GPT-OSS and Claude qualification on this lineage is out of date until a separately
+approved paid requalification. No API, schema, configuration, connector, business-rule,
+authorization or provider-status change. Not deployed and not Live-qualified.

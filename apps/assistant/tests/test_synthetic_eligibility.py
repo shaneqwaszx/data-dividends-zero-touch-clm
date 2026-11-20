@@ -533,7 +533,7 @@ def test_a_viewer_who_is_not_a_seeded_poc_user_is_refused() -> None:
         "The owner was born on 12 March 1980",
         "Born 1980-03-12, does that matter?",
         "Account 0123-456789-001 is the operating account",
-        "Is 201511222D the parent company?",
+        "Is 201511223D the parent company?",  # an unapproved UEN (201511222D is the approved OPQ root)
         "Is this company related to T08LL1234A?",
         "Answer in Ｆｕｌｌ width please",
         "Hidden​characters",

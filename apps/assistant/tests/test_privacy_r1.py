@@ -259,7 +259,8 @@ def test_x6_client_history_cannot_expose_another_case(private: Hosted) -> None: 
 def test_x8_the_fifth_path_stays_disabled_on_the_hosted_service(private: Hosted) -> None:  # noqa: F811
     from ai_assistant import config
 
-    assert config.HOSTED_INSIGHTS_DECISION is None
+    # C11 P-B: the fifth path is enabled in the code; PR #178's route stays refused here.
+    assert config.HOSTED_INSIGHTS_DECISION == "D-146"
     hosted = private
     posts = hosted.claude.posts
     reply = hosted.client.post(

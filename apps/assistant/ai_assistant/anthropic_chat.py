@@ -167,8 +167,9 @@ def system_and_conversation(
         raise PromptShapeError("turns must alternate")
     # The per-question messages come together: after the prefix when there is no history,
     # otherwise after the history.
-    if history and len(leading) != prefix:
-        raise PromptShapeError("a system message before the history")
+    # D-142 NL: reviewed per-question blocks may lead the history, so both transports
+    # retain exactly the order admitted by the privacy boundary. The closed block/order
+    # validation below still refuses arbitrary or duplicate system text.
     last = -1
     for message in [*leading[prefix:], *trailing]:
         position = _question_block(message["content"])

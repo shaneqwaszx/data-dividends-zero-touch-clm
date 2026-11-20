@@ -33,6 +33,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, R
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import config as assistant_config
 from . import controlled_intents, copilot, data_access, hosted_insights
 from .answer_records import (
     ANSWER_ID,
@@ -368,8 +369,13 @@ INTENT_NOTICE = (
     "The external model answers only the supported case questions, so this answer comes "
     "straight from the case data."
 )
+IT_CASE_ELIGIBILITY_NOTICE = (
+    "The configured external model requires verified synthetic case data "
+    "and a safe question, so this answer comes from the case data."
+)
 _REMOTE_REFUSALS = (
     INTENT_NOTICE,
+    IT_CASE_ELIGIBILITY_NOTICE,
     *HOSTED_ELIGIBILITY_NOTICES.values(),
     *HOSTED_PRIVACY_NOTICES.values(),
     REMOTE_BOUNDARY_NOTICE,
@@ -420,7 +426,11 @@ class Prepared:
     external: bool = False
     # R4 (R3-1): for an external prompt, the canonical question sent in place of the user's
     # (None: nothing may be sent, for the closed reason in intent_reason), and the approved
-    # repository knowledge it may carry (never staff-written entries).
+    # repository knowledge it may carry (never staff-written entries). On the NL branch,
+    # canonical holds the natural question; it is not an admission proof.
+    case_reasoning: bool = False
+    synthetic_verified: bool = False
+    context_basis: str | None = None
     canonical: str | None = None
     intent_reason: str | None = None
     external_tagged: list[TaggedHit] = field(default_factory=list)
@@ -850,16 +860,26 @@ def create_app(
         canonical: str | None = None
         intent_reason: str | None = None
         external_tagged: list[TaggedHit] = []
+        case_reasoning = bool(
+            external
+            and external_conversational(config)
+            and assistant_config.CASE_REASONING_DECISION is not None
+            and trial is None
+            and not copilot.asks_for_change(question)
+            and not controlled_intents.asks_ubo_calculation(question)
+            and copilot.in_domain(question, ongoing=bool(history), case_open=True, strict=True)
+        )
         if external:
-            # D-142 R4 (R3-1, Option A): an external model never receives what the person
-            # wrote, the chat history, Try's unsaved rule or a staff-written knowledge entry.
-            # The question is recognised locally as one supported intent and sent as its fixed
-            # canonical question, with approved repository knowledge only; otherwise nothing
-            # may be sent (remote_gate refuses before any reservation or transport).
+            # R4 canonical intents remain the exact-lines rollback and specialised UBO path.
+            # The NL case branch instead requires verified synthetic eligibility and protected
+            # question/context admission in remote_gate; it never trusts the typed text.
             recognised = controlled_intents.recognise(
                 facts if external_facts is None else external_facts, question
             )
-            if trial is not None:
+            if case_reasoning:
+                canonical = question
+                external_tagged = [item for item in tagged if approved_entry(item.hit.entry)]
+            elif trial is not None:
                 intent_reason = controlled_intents.TRY_LOCAL
             elif recognised.intent is None:
                 intent_reason = recognised.reason or controlled_intents.UNSUPPORTED
@@ -912,6 +932,7 @@ def create_app(
             external_facts=external_facts,
             withheld=view.withheld if view is not None else 0,
             canonical=canonical,
+            case_reasoning=case_reasoning,
             intent_reason=intent_reason,
             external_tagged=external_tagged,
         )
@@ -1128,6 +1149,7 @@ def create_app(
             snapshot, prep.facts, prep.messages, entries, digests=digests, viewer=trial is None
         )
         if refusal is None:
+            prep.synthetic_verified = True
             return None
         record = getattr(app.state.case_gate, "record", None)
         if callable(record):
@@ -1153,6 +1175,50 @@ def create_app(
         is a verified synthetic development case); otherwise nothing is sent and the RM gets
         the case-data answer (notice REMOTE_BOUNDARY_NOTICE or REMOTE_ELIGIBILITY_NOTICE,
         followed by the closed reason code, never a value)."""
+
+        if prep.case_reasoning:
+            if gptoss_rate_refused(active.model, user_of(snapshot)):
+                return None, None
+            try:
+                digests = (
+                    backend.load_document_digests(case_id, session) if snapshot.documents else []
+                )
+            except ClmBackendError:
+                digests = None
+            refusal = synthetic_eligibility_check(
+                snapshot,
+                prep.facts,
+                prep.messages,
+                [item.hit.entry for item in prep.external_tagged],
+                digests=digests,
+            )
+            if refusal is None:
+                from .privacy_boundary import PrivacyRefused, permit_synthetic_reasoning, preview
+
+                prep.synthetic_verified = True
+                try:
+                    permit_synthetic_reasoning(prep.messages)
+                    refusal = preview(prep.messages)
+                except PrivacyRefused as refused:
+                    refusal = f"PRIVACY_{refused.code}"
+            if refusal is not None:
+                record_refusal = getattr(getattr(app.state, "case_gate", None), "record", None)
+                if callable(record_refusal):
+                    record_refusal(case_id, refusal)
+                else:
+                    log.info("external inference not used: %s", refusal)
+                provider = "anthropic" if anthropic_bound(active.model) else "openrouter"
+                if is_remote_test_model(active.model):
+                    notice_texts = (
+                        HOSTED_PRIVACY_NOTICES
+                        if refusal.startswith("PRIVACY_")
+                        else HOSTED_ELIGIBILITY_NOTICES
+                    )
+                    notice = notice_texts[provider]
+                else:
+                    notice = IT_CASE_ELIGIBILITY_NOTICE
+                return None, f"{notice} Reason: {refusal}."
+            return active.model, privacy_lead(active.model)
 
         if (prep.external or prep.remote) and prep.canonical is None:
             # D-142 R4 (R3-1): not one supported, unambiguous intent: the case-data answer.
@@ -1419,11 +1485,14 @@ def create_app(
     def user_of(snapshot: CaseSnapshot) -> str:
         return str((snapshot.actor.get("profile") or {}).get("user_id") or "")
 
-    def history_for(body: ChatRequest, ticket: Ticket | None) -> list[dict[str, str]]:
+    def history_for(
+        body: ChatRequest, ticket: Ticket | None, *, verified_only: bool = False
+    ) -> list[dict[str, str]]:
         if ticket is None:
-            return history_of(body)
+            return [] if verified_only else history_of(body)
         limit = config.max_history_messages
-        return [dict(turn) for turn in ticket.history][-limit:] if limit else []
+        history = ticket.reasoning_history if verified_only else ticket.history
+        return [dict(turn) for turn in history][-limit:] if limit else []
 
     def off_domain(suggestions: list[str]) -> ChatResponse:
         return ChatResponse(
@@ -1434,29 +1503,88 @@ def create_app(
             suggested_questions=suggestions,
         )
 
-    def with_ownership(prep: Prepared, case_id: UUID, request: Request) -> Prepared:
+    def with_ownership(
+        prep: Prepared, case_id: UUID, request: Request, snapshot: CaseSnapshot
+    ) -> Prepared:
         """Conversational answers only: the application's ownership analysis joins the case
         facts, read with the user's own session (the backend decides access). Without it, the
         ownership figures are reported as not available and no percentage is grounded."""
 
         analysis = backend.load_ownership(case_id, request.cookies.get(SESSION_COOKIE_NAME))
-        ownership = copilot.ownership_facts(analysis)
+        # D-145 (F-6): the backend's D-121 advisory verdict, only for this same analysis.
+        ownership = copilot.ownership_facts(
+            analysis,
+            review_advisory=copilot.advisory_review_current(snapshot.summary, analysis),
+        )
+        if controlled_intents.asks_ubo_calculation(prep.question):
+            # UBO_CALCULATION: the case-data answer is the application's own figures (local
+            # facts, shown only to this user), whether or not a model then answers.
+            prep = replaced(prep, fallback=copilot.ubo_calculation_answer(ownership))
         if prep.external_facts is None:
-            return replaced(prep, facts={**prep.facts, "ownership": ownership})
-        # D-142 R2: the ownership analysis may rest on a withheld upload (uploaded evidence
-        # rows), so an external prompt does not receive it while any upload is withheld.
-        external = ownership if not prep.withheld else OWNERSHIP_WITHHELD
+            owned = replaced(prep, facts={**prep.facts, "ownership": ownership})
+        else:
+            # D-142 R2: the ownership analysis may rest on a withheld upload (uploaded evidence
+            # rows), so an external prompt does not receive it while any upload is withheld.
+            external = ownership if not prep.withheld else OWNERSHIP_WITHHELD
+            owned = replaced(
+                prep,
+                facts={**prep.facts, "ownership": ownership},
+                external_facts={**prep.external_facts, "ownership": external},
+            )
+        if owned.case_reasoning and not controlled_intents.ubo_calculation_ready(
+            owned.facts if owned.external_facts is None else owned.external_facts
+        ):
+            if owned.external_facts is None:
+                owned = replaced(
+                    owned, external_facts={**owned.facts, "ownership": OWNERSHIP_WITHHELD}
+                )
+            else:
+                owned = replaced(
+                    owned, external_facts={**owned.external_facts, "ownership": OWNERSHIP_WITHHELD}
+                )
+        return ubo_calculation_intent(owned, snapshot)
+
+    def ubo_calculation_intent(prep: Prepared, snapshot: CaseSnapshot) -> Prepared:
+        """D-142 R4 for UBO_CALCULATION: prepare() recognised the question on facts without the
+        ownership projection, so this one intent is recognised again now that the projection
+        the external prompt will carry is attached (the external view when one exists). Only
+        this intent may be admitted here; every other outcome of prepare() stands."""
+
+        if (
+            not (prep.external or prep.remote)
+            or prep.canonical is not None
+            or prep.intent_reason == controlled_intents.TRY_LOCAL
+            or not controlled_intents.asks_ubo_calculation(prep.question)
+        ):
+            return prep
+        base = prep.facts if prep.external_facts is None else prep.external_facts
+        found = controlled_intents.recognise(base, prep.question)
+        if found.intent is None or found.intent.kind != controlled_intents.UBO_CALCULATION:
+            return prep
+        canonical = found.intent.question
+        profile = snapshot.actor.get("profile") or {}
+        tagged = [
+            item
+            for item in external_knowledge(
+                canonical, prep.facts, profile.get("role"), profile.get("team_id")
+            )
+            if approved_entry(item.hit.entry)
+        ]
         return replaced(
             prep,
-            facts={**prep.facts, "ownership": ownership},
-            external_facts={**prep.external_facts, "ownership": external},
+            canonical=canonical,
+            intent_reason=None,
+            external_tagged=tagged,
+            plan=topic_plan(prep.facts, canonical),
         )
 
-    def local_ownership(prep: Prepared, case_id: UUID, request: Request, remote: bool) -> Prepared:
+    def local_ownership(
+        prep: Prepared, case_id: UUID, request: Request, remote: bool, snapshot: CaseSnapshot
+    ) -> Prepared:
         # D-115 X2: without D-122 an external model never gets the ownership analysis.
         if remote and not external_conversational(config):
             return prep
-        return with_ownership(prep, case_id, request)
+        return with_ownership(prep, case_id, request, snapshot)
 
     def refused_outcome(lead: str | None) -> _Outcome:
         # The case-data answer when no model may be used, with the reason recorded as in the
@@ -1464,18 +1592,29 @@ def create_app(
         refused = lead is not None and lead.startswith(_REMOTE_REFUSALS)
         return _Outcome(fallback_reason="remote_boundary" if refused else "model_disabled")
 
-    def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
+    def copilot_prep(
+        prep: Prepared, history: list[dict[str, str]], *, history_basis: str | None = None
+    ) -> tuple[Prepared, list[str]]:
         names = prep.provider_names
         base = prep.facts if prep.external_facts is None else prep.external_facts
         external = prep.remote or prep.external
+        basis = hashlib.sha256(json.dumps(prep.facts, sort_keys=True).encode()).hexdigest()
+        prep = replaced(prep, context_basis=basis)
+        if prep.case_reasoning and history_basis != basis:
+            # An old analysis, document revision, permission or readiness result is not
+            # current evidence. Drop its conversational context and let the model clarify.
+            history = []
         if external:
-            # R4 (R3-1): the canonical question only; no history, approved repository
-            # knowledge only (see prepare).
+            # D-142-NL: bounded server-held turns are untrusted context, never evidence.
+            # R4 rollback: canonical question without history. Both modes use only
+            # approved repository knowledge (see prepare).
             tagged = prep.external_tagged
             messages = copilot.build_messages(
                 model_facts(base, names, external),
-                [],
-                prep.canonical or controlled_intents.NOT_SENT,
+                history[-6:] if prep.case_reasoning else [],
+                prep.question
+                if prep.case_reasoning
+                else prep.canonical or controlled_intents.NOT_SENT,
                 knowledge=copilot.knowledge_message(tagged, shown_knowledge(tagged, prep.facts)),
             )
         else:
@@ -1485,20 +1624,46 @@ def create_app(
                 prep.question,
                 knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
             )
+        if prep.case_reasoning:
+            # Anthropic projects system blocks to the front. Admit that exact ordering on
+            # both transports so a history turn cannot change the cleared wire projection.
+            messages = [m for m in messages if m["role"] == "system"] + [
+                m for m in messages if m["role"] != "system"
+            ]
         if names is not None:
             messages = scrub(messages, names)
         # D-142 R1: a new admission for the new messages (the case's own identities).
         messages = privacy_admit(
             messages,
             identities_from_facts(prep.facts, people=names or ()),
-            source="copilot",
-            person_written=not external,
+            source="case_reasoning" if prep.case_reasoning else "copilot",
+            person_written=prep.case_reasoning or not external,
         )
         line = copilot.read_only_line(prep.question)
+        required = [line] if line else []
+        ownership = prep.facts.get("ownership") or {}
+        if (controlled_intents.asks_ubo_calculation(prep.question) or prep.case_reasoning) and (
+            ownership.get("available") is True
+        ):
+            # UBO_CALCULATION: every answer says first that candidates are provisional.
+            required.append(copilot.UBO_PROVISIONAL_NOTE)
+            if ownership.get("analysis_state") == "REVIEW_REQUIRED":
+                # U-5: and, on a review-required analysis, that it awaits human review.
+                required.append(copilot.UBO_REVIEW_NOTE)
+                # D-145 (F-6): on the backend's advisory verdict for this analysis, say so and
+                # give the backend's own threshold comparison (service text, shown locally,
+                # never sent; the model's own outcome wording stays removed by U-5).
+                threshold = copilot.ubo_threshold_lines(ownership)
+                if (
+                    threshold is not None
+                    and controlled_intents.ubo_advisory_admission(prep.facts)
+                    and controlled_intents.ubo_calculation_ready(prep.facts)
+                ):
+                    required.extend([copilot.UBO_ADVISORY_NOTE, threshold])
         prepared = replaced(prep, messages=messages, plan=None, conversational=True)
         if on_prepared is not None:
             on_prepared(prepared)  # the evaluation harness sees the prompt actually sent
-        return prepared, [line] if line else []
+        return prepared, required
 
     def copilot_reply(
         check: copilot.CopilotCheck,
@@ -2077,9 +2242,28 @@ def create_app(
             and getattr(request.app.state, "case_gate", None) is not None
             and active.model is not None
             and hosted_chat(active.model, "dashboard_insights")
+            and insights_qualified(active)
         ):
             return active.model
         return None
+
+    def insights_qualified(active: Any) -> bool:
+        # C11 (C-1b): an activated configuration writes insights only if its own passed
+        # qualification answered the insights turn (its summary records "paths"). A fixed model
+        # (no model store: the qualification harness itself, tests) has no stored activation; a
+        # hosted Claude configuration exists only through a stored, qualified activation.
+        store = selector.store
+        if store is None:
+            return True
+        if not active.qualification_id:
+            return False
+        try:
+            item = store.qualification(active.qualification_id) or {}
+        except Exception:  # unreadable: fail closed
+            return False
+        summary = item.get("summary") if isinstance(item, dict) else None
+        paths = summary.get("paths") if isinstance(summary, dict) else None
+        return isinstance(paths, list) and "dashboard_insights" in paths
 
     def insights_unavailable() -> HTTPException:
         return HTTPException(
@@ -2140,12 +2324,17 @@ def create_app(
             gate,
             frozenset(getattr(gate, "refs", frozenset())),
             lambda case_id: backend.load_case(case_id, session).summary,
+            aggregate=getattr(gate, "aggregate", False) is True,
         )
         findings = hosted_insights.derive(eligible, datetime.now(UTC))
         if findings is None:
             raise insights_unavailable()
         messages = hosted_insights.build_messages(findings)
-        key = (user, hashlib.sha256(json.dumps(messages).encode("utf-8")).hexdigest())
+        # C11 (C-4): the writer is part of the key, so a model switch never serves an earlier
+        # model's reply.
+        active = selector.current()
+        writer = json.dumps([model.name, active.profile_id, active.qualification_id, messages])
+        key = (user, hashlib.sha256(writer.encode("utf-8")).hexdigest())
         now = time.monotonic()
         with insights_lock:
             cached = insights_cache.get(key)
@@ -2212,7 +2401,12 @@ def create_app(
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         ticket = ticket_for(body.context_id, user_of(snapshot), str(case_id))
-        history = history_for(body, ticket)
+        external_reasoning = bool(
+            assistant_config.CASE_REASONING_DECISION is not None
+            and copilot_for(active)
+            and (is_remote_test_model(active.model) or external_it(active))
+        )
+        history = history_for(body, ticket, verified_only=external_reasoning)
         quick = small_talk_reply(question, facts)
         if quick is not None:
             # Greetings and thanks get an instant reply; the model is not called.
@@ -2227,7 +2421,10 @@ def create_app(
             )
         # D-122: scope is judged whichever model answers, so no case data follows "1+1".
         if copilot_for(active) and not copilot.in_domain(
-            question, ongoing=bool(ticket and ticket.history), case_open=True
+            question,
+            ongoing=bool(ticket and ticket.history),
+            case_open=True,
+            strict=external_reasoning,
         ):
             emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
             return off_domain(suggested_questions(facts))
@@ -2242,8 +2439,10 @@ def create_app(
                 names=names_for(active.model, snapshot.actor.get("profile")),
                 external=external_it(active),
             )
-            owned = local_ownership(prepared, case_id, request, remote)
-            prep, required = copilot_prep(owned, history)
+            owned = local_ownership(prepared, case_id, request, remote, snapshot)
+            prep, required = copilot_prep(
+                owned, history, history_basis=ticket.reasoning_basis if ticket else None
+            )
             # The exact prompt is checked (D-095) before any external call, as in exact lines.
             model, lead = remote_gate(
                 active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
@@ -2273,7 +2472,13 @@ def create_app(
                 case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
             )
         if ticket is not None:
-            contexts.add(ticket, question, response.answer)
+            contexts.add(
+                ticket,
+                question,
+                response.answer,
+                verified_reasoning=prep.synthetic_verified and response.answered_by == "model",
+                reasoning_basis=prep.context_basis,
+            )
         emit("chat", started, outcome, prep)
         return response
 
@@ -2289,14 +2494,25 @@ def create_app(
         question = body.message.strip()[: config.max_question_chars]
         suggestions = suggested_questions(facts)
         ticket = ticket_for(body.context_id, user_of(snapshot), str(case_id))
-        history = history_for(body, ticket)
+        external_reasoning = bool(
+            assistant_config.CASE_REASONING_DECISION is not None
+            and copilot_for(active)
+            and (is_remote_test_model(active.model) or external_it(active))
+        )
+        history = history_for(body, ticket, verified_only=external_reasoning)
 
         def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
             # Recorded, and added to the chat context only while it is still open (a late
             # answer never lands in a context that was closed when its case was left).
             response = record(case_id, snapshot, body, prep, response, outcome)
             if ticket is not None:
-                contexts.add(ticket, question, response.answer)
+                contexts.add(
+                    ticket,
+                    question,
+                    response.answer,
+                    verified_reasoning=prep.synthetic_verified and response.answered_by == "model",
+                    reasoning_basis=prep.context_basis,
+                )
             return response
 
         quick = small_talk_reply(question, facts)
@@ -2317,7 +2533,10 @@ def create_app(
                 )
             )
         if copilot_for(active) and not copilot.in_domain(
-            question, ongoing=bool(ticket and ticket.history), case_open=True
+            question,
+            ongoing=bool(ticket and ticket.history),
+            case_open=True,
+            strict=external_reasoning,
         ):
             emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
             return stream_of(single(off_domain(suggestions)))
@@ -2332,8 +2551,10 @@ def create_app(
                 names=names_for(active.model, snapshot.actor.get("profile")),
                 external=external_it(active),
             )
-            owned = local_ownership(prepared, case_id, request, remote)
-            prep, required = copilot_prep(owned, history)
+            owned = local_ownership(prepared, case_id, request, remote, snapshot)
+            prep, required = copilot_prep(
+                owned, history, history_basis=ticket.reasoning_basis if ticket else None
+            )
             model, lead = remote_gate(
                 active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
             )
