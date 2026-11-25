@@ -97,7 +97,7 @@ def test_without_any_decision_setting_claude_is_listed_and_set_up_by_hr(
     assert (
         record["workspace_id"] == WORKSPACE and record["workspace_limit_basis"] == "owner_confirmed"
     )
-    assert record["confirmations"] == CONFIRMATIONS and record["changed_by"] == "hr-admin"
+    assert record["confirmations"] == CONFIRMATIONS and record["changed_by"] == "biz-ops"
     for profile_id in (BALANCED.profile_id, FAST.profile_id):
         item = journey.profile(profile_id)
         assert (
@@ -258,7 +258,7 @@ def test_hr_record_decides_over_the_environment_and_unreadable_fails_closed(
         workspace_id=WORKSPACE,
         workspace_limit_micro_usd=5_000_000,
         confirmations=anthropic_runtime.OWNER_ATTESTATIONS,
-        by="hr-admin",
+        by="biz-ops",
     )
     # Once HR has a record, it decides: disabled means off, whatever the environment says.
     assert anthropic_runtime.readiness(legacy.settings) == "ANTHROPIC_NOT_ENABLED"

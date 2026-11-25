@@ -366,7 +366,7 @@ def test_activity_api_preserves_non_enumerating_team_and_capability_boundaries()
         (team_a, "maya-lim"),
         (team_b, "sophia-ng"),
         (director, "olivia-koh"),
-        (hr, "hr-admin"),
+        (hr, "biz-ops"),
     ):
         login = client.post(
             "/api/auth/login",

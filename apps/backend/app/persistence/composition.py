@@ -313,6 +313,6 @@ def _bootstrap_hashes(settings: Settings) -> dict[str, SecretStr | str | None]:
         "sophia-ng": settings.phase13_sophia_ng_password_hash,
         "ryan-lee": settings.phase13_ryan_lee_password_hash,
         "olivia-koh": settings.phase13_olivia_koh_password_hash,
-        "hr-admin": settings.phase14_5_hr_admin_password_hash,
+        "biz-ops": settings.phase14_5_hr_admin_password_hash,
         "support-user": settings.phase13_support_user_password_hash,
     }

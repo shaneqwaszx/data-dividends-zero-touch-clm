@@ -108,7 +108,7 @@ async function prepareSingleValueReviewPolicy(page: Page) {
     expect(response.status()).toBe(200);
     return await response.json() as { csrf_token: string };
   };
-  const proposer = await loginSetupActor("hr-admin");
+  const proposer = await loginSetupActor("biz-ops");
   const proposerHeaders = { "X-CSRF-Token": proposer.csrf_token };
   const currentResponse = await page.request.get("/api/policies");
   expect(currentResponse.status()).toBe(200);

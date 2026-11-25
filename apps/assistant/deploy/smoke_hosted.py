@@ -570,7 +570,7 @@ def smoke(backend: str, frontend: str, assistant: str, report_path: str | None) 
 
             maya = signed_in("maya-lim")
             ryan = signed_in("ryan-lee")
-            hr = signed_in("hr-admin")
+            hr = signed_in("biz-ops")
             created = maya.json(
                 "/api/clm/zero-touch/cases",
                 201,

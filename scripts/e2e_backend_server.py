@@ -158,7 +158,7 @@ def main() -> int:
     Settings.model_config = {**Settings.model_config, "env_file": None}
     encoded = generate_scrypt_password_hash(ephemeral_credential)
     user_ids = [profile.user_id for profile in SYNTHETIC_USER_PROFILES] + [
-        "hr-admin",
+        "biz-ops",
         "support-user",
     ]
     for user_id in user_ids:

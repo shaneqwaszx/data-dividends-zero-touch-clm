@@ -415,7 +415,7 @@ def test_neither_legacy_route_writes_to_goldtier_until_the_stage_is_confirmed() 
 
 
 # T7 - RBAC is unchanged and runs first: refused callers never learn about the hold.
-@pytest.mark.parametrize("user_id", ["support-user", "hr-admin"])
+@pytest.mark.parametrize("user_id", ["support-user", "biz-ops"])
 def test_callers_without_case_access_are_refused_as_before(user_id) -> None:
     with real_flow(storage(), workflow_manager_enabled=True) as (client, target, current):
         case_id = current["case"]["case_id"]

@@ -49,7 +49,7 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
     gamma_password = secrets.token_urlsafe(24)
     try:
         with RawTestClient(create_app(settings)) as first:
-            hr_csrf = _login(first, "hr-admin")
+            hr_csrf = _login(first, "biz-ops")
             gamma = first.post(
                 "/api/admin/teams",
                 headers={"X-CSRF-Token": hr_csrf},
@@ -108,7 +108,7 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
             )
 
             hr = RawTestClient(restarted.app)
-            hr_csrf = _login(hr, "hr-admin")
+            hr_csrf = _login(hr, "biz-ops")
             assert any(item["team_id"] == gamma_id for item in hr.get("/api/admin/teams").json())
             profiles = hr.get("/api/admin/profiles")
             assert any(item["user_id"] == "gamma-rm" for item in profiles.json())
@@ -158,8 +158,8 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
                 return "succeeded"
 
             with ThreadPoolExecutor(max_workers=2) as pool:
-                first_demotion = pool.submit(demote, "hr-admin", "hr-second")
-                second_demotion = pool.submit(demote, "hr-second", "hr-admin")
+                first_demotion = pool.submit(demote, "biz-ops", "hr-second")
+                second_demotion = pool.submit(demote, "hr-second", "biz-ops")
                 start.wait()
                 outcomes = [first_demotion.result(), second_demotion.result()]
             assert sorted(outcomes) == ["rejected", "succeeded"]

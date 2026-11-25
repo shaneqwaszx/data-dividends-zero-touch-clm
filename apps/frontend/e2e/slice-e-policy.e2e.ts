@@ -63,7 +63,7 @@ async function createFrozenCase(page:Page) {
 }
 test("Slice E HR and Director same impact, stale approval, reject and frozen cases",async({page})=>{
  test.setTimeout(120000);await page.setViewportSize({width:1280,height:1000});
- const frozen=await createFrozenCase(page);await logout(page);await login(page,"hr-admin");
+ const frozen=await createFrozenCase(page);await logout(page);await login(page,"biz-ops");
  await change(page,"IDP extraction evidence score threshold","0.92");
  await change(page,"Registry evidence freshness","30");
  await change(page,"Definitive not-found cache TTL","60");
@@ -100,7 +100,7 @@ test("Slice E HR and Director same impact, stale approval, reject and frozen cas
  await logout(page);const newCase=await createFrozenCase(page);
  expect(newCase.snapshot.catalogue_version).toBeGreaterThan(frozen.snapshot.catalogue_version);
  expect(newCase.snapshot.idp_review_confidence_threshold).toBe("0.92");
- await logout(page);await login(page,"hr-admin");
+ await logout(page);await login(page,"biz-ops");
  await change(page,"IDP extraction evidence score threshold","0.91");
  const rejected=await draft(page,"Synthetic new proposal for independent Director rejection");
  await rejected.getByRole("button",{name:"Submit for approval",exact:true}).click();
@@ -112,7 +112,7 @@ test("Slice E HR and Director same impact, stale approval, reject and frozen cas
  await contained(page);
 });
 test("Slice E late impact after edit and accessible narrow layout",async({page})=>{
- test.setTimeout(60000);await page.setViewportSize({width:320,height:1000});await login(page,"hr-admin");
+ test.setTimeout(60000);await page.setViewportSize({width:320,height:1000});await login(page,"biz-ops");
  await change(page,"IDP extraction evidence score threshold","0.93");
  const proposal=await draft(page,"Synthetic delayed impact response before an edit");
  let release!:()=>void;const gate=new Promise<void>(done=>{release=done;});

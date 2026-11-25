@@ -136,7 +136,7 @@ def test_acra_routes_enforce_auth_hr_capability_and_preserve_case_state() -> Non
     assert forbidden_lookup.status_code == 403
 
     hr = RawTestClient(application, base_url="http://127.0.0.1:8000")
-    csrf = _login(hr, "hr-admin", password)
+    csrf = _login(hr, "biz-ops", password)
     status_response = hr.get("/api/admin/acra/status")
     lookup = hr.post(
         "/api/admin/acra/lookup",
@@ -174,7 +174,7 @@ def test_acra_lookup_validation_unsupported_and_safe_failure_stop_calls() -> Non
     application, password, connector, onboarding, ledger, retained_case = _integrated_app()
     before_case = onboarding.get_case(retained_case.case_id)
     hr = RawTestClient(application, base_url="http://127.0.0.1:8000")
-    csrf = _login(hr, "hr-admin", password)
+    csrf = _login(hr, "biz-ops", password)
 
     invalid = hr.post(
         "/api/admin/acra/lookup",

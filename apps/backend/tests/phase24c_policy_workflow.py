@@ -46,7 +46,7 @@ def approve_http_policy(app, changes, reset_ids=()):
 
     hr, director = RawTestClient(app), RawTestClient(app)
     try:
-        for client, user in ((hr, "hr-admin"), (director, "olivia-koh")):
+        for client, user in ((hr, "biz-ops"), (director, "olivia-koh")):
             result = client.post(
                 "/api/auth/login", json={"user_id": user, "password": TEST_PASSWORD}
             )

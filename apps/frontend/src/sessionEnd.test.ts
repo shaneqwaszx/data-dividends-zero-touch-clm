@@ -34,7 +34,7 @@ describe("session end reasons", () => {
     const loading: AuthState = { status: "loading", session: null, error: null };
     expect(transitionAuthState(loading, { type: "SESSION_ENDED", notice: "x" })).toBe(loading);
 
-    const session = { profile: { user_id: "hr-admin" }, csrf_token: "t" } as never;
+    const session = { profile: { user_id: "biz-ops" }, csrf_token: "t" } as never;
     expect(transitionAuthState(ended, { type: "AUTHENTICATED", session }).notice).toBeUndefined();
   });
 });

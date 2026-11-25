@@ -428,7 +428,7 @@ def test_api_recovery_reconciles_failure_without_calls_then_explicit_resume_comp
         assert acra.calls == []
 
 
-@pytest.mark.parametrize(("user", "expected"), [("maya-lim", 403), ("hr-admin", 404)])
+@pytest.mark.parametrize(("user", "expected"), [("maya-lim", 403), ("biz-ops", 404)])
 def test_recovery_api_preserves_capability_and_hr_case_access(user, expected):
     target = UncertainPolicyTransport(COMPANIES[0].name, COMPANIES[0].uen)
     with runtime(target=target) as (client, bundle, _, _):

@@ -129,7 +129,7 @@ def test_only_trusted_proxy_can_change_login_source():
 
 
 def test_five_synthetic_users_can_login_and_retry_from_one_address():
-    users = ("ethan-tan", "ryan-lee", "olivia-koh", "hr-admin", "support-user")
+    users = ("ethan-tan", "ryan-lee", "olivia-koh", "biz-ops", "support-user")
     credential = secrets.token_urlsafe(24)
     password_hash = generate_scrypt_password_hash(credential)
     auth = build_test_authentication_service(

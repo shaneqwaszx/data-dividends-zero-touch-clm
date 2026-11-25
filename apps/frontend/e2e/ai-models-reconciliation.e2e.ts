@@ -22,7 +22,7 @@ test("D-110 HR previews and applies a Claude ledger reconciliation in real Chrom
       import AiModelManagement from "./src/pages/AiModelManagement";
       import {paths} from "./src/navigation";
       import {sectionSearch} from "./src/pages/aiModels/ConsoleShell";
-      const hr = { user_id: "hr-admin", display_name: "HR Admin", role: "HR", team_id: null,
+      const hr = { user_id: "biz-ops", display_name: "HR Admin", role: "HR", team_id: null,
         team_display_name: null, team_type: null, team_description: "", client_scope_label: "",
         capabilities: ["IDENTITY_ADMIN", "MODEL_CONFIG_MANAGE"] };
       const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -59,7 +59,7 @@ test("D-110 HR previews and applies a Claude ledger reconciliation in real Chrom
       revision: 2, readable: true, daily_cap_micro_usd: 1_000_000, daily_cap_range: [1, 5_000_000],
       daily_cap_default_micro_usd: 1_000_000, raise_requires: ["confirmation", "reconciled_within_one_day"],
       daily_cap_source: "hr", max_calls: 20, max_calls_range: [1, 20], max_calls_source: "hr",
-      calls_used: 3, calls_remaining: 17, changed_at: iso(now - 24 * HOUR), changed_by: "hr-admin",
+      calls_used: 3, calls_remaining: 17, changed_at: iso(now - 24 * HOUR), changed_by: "biz-ops",
       lifetime: { opening_usage_micro_usd: 20_000, cap_micro_usd: 25_000_000, max_cap_micro_usd: 30_000_000, committed_micro_usd: 74_136 },
     },
     reconciliation: {
@@ -116,7 +116,7 @@ test("D-110 HR previews and applies a Claude ledger reconciliation in real Chrom
         posts.push({ url, body });
         if (url.endsWith("/budget/claude/reconciliation/preview")) { send(200, preview); return; }
         if (url.endsWith("/budget/claude/reconciliation/apply")) {
-          const run = { run_id: "c".repeat(32), status: "applied", actor: "hr-admin", intent_at: iso(Date.now()), finished_at: iso(Date.now()),
+          const run = { run_id: "c".repeat(32), status: "applied", actor: "biz-ops", intent_at: iso(Date.now()), finished_at: iso(Date.now()),
             usage_micro_usd: 80_000, drift_micro_usd: 5_864, as_of: preview.inputs.as_of, as_of_kind: "console_refreshed",
             event_id: 9, reason: "apply_returned", attribution_basis: "apply_returned", owner_reference: null, acknowledged_state: null };
           runs.unshift(run);

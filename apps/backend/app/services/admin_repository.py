@@ -347,7 +347,7 @@ def bootstrap_administration(
         profiles,
         credential_hashes,
         UserProfile(
-            user_id="hr-admin",
+            user_id="biz-ops",
             display_name="POC HR Administrator",
             role=Role.HR,
             team_id=None,

@@ -448,7 +448,7 @@ def plant_staff_entry(hosted: Hosted) -> None:
         kind=EntryKind.GUIDANCE,
         title=STAFF_TITLE,
         body="Ask for the registered address proof documents and verify the registered address.",
-        author="hr-admin",
+        author="biz-ops",
     )
     pending = kb.store.add_version(entry, status=EntryStatus.PENDING_REVIEW)
     kb.store.decide(

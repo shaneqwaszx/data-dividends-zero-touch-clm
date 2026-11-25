@@ -389,7 +389,7 @@ describe("All cases triage", () => {
 
 function proposal(overrides: Partial<PolicyProposal>): PolicyProposal {
   return {
-    proposal_id: "p1", version: 2, base_active_version: 1, proposer_id: "hr-admin", status: "PENDING_APPROVAL",
+    proposal_id: "p1", version: 2, base_active_version: 1, proposer_id: "biz-ops", status: "PENDING_APPROVAL",
     rules: [], reason: "Synthetic change", created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-02T03:00:00Z",
     decided_by: null, decided_at: null, decision_reason: null, activated_version: null, ...overrides,
   };

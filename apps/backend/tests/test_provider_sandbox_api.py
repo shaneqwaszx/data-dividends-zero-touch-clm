@@ -92,7 +92,7 @@ def _settings() -> Settings:
 def _actor(role: Role) -> AuthenticatedActor:
     return AuthenticatedActor(
         profile=UserProfile(
-            user_id="hr-admin" if role == Role.HR else "maya-lim",
+            user_id="biz-ops" if role == Role.HR else "maya-lim",
             display_name="Test actor",
             role=role,
             team_id=None if role in {Role.HR, Role.DIRECTOR} else TeamId.TEAM_A,

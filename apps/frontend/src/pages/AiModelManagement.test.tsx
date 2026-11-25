@@ -26,7 +26,7 @@ import AiModelManagement, {
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const hr: AuthenticatedProfile = {
-  user_id: "hr-admin", display_name: "HR Admin", role: "HR", team_id: null,
+  user_id: "biz-ops", display_name: "HR Admin", role: "HR", team_id: null,
   team_display_name: null, team_type: null, team_description: "", client_scope_label: "",
   capabilities: ["IDENTITY_ADMIN", "MODEL_CONFIG_MANAGE"],
 };
@@ -41,7 +41,7 @@ const rm: AuthenticatedProfile = {
 
 const qualification: ModelQualification = {
   qualification_id: "a".repeat(32), status: "passed", code: null,
-  started_at: "2026-10-27T01:00:00+00:00", started_by: "hr-admin",
+  started_at: "2026-10-27T01:00:00+00:00", started_by: "biz-ops",
   finished_at: "2026-10-27T01:05:00+00:00", done_turns: 84, total_turns: 84,
   cancel_requested: false, current: true,
   gates: [
@@ -258,7 +258,7 @@ describe("AiModelManagement", () => {
 
   it("calls the session boundary on 401 so cached data is cleared", async () => {
     const client = new QueryClient();
-    client.setQueryData(["auth", "hr-admin", "sentinel"], "cached");
+    client.setQueryData(["auth", "biz-ops", "sentinel"], "cached");
     const unauthorized = vi.fn(() => client.clear());
     configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: unauthorized });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: { code: "AUTHENTICATION_REQUIRED", message: "Please sign in again." } }, 401)));
@@ -277,7 +277,7 @@ describe("AiModelManagement smoke-test fixes (S-1 to S-3)", () => {
       let auditCalls = 0;
       const running: ModelOverview = {
         ...overview,
-        running: { qualification_id: "b".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 40, total_turns: 84, started_by: "hr-admin" },
+        running: { qualification_id: "b".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 40, total_turns: 84, started_by: "biz-ops" },
       };
       const view = mount(vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
@@ -414,7 +414,7 @@ function keyServer(data: ModelOverview, calls: Array<{ method: string; url: stri
     const method = init?.method ?? "GET";
     calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
     if (url.endsWith("/admin/models/credential") && method === "PUT") {
-      return json({ source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" });
+      return json({ source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "biz-ops" });
     }
     if (url.endsWith("/admin/models/credential") && method === "DELETE") {
       return json({ source: "none", status: "missing", hr_editable: true, persistence: "memory_only", set_at: null, set_by: null });
@@ -462,7 +462,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = {
       ...overview, profiles: [profile({}), remoteSelectable],
-      budget: budget({ source: "hr_session", status: "configured", set_by: "hr-admin", set_at: 1, expires_at: 28_801, fallback: "env_file" }),
+      budget: budget({ source: "hr_session", status: "configured", set_by: "biz-ops", set_at: 1, expires_at: 28_801, fallback: "env_file" }),
     };
     const view = mount(keyServer(data, calls), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
@@ -491,7 +491,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
   it("D-106: says a key whose HR session cannot be checked is held back", async () => {
     const data = {
       ...overview, profiles: [profile({}), remoteSelectable],
-      budget: budget({ source: "hr_session", status: "unverified", set_by: "hr-admin", set_at: 1, expires_at: 28_801, fallback: "none" }),
+      budget: budget({ source: "hr_session", status: "unverified", set_by: "biz-ops", set_at: 1, expires_at: 28_801, fallback: "none" }),
     };
     const view = mount(keyServer(data, []), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Session Not Verified"));
@@ -523,13 +523,13 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
 
 function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]>> = {}): ModelBudgetStatus {
   return {
-    ...budget({ source: "hr_session", status: "configured", set_by: "hr-admin", set_at: 1 }),
+    ...budget({ source: "hr_session", status: "configured", set_by: "biz-ops", set_at: 1 }),
     controls: {
       revision: 3, readable: true,
       daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000_000_000, daily_cap_source: "hr",
       max_calls: 20, max_calls_range: [1, 200], max_calls_source: "hr",
       calls_used: 20, calls_remaining: 0,
-      changed_at: "2026-10-28T03:00:00Z", changed_by: "hr-admin",
+      changed_at: "2026-10-28T03:00:00Z", changed_by: "biz-ops",
       lifetime: {
         opening_usage_micro_usd: 100_000, cap_micro_usd: 600_000,
         max_cap_micro_usd: 1_000_000_000_000, committed_micro_usd: 590_000,
@@ -612,7 +612,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     await waitFor(() => expect(view.textContent).toContain("Chat calls this session"));
     expect(view.textContent).toContain("20 used, 0 remaining of 20");
     expect(view.textContent).toContain("the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit");
-    expect(view.textContent).toContain("Set by hr-admin");
+    expect(view.textContent).toContain("Set by biz-ops");
     typeInto(input(view, "daily-limit-input"), "0.5");
     typeInto(input(view, "call-limit-input"), "40");
     await act(async () => button(view, "Save Limits").click());
@@ -1347,7 +1347,7 @@ describe("AiModelManagement D-100 providers and spending", () => {
     const base = controlled();
     const data = withProviders({
       ...base,
-      claude: { ...(base.claude ?? {}), credential: { source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin", expires_at: 28_801, verified_at: 2, fallback: "env_file" } } as ModelClaudeBudget,
+      claude: { ...(base.claude ?? {}), credential: { source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "biz-ops", expires_at: 28_801, verified_at: 2, fallback: "env_file" } } as ModelClaudeBudget,
     });
     const fetchMock = controlsServer(data, calls);
     const view = mount(fetchMock, "providers");
@@ -1531,7 +1531,7 @@ describe("AiModelManagement D-100 qualifications and recovery", () => {
 
 describe("AiModelManagement D-100 audit history", () => {
   const event = (seq: number, overrides: Partial<ModelAuditEvent> = {}): ModelAuditEvent => ({
-    seq, at: `2026-10-29T0${seq % 10}:00:00+00:00`, actor: "hr-admin", role: "HR", action: "ACTIVATE",
+    seq, at: `2026-10-29T0${seq % 10}:00:00+00:00`, actor: "biz-ops", role: "HR", action: "ACTIVATE",
     profile_id: "lmstudio_qwen3_8b", fingerprint: "0123456789ab", outcome: "applied", code: null, revision: 4, ...overrides,
   });
   const events = [
@@ -1663,7 +1663,7 @@ describe("AiModelManagement D-100 dialogs and badges (D3, D5, D6)", () => {
       [{ budget: budget({ status: "invalid", source: "environment" }) }, "Providers", ", the OpenRouter key is not valid"],
       [{ budget: { ...controlled(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } }, "Spending & Limits", ", paid calls are refused now"],
       [{ budget: { ...controlled(), ledger: { ...controlled().ledger!, breaker_open: true, breaker_code: "MISMATCH" } } }, "Spending & Limits", ", paid calls are stopped until an operator reconciles"],
-      [{ running: { qualification_id: "r".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 1, total_turns: 84, started_by: "hr-admin" } }, "Qualifications & Recovery", ", a qualification is running"],
+      [{ running: { qualification_id: "r".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 1, total_turns: 84, started_by: "biz-ops" } }, "Qualifications & Recovery", ", a qualification is running"],
     ];
     for (const [overrides, section, label] of cases) {
       const view = mount(server({ ...overview, profiles: [profile({}), remoteSelectable], ...overrides }));
@@ -1705,7 +1705,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
       revision: 2, readable: true, daily_cap_micro_usd: 1_000_000, daily_cap_range: [1, 5_000_000],
       daily_cap_default_micro_usd: 1_000_000, raise_requires: ["confirmation", "reconciled_within_one_day"],
       daily_cap_source: "hr", max_calls: 20, max_calls_range: [1, 20], max_calls_source: "hr",
-      calls_used: null, calls_remaining: null, changed_at: "2026-10-29T10:00:00Z", changed_by: "hr-admin",
+      calls_used: null, calls_remaining: null, changed_at: "2026-10-29T10:00:00Z", changed_by: "biz-ops",
       lifetime: { opening_usage_micro_usd: 830_000, cap_micro_usd: 5_000_000, max_cap_micro_usd: 30_000_000, committed_micro_usd: 830_000 },
       ...controls,
     },
@@ -2194,7 +2194,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
 
   it("lists runs and resolves an unfinished one on request", async () => {
     const calls: Call[] = [];
-    const run = { run_id: RUN, status: "requested", actor: "hr-admin", intent_at: iso(Date.now() - 120_000), finished_at: null, usage_micro_usd: 80_000, drift_micro_usd: 0, as_of: iso(Date.now() - 180_000), as_of_kind: "console_refreshed", event_id: null, reason: null, attribution_basis: null, owner_reference: null, acknowledged_state: null, resolvable_after: iso(Date.now() - 60_000) };
+    const run = { run_id: RUN, status: "requested", actor: "biz-ops", intent_at: iso(Date.now() - 120_000), finished_at: null, usage_micro_usd: 80_000, drift_micro_usd: 0, as_of: iso(Date.now() - 180_000), as_of_kind: "console_refreshed", event_id: null, reason: null, attribution_basis: null, owner_reference: null, acknowledged_state: null, resolvable_after: iso(Date.now() - 60_000) };
     const unresolved = { ...run, run_id: "c".repeat(32), status: "unresolved", resolvable_after: undefined };
     const view = mount(reconcileServer(calls, { listing: listingOf({ runs: [run, unresolved] }) }), "spending");
     await waitFor(() => expect(view.querySelector("[data-testid=reconcile-runs]")).not.toBeNull());
@@ -2318,7 +2318,7 @@ describe("AiModelManagement qualification progress (D-106)", () => {
   });
   const withRun = (done: number, total: number): ModelOverview => ({
     ...overview,
-    running: { qualification_id: "c".repeat(32), profile_id: "anthropic_claude_sonnet_5_5_medium", done_turns: done, total_turns: total, started_by: "hr-admin" },
+    running: { qualification_id: "c".repeat(32), profile_id: "anthropic_claude_sonnet_5_5_medium", done_turns: done, total_turns: total, started_by: "biz-ops" },
     profiles: [...overview.profiles, claudeBalanced(runningRun(done, total))],
   });
 
@@ -2470,7 +2470,7 @@ describe("AiModelManagement Claude setup by HR (D-107)", () => {
     const enabled = setup({
       source: "hr", enabled: true, readiness: null,
       record: { revision: 2, enabled: true, workspace_id: "wrkspc_01TestWorkspace", workspace_limit_micro_usd: 30_000_000,
-        workspace_limit_basis: "owner_confirmed", confirmations: CODES, changed_at: "2026-10-30T10:00:00+00:00", changed_by: "hr-admin" },
+        workspace_limit_basis: "owner_confirmed", confirmations: CODES, changed_at: "2026-10-30T10:00:00+00:00", changed_by: "biz-ops" },
     });
     const view = mount(setupServer(enabled, calls), "providers");
     await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());

@@ -88,13 +88,13 @@ def test_the_ceilings_are_us30_lifetime_us5_daily_and_20_calls(tmp_path: Path) -
 def test_claude_controls_have_their_own_row_bounds_and_revision(tmp_path: Path) -> None:
     store = ModelAdminStore(tmp_path / "admin.sqlite3")
     assert store.claude_spending_controls().revision == 0
-    assert store.set_claude_spending_controls(0, 5_000_000, 20, "hr-admin") == 1
+    assert store.set_claude_spending_controls(0, 5_000_000, 20, "biz-ops") == 1
     assert store.spending_controls().revision == 0  # GPT-OSS's row is untouched
     with pytest.raises(RevisionConflict):
-        store.set_claude_spending_controls(0, 500_000, 5, "hr-admin")
+        store.set_claude_spending_controls(0, 500_000, 5, "biz-ops")
     for daily, calls in ((0, 5), (5_000_001, 5), (500_000, 0), (500_000, 21), (True, 5)):
         with pytest.raises(ValueError):
-            store.set_claude_spending_controls(1, daily, calls, "hr-admin")
+            store.set_claude_spending_controls(1, daily, calls, "biz-ops")
     # The table's own CHECKs refuse a writer that skips the store.
     with sqlite3.connect(tmp_path / "admin.sqlite3") as db, pytest.raises(sqlite3.IntegrityError):
         db.execute("UPDATE claude_spending_controls SET daily_cap_micro_usd = 5000001")

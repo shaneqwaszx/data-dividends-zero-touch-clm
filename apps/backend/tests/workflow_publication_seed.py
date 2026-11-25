@@ -129,7 +129,7 @@ def publish_governed(
         profile = UserProfile(user_id=user_id, display_name=user_id, role=role, team_id=None)
         return AuthenticatedActor.model_construct(profile=profile)
 
-    hr, director = actor("hr-admin", Role.HR), actor("olivia-koh", Role.DIRECTOR)
+    hr, director = actor("biz-ops", Role.HR), actor("olivia-koh", Role.DIRECTOR)
     revision = store.definitions.get(workflow_id).revision
     created = service.create_proposal(
         lambda: hr,

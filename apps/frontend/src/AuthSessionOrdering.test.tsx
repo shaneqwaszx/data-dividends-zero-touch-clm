@@ -206,8 +206,8 @@ describe("AuthProvider session ordering through the real authenticated transport
     const transport = createControlledTransport();
     const harness = await mountAuthProvider(false);
     const [restoration] = await transport.waitFor("/api/auth/me", 1);
-    await resolve(restoration, jsonResponse(session("hr-admin", "csrf-first")));
-    const key = ["hr-admin", "synthetic-private-state"];
+    await resolve(restoration, jsonResponse(session("biz-ops", "csrf-first")));
+    const key = ["biz-ops", "synthetic-private-state"];
     harness.queryClient().setQueryData(key, "test data");
 
     const changed = harness.auth().changeOwnPassword("test-current-value", "test-replacement-value");
@@ -227,7 +227,7 @@ describe("AuthProvider session ordering through the real authenticated transport
     const transport = createControlledTransport();
     const harness = await mountAuthProvider(false);
     const [restoration] = await transport.waitFor("/api/auth/me", 1);
-    await resolve(restoration, jsonResponse(session("hr-admin", "csrf-first")));
+    await resolve(restoration, jsonResponse(session("biz-ops", "csrf-first")));
 
     const changed = harness.auth().changeOwnPassword("test-current-value", "test-replacement-value");
     const [request] = await transport.waitFor("/api/admin/me/password", 1);

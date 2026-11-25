@@ -22,7 +22,7 @@ test("D-118 a fresh teammate sets up Claude in four steps with two confirmations
       import {MemoryRouter} from "react-router";
       import AiModelManagement from "./src/pages/AiModelManagement";
       import {paths} from "./src/navigation";
-      const hr = { user_id: "hr-admin", display_name: "HR Admin", role: "HR", team_id: null,
+      const hr = { user_id: "biz-ops", display_name: "HR Admin", role: "HR", team_id: null,
         team_display_name: null, team_type: null, team_description: "", client_scope_label: "",
         capabilities: ["IDENTITY_ADMIN", "MODEL_CONFIG_MANAGE"] };
       const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -61,7 +61,7 @@ test("D-118 a fresh teammate sets up Claude in four steps with two confirmations
       managed: true, readable: true, source: state.enabled ? "hr" : "none", enabled: state.enabled,
       readiness: state.enabled ? null : "ANTHROPIC_NOT_ENABLED", local_deployment: true,
       record: state.enabled ? { revision: 1, enabled: true, workspace_id: "wrkspc_fypteammate", workspace_limit_micro_usd: 5_000_000,
-        workspace_limit_basis: "owner_confirmed", confirmations: [], changed_at: new Date().toISOString(), changed_by: "hr-admin" } : null,
+        workspace_limit_basis: "owner_confirmed", confirmations: [], changed_at: new Date().toISOString(), changed_by: "biz-ops" } : null,
       workspace_read: state.workspaceRead ? { workspace_id: "wrkspc_fypteammate", at: new Date().toISOString() } : null,
       confirmations_required: ["dedicated_workspace", "inference_key_only", "key_revoked_at_fyp_end", "workspace_limit_set"],
       workspace_limit_max_micro_usd: 30_000_000,
@@ -96,7 +96,7 @@ test("D-118 a fresh teammate sets up Claude in four steps with two confirmations
       request.on("end", () => {
         const body = JSON.parse(raw || "{}") as Record<string, unknown>;
         sent.push({ method: request.method!, url, body: url.includes("/credential") ? "(key withheld)" : body });
-        if (url.endsWith("/credential/anthropic")) { send(200, { source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" }); return; }
+        if (url.endsWith("/credential/anthropic")) { send(200, { source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "biz-ops" }); return; }
         if (url.endsWith("/workspace-read")) { state.workspaceRead = true; send(200, { outcome: "passed", code: null, workspace_id: "wrkspc_fypteammate", setup: overview().anthropic_setup }); return; }
         if (url.endsWith("/provider/anthropic")) { state.enabled = true; send(200, overview().anthropic_setup); return; }
         if (url.endsWith("/connection-test")) { state.connected = true; send(200, { outcome: "passed", code: null }); return; }

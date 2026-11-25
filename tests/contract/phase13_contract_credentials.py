@@ -28,7 +28,7 @@ def provision_contract_hash_environment() -> None:
             credential_setting_key(profile.user_id),
             generate_scrypt_password_hash(credential),
         )
-    for bootstrap_user_id in ("hr-admin", "support-user"):
+    for bootstrap_user_id in ("biz-ops", "support-user"):
         os.environ.setdefault(
             credential_setting_key(bootstrap_user_id),
             generate_scrypt_password_hash(credential),

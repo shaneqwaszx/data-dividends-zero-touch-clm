@@ -316,7 +316,7 @@ class AuthenticationService:
 
 
 def credential_setting_key(user_id: str) -> str:
-    if user_id == "hr-admin":
+    if user_id == "biz-ops":
         return "PHASE14_5_HR_ADMIN_PASSWORD_HASH"
     return f"PHASE13_{user_id.replace('-', '_').upper()}_PASSWORD_HASH"
 

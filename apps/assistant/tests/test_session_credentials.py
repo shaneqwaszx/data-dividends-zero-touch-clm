@@ -58,7 +58,7 @@ def test_an_ended_session_drops_the_key_and_releases_the_server_key(
 ) -> None:
     monkeypatch.setenv(VAR, SERVER_KEY)
     _with_check([True, False])
-    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "biz-ops", session=SecretStr("s"))
     key, status, _ = resolve_key(max_age=0)
     assert key is not None and key.get_secret_value() == ANTHROPIC_KEY
     assert status.source == "hr_session" and status.fallback == "environment"
@@ -73,7 +73,7 @@ def test_a_session_that_cannot_be_checked_holds_the_key_back_with_no_fallthrough
 ) -> None:
     monkeypatch.setenv(VAR, SERVER_KEY)
     _with_check([None, True])
-    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "biz-ops", session=SecretStr("s"))
     key, status, code = resolve_key(max_age=0)
     assert key is None and code == "CREDENTIAL_SESSION_UNVERIFIED"
     assert status.source == "hr_session" and status.status == "unverified"
@@ -85,14 +85,14 @@ def test_a_session_that_cannot_be_checked_holds_the_key_back_with_no_fallthrough
 
 
 def test_no_installed_check_means_no_hr_key_is_used() -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("s"))
     key, status = key_sources.resolve(max_age=0)
     assert key is None and status.status == "unverified"
 
 
 def test_a_key_never_outlives_the_backend_session_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     _with_check([])
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("s"))
     key, status = key_sources.resolve()
     assert key is not None and status.expires_at == status.set_at + 8 * 3600  # type: ignore[operator]
     later = time.time() + key_sources.SESSION_LIMIT_SECONDS + 1
@@ -103,24 +103,24 @@ def test_a_key_never_outlives_the_backend_session_limit(monkeypatch: pytest.Monk
 
 def test_views_reuse_a_recent_check_and_calls_always_check_again() -> None:
     asked = _with_check([])
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("s"))
     key_sources.resolve()
     key_sources.resolve()
     assert asked == []  # just entered: verified then
     key_sources.resolve(max_age=0)
     key_sources.resolve(max_age=0)
-    assert asked == ["hr-admin", "hr-admin"]
+    assert asked == ["biz-ops", "biz-ops"]
 
 
 def test_a_check_racing_a_change_never_drops_the_newer_key() -> None:
     def check(session: SecretStr, user_id: str) -> bool | None:
         # The old entry's session ended, but HR entered a new key meanwhile.
-        key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "hr-admin", session=SecretStr("new"))
+        key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "biz-ops", session=SecretStr("new"))
         key_sources.install_session_check(lambda session, user_id: True)
         return False
 
     key_sources.install_session_check(check)
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("old"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("old"))
     key, _ = key_sources.resolve(max_age=0)
     assert key is not None and key.get_secret_value() == HR_KEY_2
 
@@ -204,7 +204,7 @@ def test_hr_enters_tests_and_clears_an_anthropic_session_key(
         assert refused.status_code == 400 and bad not in refused.text
     saved = journey.client.put(CLAUDE_CREDENTIAL, json={"api_key": ANTHROPIC_KEY})
     assert saved.status_code == 200, saved.text
-    assert saved.json()["source"] == "hr_session" and saved.json()["set_by"] == "hr-admin"
+    assert saved.json()["source"] == "hr_session" and saved.json()["set_by"] == "biz-ops"
     assert key_sources.HR_STORE.snapshot()[0] is None  # the OpenRouter key is separate
     assert journey.client.get(OPENROUTER_CREDENTIAL).json()["source"] == "none"
     texts = [journey.client.get(p).text for p in (API, f"{API}/audit", f"{API}/budget")]
@@ -235,7 +235,7 @@ def test_a_claude_call_uses_the_hr_key_and_must_still_name_the_workspace(
     claude_ledger(settings)
     claude = Claude()
     asked = _with_check([])
-    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "biz-ops", session=SecretStr("s"))
     model = ClaudeTestModel(settings, BALANCED.profile_id, transport=claude.transport())
     pieces, error = _ask(model, MESSAGES)
     assert error is None and pieces
@@ -243,7 +243,7 @@ def test_a_claude_call_uses_the_hr_key_and_must_still_name_the_workspace(
     assert all(r.headers["x-api-key"] == ANTHROPIC_KEY for r in claude.requests)
     # A key from another workspace is refused before any message is sent.
     claude.workspace = "wrkspc_SomeOtherWorkspace"
-    key_sources.ANTHROPIC_STORE.set(SecretStr(SERVER_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(SERVER_KEY), "biz-ops", session=SecretStr("s"))
     posts = claude.posts
     _, error = _ask(model, MESSAGES)
     assert error is not None and claude.posts == posts
@@ -273,11 +273,11 @@ def test_the_process_takes_only_valid_handed_over_keys() -> None:
 
 def test_a_running_qualification_ends_when_its_handed_key_is_revoked() -> None:
     _with_check([])
-    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "biz-ops", session=SecretStr("s"))
     payload, generations = model_admin.qualification_handoff("anthropic")
     assert set(generations) == {"anthropic"} and ANTHROPIC_KEY in payload.decode()
     assert not model_admin.handoff_revoked(generations)
-    key_sources.ANTHROPIC_STORE.set(SecretStr(SERVER_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(SERVER_KEY), "biz-ops", session=SecretStr("s"))
     assert model_admin.handoff_revoked(generations)  # replaced
     _, generations = model_admin.qualification_handoff("anthropic")
     key_sources.ANTHROPIC_STORE.clear()
@@ -339,7 +339,7 @@ def test_a_held_back_key_refuses_the_handoff_never_a_server_key(
 
     monkeypatch.setenv(key_sources.CREDENTIAL_VARIABLE, HR_KEY_2)
     _with_check([None])
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("s"))
     with pytest.raises(ProfileConfigError) as refused:
         model_admin.qualification_handoff("openrouter")
     assert refused.value.code == "CREDENTIAL_SESSION_UNVERIFIED"
@@ -399,8 +399,8 @@ def test_only_the_qualified_providers_key_is_handed_over_and_watched() -> None:
     """QG L1: clearing another provider's key never ends a run."""
 
     _with_check([])
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=SecretStr("s"))
-    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "hr-admin", session=SecretStr("s"))
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=SecretStr("s"))
+    key_sources.ANTHROPIC_STORE.set(SecretStr(ANTHROPIC_KEY), "biz-ops", session=SecretStr("s"))
     payload, generations = model_admin.qualification_handoff("anthropic")
     assert json.loads(payload) == {"anthropic": ANTHROPIC_KEY} and set(generations) == {"anthropic"}
     key_sources.HR_STORE.clear()

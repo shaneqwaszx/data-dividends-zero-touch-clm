@@ -208,7 +208,7 @@ def test_pr95_creator_dashboard_activity_parity_and_authorization(mode: str) -> 
             ethan_id = _create(ethan, _login(ethan, "ethan-tan"), "202400002B")
             sophia_id = _create(sophia, _login(sophia, "sophia-ng"), "202400007G")
             _login(director, "olivia-koh")
-            _login(hr, "hr-admin")
+            _login(hr, "biz-ops")
             endpoint = "/api/clm/zero-touch/dashboard?date_range=all"
             assert maya.get(endpoint + "&scope=mine").json()["totals"]["total_cases"] == 1
             team = ethan.get(endpoint).json()

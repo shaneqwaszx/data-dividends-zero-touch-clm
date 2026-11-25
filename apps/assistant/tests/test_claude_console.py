@@ -154,7 +154,7 @@ def test_every_action_is_refused_before_any_network_call_and_audited(
     refused = [e for e in events if e.get("profile_id") in CLAUDE and e["outcome"] == "refused"]
     assert len(refused) == 6
     assert {e["code"] for e in refused} == {code}
-    assert {e["actor"] for e in refused} == {"hr-admin"}
+    assert {e["actor"] for e in refused} == {"biz-ops"}
     # Nothing became active and no qualification was recorded for either configuration.
     overview = client.get(API).json()
     assert overview["active"]["profile_id"] not in CLAUDE
@@ -211,7 +211,7 @@ def test_a_pass_of_one_configuration_never_counts_for_another(tmp_path: Path) ->
     basis = qualification_basis()
     balanced = entries[BALANCED.profile_id]
     run_id = store.begin_qualification(
-        balanced.profile_id, balanced.fingerprint, basis, "hr-admin", 2
+        balanced.profile_id, balanced.fingerprint, basis, "biz-ops", 2
     )
     store.finish_qualification(run_id, "passed", None, {"gates": {}})
     assert eligible_run(store, balanced.profile_id, balanced.fingerprint, basis)[0] is not None

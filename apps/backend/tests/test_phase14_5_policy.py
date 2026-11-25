@@ -328,7 +328,7 @@ def test_showcase_create_api_rejects_hostile_strings_without_echo(value: str) ->
     assert value not in response.text
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "hr-admin"])
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "biz-ops"])
 def test_all_authenticated_roles_can_read_policy_catalogue(user_id: str) -> None:
     client, _ = _client_for(user_id)
     response = client.get("/api/policies")
@@ -361,7 +361,7 @@ def test_target_policy_api_exposes_fixed_sponsor_documented_authority() -> None:
     assert updated.json()["detail"]["code"] == "POLICY_MUTATION_FORBIDDEN"
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "hr-admin"])
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "biz-ops"])
 def test_all_roles_are_denied_retired_direct_activation(user_id: str) -> None:
     client, csrf = _client_for(user_id)
     c = client.get("/api/policies").json()
@@ -407,7 +407,7 @@ def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
     assert retained.json()["policy_snapshot"] == before_case["policy_snapshot"]
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "hr-admin"])
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "biz-ops"])
 def test_all_roles_cannot_use_retired_direct_mutations(user_id: str) -> None:
     client, csrf = _client_for(user_id)
     catalogue = client.get("/api/policies").json()

@@ -167,7 +167,7 @@ def _app(service: OnboardingService, role: Role = Role.HR) -> FastAPI:
     async def actor_boundary(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.actor = AuthenticatedActor(
             profile=UserProfile(
-                user_id="hr-admin" if role == Role.HR else "maya-lim",
+                user_id="biz-ops" if role == Role.HR else "maya-lim",
                 display_name="Synthetic actor",
                 role=role,
                 team_id=None if role in {Role.HR, Role.DIRECTOR} else TeamId.TEAM_A,

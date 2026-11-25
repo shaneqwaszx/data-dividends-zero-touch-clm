@@ -16,7 +16,7 @@ def _login(client: RawTestClient, user_id: str) -> str:
 def test_dynamic_gamma_filter_is_empty_and_authority_is_server_owned() -> None:
     app = create_app(ordinary_test_settings())
     hr = RawTestClient(app)
-    hr_csrf = _login(hr, "hr-admin")
+    hr_csrf = _login(hr, "biz-ops")
     created = hr.post(
         "/api/admin/teams",
         headers={"X-CSRF-Token": hr_csrf},

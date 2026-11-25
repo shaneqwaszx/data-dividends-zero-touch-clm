@@ -89,7 +89,7 @@ def actor(user_id: str, role: Role, team: str | None = None) -> AuthenticatedAct
     return AuthenticatedActor.model_construct(profile=profile)
 
 
-HR = actor("hr-admin", Role.HR)
+HR = actor("biz-ops", Role.HR)
 HR_2 = actor("hr-second", Role.HR)
 DIRECTOR = actor("olivia-koh", Role.DIRECTOR)
 ONBOARDER = actor("maya-lim", Role.CLIENT_ONBOARDER, "TEAM_A")
@@ -225,7 +225,7 @@ def test_the_full_lifecycle_publishes_one_governed_version():
     assert decision.provenance is not None
     assert decision.provenance.origin == VersionOrigin.GOVERNED_APPROVAL
     assert (decision.provenance.author_id, decision.provenance.approved_by) == (
-        "hr-admin",
+        "biz-ops",
         "olivia-koh",
     )
     governed = world.state()
@@ -281,7 +281,7 @@ def test_self_decision_is_refused_three_ways():
         world.decide(pending, by=HR)
     # 2. Service identity check: a deciding identity equal to the author.
     with pytest.raises(WorkflowGovernanceError) as refused:
-        world.decide(pending, by=actor("hr-admin", Role.DIRECTOR))
+        world.decide(pending, by=actor("biz-ops", Role.DIRECTOR))
     assert code(refused) == "WORKFLOW_SELF_DECISION_REFUSED"
     assert refused.value.status == 403
     # 3. The model validator, and the service mapping of it.
@@ -291,7 +291,7 @@ def test_self_decision_is_refused_three_ways():
             {
                 **data,
                 "state": ProposalState.REJECTED,
-                "decided_by": "hr-admin",
+                "decided_by": "biz-ops",
                 "decided_at": NOW,
                 "decision_reason": REASON,
             }
@@ -301,7 +301,7 @@ def test_self_decision_is_refused_three_ways():
             {
                 **data,
                 "state": ProposalState.REJECTED,
-                "decided_by": "hr-admin",
+                "decided_by": "biz-ops",
                 "decided_at": NOW,
                 "decision_reason": REASON,
             }

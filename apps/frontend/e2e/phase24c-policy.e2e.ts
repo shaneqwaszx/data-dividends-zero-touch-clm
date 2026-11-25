@@ -33,7 +33,7 @@ async function keyboardToggle(summary:Locator,page:Page) {
 for (const width of [320,360,768,1280,1440,1920]) {
   test(`Phase24C policy approval and accessible layout ${width}`,async({page})=>{
     test.setTimeout(60000); await page.setViewportSize({width,height:1000});
-    await login(page,"hr-admin"); await contained(page);
+    await login(page,"biz-ops"); await contained(page);
     if (width===320 || width===1280) await page.screenshot({path:retainedEvidencePath(`clm-phase24c-policy-${width}.png`)});
     const active=await page.getByRole("heading",{name:/Active policy/}).textContent();
     const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP extraction evidence score threshold",exact:true})});
@@ -54,7 +54,7 @@ for (const width of [320,360,768,1280,1440,1920]) {
     await contained(page); await logout(page);
     await login(page,"olivia-koh"); await expect(page.getByRole("heading",{name:"Prepare policy proposal",exact:true})).toHaveCount(0);
     const review=page.locator(".policy-proposal").first();
-    await expect(review).toContainText("Proposer: hr-admin");
+    await expect(review).toContainText("Proposer: biz-ops");
     await review.getByRole("button",{name:"Simulate impact",exact:true}).click();
     await expect(review.getByRole("region",{name:"Policy impact comparison"})).toBeVisible();
     await expect(review).toContainText("Before: active policy"); await expect(review).toContainText("After: proposed policy");
@@ -64,7 +64,7 @@ for (const width of [320,360,768,1280,1440,1920]) {
     await review.getByRole("button",{name:"Approve and activate",exact:true}).click();
     await expect(review.getByRole("heading",{level:3})).toHaveText("Proposal · APPROVED");
     await expect(review).toContainText("Decision by olivia-koh"); await contained(page);
-    await logout(page); await login(page,"hr-admin");
+    await logout(page); await login(page,"biz-ops");
     const reset=page.getByRole("button",{name:"Reset business parameters to defaults",exact:true}); await reset.click();
     const dialog=page.getByRole("alertdialog"); await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("aria-modal","true"); await expect(dialog.getByRole("button",{name:"Cancel",exact:true})).toBeFocused();
@@ -79,7 +79,7 @@ for (const width of [320,360,768,1280,1440,1920]) {
 for (const width of [768,1280]) {
   test(`Phase24C staged draft tray never hides the keyboard-focused control ${width}`,async({page})=>{
     // WCAG 2.2 SC 2.4.11: with a staged change the tray is sticky at the viewport bottom (>=768x640).
-    await page.setViewportSize({width,height:700}); await login(page,"hr-admin");
+    await page.setViewportSize({width,height:700}); await login(page,"biz-ops");
     const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP extraction evidence score threshold",exact:true})});
     await card.getByRole("button",{name:"Propose change",exact:true}).click();
     await card.getByLabel("Proposed value for IDP extraction evidence score threshold").fill("0.90");

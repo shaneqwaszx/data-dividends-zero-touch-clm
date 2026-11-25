@@ -13,7 +13,7 @@ const OUTPUT_DIR = process.env.CLM_E2E_WALKTHROUGH_DIR
   ?? "C:/Users/shane/Desktop/FYP/data-dividends-zero-touch-clm/outputs/workflow-governance-m1-20261117/walkthrough";
 const STAGE = "Synthetic sanctions attestation";
 const FIELD = "Synthetic attestation reference";
-const HR = "hr-admin";
+const HR = "biz-ops";
 const DIRECTOR = "olivia-koh";
 
 let violations: string[];
