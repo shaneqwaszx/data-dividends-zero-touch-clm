@@ -97,7 +97,7 @@ def actor(user_id: str, role: Role, team: str | None = None) -> AuthenticatedAct
     return AuthenticatedActor.model_construct(profile=profile)
 
 
-HR = actor("hr-admin", Role.HR)
+HR = actor("biz-ops", Role.HR)
 HR_2 = actor("hr-second", Role.HR)
 DIRECTOR = actor("olivia-koh", Role.DIRECTOR)
 RM = actor("ethan-tan", Role.RELATIONSHIP_MANAGER, "TEAM_A")
@@ -538,7 +538,7 @@ def test_hr_acknowledges_a_notice_and_a_director_cannot():
     with pytest.raises(WorkflowNotFoundError):
         world.governance.acknowledge_notice(lambda: HR, str(uuid4()), request)
     acknowledged = world.governance.acknowledge_notice(lambda: HR, notice.notice_id, request)
-    assert acknowledged.notice.acknowledged_by == "hr-admin"
+    assert acknowledged.notice.acknowledged_by == "biz-ops"
     assert acknowledged.notice.acknowledged_at == NOW
     assert world.governance.notices(DIRECTOR).items == ()
     events = world.state().governance.governance_events
@@ -685,7 +685,7 @@ def test_a_legacy_pre_governance_draft_can_be_copied_and_legacy_is_never_approve
     (legacy,) = world.state().governance.decided_proposals
     assert legacy.origin == ProposalOrigin.PRE_GOVERNANCE_DRAFT
     copied = copy(world, legacy.proposal_id, by=HR)
-    assert copied.author_id == "hr-admin" and copied.stages == (SIGNATORY, CONTROLLER)
+    assert copied.author_id == "biz-ops" and copied.stages == (SIGNATORY, CONTROLLER)
     read = world.governance.get_version(HR, ONBOARDING_WORKFLOW_ID, 1)
     assert read.provenance.origin == VersionOrigin.PRE_GOVERNANCE_DIRECTOR_ACTIVATION
     assert read.provenance.approved_by is None and read.is_active
@@ -700,7 +700,7 @@ def test_fallback_notices_and_versions_over_http():
     app = enabled_app()
     director = login(app, "olivia-koh")
     governed_publish(director, ONBOARDING_WORKFLOW_ID, [SIGNATORY.model_dump(mode="json")])
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
     fallback = director.post(
         f"{url}/emergency-fallback",
@@ -725,7 +725,7 @@ def test_fallback_notices_and_versions_over_http():
     )
     acknowledged = hr.post(f"/api/workflows/notices/{notice_id}/acknowledge", json=body)
     assert acknowledged.status_code == 200, acknowledged.json()
-    assert acknowledged.json()["notice"]["acknowledged_by"] == "hr-admin"
+    assert acknowledged.json()["notice"]["acknowledged_by"] == "biz-ops"
     version = director.get(f"{url}/versions/2")
     assert version.status_code == 200 and version.json()["provenance"]["approved_by"] is None
     missing = director.get(f"{url}/versions/9")
@@ -750,27 +750,27 @@ _ROUTES: list[tuple[str, str, Any, set[str]]] = [
         "POST",
         f"{_URL}/proposals/{MISSING}/release",
         {"reason": "Released.", "expected_workflow_revision": 999, "expected_proposal_revision": 1},
-        {"hr-admin"},
+        {"biz-ops"},
     ),
     (
         "POST",
         f"{_URL}/proposals/{MISSING}/copy",
         {"expected_workflow_revision": 999},
-        {"hr-admin"},
+        {"biz-ops"},
     ),
-    ("GET", f"{_URL}/versions/1", None, {"hr-admin", "olivia-koh"}),
-    ("GET", "/api/workflows/notices", None, {"hr-admin", "olivia-koh"}),
+    ("GET", f"{_URL}/versions/1", None, {"biz-ops", "olivia-koh"}),
+    ("GET", "/api/workflows/notices", None, {"biz-ops", "olivia-koh"}),
     (
         "POST",
         f"/api/workflows/notices/{MISSING}/acknowledge",
         {"workflow_id": ONBOARDING_WORKFLOW_ID, "expected_workflow_revision": 999},
-        {"hr-admin"},
+        {"biz-ops"},
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    "user_id", ["maya-lim", "ethan-tan", "support-user", "hr-admin", "olivia-koh"]
+    "user_id", ["maya-lim", "ethan-tan", "support-user", "biz-ops", "olivia-koh"]
 )
 def test_every_new_route_is_capability_checked_for_each_role(user_id):
     app = enabled_app()
@@ -948,7 +948,7 @@ def test_cc6_fields_appear_in_route_responses():
     app = enabled_app()
     director = login(app, "olivia-koh")
     governed_publish(director, ONBOARDING_WORKFLOW_ID, [SIGNATORY.model_dump(mode="json")])
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
     restore = hr.post(
         f"{url}/proposals",

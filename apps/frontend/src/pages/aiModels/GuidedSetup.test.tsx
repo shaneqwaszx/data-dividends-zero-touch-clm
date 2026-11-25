@@ -70,7 +70,7 @@ function overviewWith(claude: ModelProfileView, enabled: boolean, read = false):
       managed: true, readable: true, source: enabled ? "hr" : "none", enabled, readiness: enabled ? null : "ANTHROPIC_NOT_ENABLED",
       local_deployment: true,
       record: enabled ? { revision: 1, enabled: true, workspace_id: "wrkspc_fyp", workspace_limit_micro_usd: 5_000_000,
-        workspace_limit_basis: "owner_confirmed", confirmations: [], changed_at: "2026-11-04T00:00:00Z", changed_by: "hr-admin" } : null,
+        workspace_limit_basis: "owner_confirmed", confirmations: [], changed_at: "2026-11-04T00:00:00Z", changed_by: "biz-ops" } : null,
       workspace_read: read ? { workspace_id: "wrkspc_fyp", at: "2026-11-04T00:00:00Z" } : null,
       confirmations_required: ["dedicated_workspace", "inference_key_only", "key_revoked_at_fyp_end", "workspace_limit_set"],
       workspace_limit_max_micro_usd: 30_000_000,
@@ -115,7 +115,7 @@ function mount(overview: ModelOverview, fetchMock: ReturnType<typeof vi.fn>, cho
   root = createRoot(container);
   act(() => root?.render(
     <MemoryRouter><QueryClientProvider client={client}>
-      <GuidedSetup userId="hr-admin" overview={overview} busy={false} nameOf={(_id, fallback) => fallback} describe={describe} onChanged={() => undefined} />
+      <GuidedSetup userId="biz-ops" overview={overview} busy={false} nameOf={(_id, fallback) => fallback} describe={describe} onChanged={() => undefined} />
     </QueryClientProvider></MemoryRouter>,
   ));
   const radio = container.querySelector(`input[name=guided-model][value=${choose}]`) as HTMLInputElement;

@@ -15,7 +15,7 @@ import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.co
 
 const BASE = process.env.PLAYWRIGHT_BASE_URL!;
 const WF = "/api/workflows/corporate-onboarding";
-const HR = "hr-admin";
+const HR = "biz-ops";
 const DIRECTOR = "olivia-koh";
 const RM = "maya-lim";
 const REGISTRY_STAGE = "E2E M3 registry reference";

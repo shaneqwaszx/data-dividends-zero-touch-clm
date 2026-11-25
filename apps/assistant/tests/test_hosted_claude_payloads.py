@@ -50,7 +50,7 @@ from tests.test_hosted_claude_paths import (
 
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
 # Every identifier of the synthetic people the hosted harness and the qualification use.
-IDENTIFIERS = ("maya-lim", "maya lim", "ryan-lee", "sam-support", "sam support", "hr-admin")
+IDENTIFIERS = ("maya-lim", "maya lim", "ryan-lee", "sam-support", "sam support", "biz-ops")
 
 
 @pytest.fixture

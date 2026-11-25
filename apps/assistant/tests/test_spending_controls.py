@@ -92,7 +92,7 @@ def test_hr_sets_both_controls_and_they_persist_for_every_process(
     saved = _controls(journey, 250_000, 40)
     assert saved.status_code == 200, saved.text
     controls = saved.json()["controls"]
-    assert controls["revision"] == 1 and controls["changed_by"] == "hr-admin"
+    assert controls["revision"] == 1 and controls["changed_by"] == "biz-ops"
     assert (controls["daily_cap_micro_usd"], controls["daily_cap_source"]) == (250_000, "hr")
     assert (controls["max_calls"], controls["max_calls_source"]) == (40, "hr")
     assert saved.json()["daily"]["cap_micro_usd"] == 250_000
@@ -140,15 +140,15 @@ def test_the_store_itself_refuses_values_beyond_the_hard_bounds(tmp_path: Path) 
     store = ModelAdminStore(tmp_path / "state.sqlite3")
     for daily, calls in ((10**12 + 1, 1), (0, 0), (0, 201)):
         with pytest.raises(ValueError):
-            store.set_spending_controls(0, daily, calls, "hr-admin")
+            store.set_spending_controls(0, daily, calls, "biz-ops")
     # Even a direct write past the API cannot store more (the table's CHECKs).
     with sqlite3.connect(tmp_path / "state.sqlite3") as db, pytest.raises(sqlite3.IntegrityError):
         db.execute(
             "INSERT INTO spending_controls VALUES (1, 1, 1000000000001, 20, 'now', 'someone')"
         )
-    assert store.set_spending_controls(0, 0, 1, "hr-admin") == 1
+    assert store.set_spending_controls(0, 0, 1, "biz-ops") == 1
     with pytest.raises(RevisionConflict):
-        store.set_spending_controls(0, 0, 1, "hr-admin")
+        store.set_spending_controls(0, 0, 1, "biz-ops")
 
 
 def test_only_hr_from_the_page_may_change_spending(
@@ -545,7 +545,7 @@ def test_a_late_reader_never_puts_an_older_limit_back(
     selector = journey.selector
     store = selector.store
     assert store is not None
-    store.set_spending_controls(0, 1_000_000, 20, "hr-admin")  # revision 1: US$1.00
+    store.set_spending_controls(0, 1_000_000, 20, "biz-ops")  # revision 1: US$1.00
     real = ModelAdminStore.spending_controls
     reading, release = threading.Event(), threading.Event()
     first = threading.Event()
@@ -563,7 +563,7 @@ def test_a_late_reader_never_puts_an_older_limit_back(
     late = threading.Thread(target=selector.sync_controls)
     late.start()
     assert reading.wait(5)
-    store.set_spending_controls(1, 10_000, 20, "hr-admin")  # revision 2: US$0.01
+    store.set_spending_controls(1, 10_000, 20, "biz-ops")  # revision 2: US$0.01
     change = threading.Thread(target=selector.sync_controls)
     change.start()
     change.join(0.5)  # without the fix this applies at once; with it, it waits for the read

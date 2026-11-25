@@ -92,7 +92,7 @@ def governed_publish(client, workflow_id, stages):
     a Director approves with the exact permanent-obligation acknowledgement."""
 
     # ``client`` is the Director's session (a second login would end it).
-    hr, director = login(client.app, "hr-admin"), client
+    hr, director = login(client.app, "biz-ops"), client
     url = f"/api/workflows/{workflow_id}"
     current = hr.get(url).json()
     created = hr.post(
@@ -185,7 +185,7 @@ def test_only_hr_and_the_director_reach_workflow_definitions(user_id):
     ).status_code == 403
 
 
-@pytest.mark.parametrize("user_id", ["hr-admin", "olivia-koh"])
+@pytest.mark.parametrize("user_id", ["biz-ops", "olivia-koh"])
 def test_hr_and_the_director_read_workflow_definitions(user_id):
     client = login(enabled_app(), user_id)
     listed = client.get("/api/workflows")
@@ -194,7 +194,7 @@ def test_hr_and_the_director_read_workflow_definitions(user_id):
     assert listed.json()[0]["governance"]["migrated"] is True
     single = client.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
     assert single.status_code == 200
-    assert single.json()["governance"]["can_create_proposal"] is (user_id == "hr-admin")
+    assert single.json()["governance"]["can_create_proposal"] is (user_id == "biz-ops")
 
 
 def test_only_hr_creates_a_workflow():
@@ -203,7 +203,7 @@ def test_only_hr_creates_a_workflow():
         "/api/workflows", json={"name": "X", "use_case": "Case refresh", "country": "Singapore"}
     )
     assert refused.status_code == 403
-    created = login(app, "hr-admin").post(
+    created = login(app, "biz-ops").post(
         "/api/workflows", json={"name": "X", "use_case": "Case refresh", "country": "Singapore"}
     )
     assert created.status_code == 201, created.json()
@@ -213,7 +213,7 @@ def test_only_hr_creates_a_workflow():
     assert body["versions"] == []
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "hr-admin", "olivia-koh"])
+@pytest.mark.parametrize("user_id", ["maya-lim", "biz-ops", "olivia-koh"])
 def test_the_retired_draft_and_activate_routes_answer_410(user_id):
     client = login(enabled_app(), user_id)
     for method, suffix, body in (
@@ -242,7 +242,7 @@ def test_onboarding_workflow_lists_the_locked_stages_and_its_use_case_tag():
 
 
 def test_a_second_onboarding_workflow_cannot_be_created():
-    hr = login(enabled_app(), "hr-admin")
+    hr = login(enabled_app(), "biz-ops")
     response = hr.post(
         "/api/workflows", json={"name": "X", "use_case": "onboarding", "country": "Singapore"}
     )
@@ -273,7 +273,7 @@ def test_incomplete_stages_save_in_a_proposal_but_cannot_be_submitted(stage, cod
     """P2-1: structure is checked at validate and submit; nothing is published."""
 
     app = enabled_app()
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
     baseline = hr.get(url).json()
     proposal = hr.post(
@@ -298,7 +298,7 @@ def test_incomplete_stages_save_in_a_proposal_but_cannot_be_submitted(stage, cod
 
 
 def test_a_stale_proposal_edit_is_refused():
-    hr = login(enabled_app(), "hr-admin")
+    hr = login(enabled_app(), "biz-ops")
     url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
     proposal = hr.post(
         f"{url}/proposals",
@@ -437,7 +437,7 @@ def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_o
     app = enabled_app()
     director, maya = login(app, "olivia-koh"), login(app, "maya-lim")
     case_id = new_case(maya)
-    created = login(director.app, "hr-admin").post(
+    created = login(director.app, "biz-ops").post(
         "/api/workflows",
         json={
             "name": "Corporate refresh",
@@ -514,7 +514,7 @@ def test_an_existing_case_workflow_needs_a_case_that_finished_onboarding():
 
 
 def new_case_workflow(director):
-    created = login(director.app, "hr-admin").post(
+    created = login(director.app, "biz-ops").post(
         "/api/workflows",
         json={"name": "R", "use_case": "R", "country": "SG", "case_source": "NEW_CASE"},
     ).json()
@@ -610,7 +610,7 @@ def test_each_workflow_type_only_starts_its_own_way():
     url = new_case_workflow(director)
     refused = maya.post(f"{url}/runs", json={"case_id": new_case(maya)})
     assert refused.json()["detail"]["code"] == "WORKFLOW_NOT_STARTABLE"
-    created = login(director.app, "hr-admin").post(
+    created = login(director.app, "biz-ops").post(
         "/api/workflows", json={"name": "E", "use_case": "E", "country": "SG"}
     ).json()
     response = maya.post(f"/api/workflows/{created['workflow_id']}/new-cases", json=COMPANY)
@@ -804,7 +804,7 @@ def test_a_workflow_upload_is_authorized_before_the_body_is_read():
     upload = f"{url}/runs/{run['run_id']}/documents"
     headers = {"Content-Type": "text/plain", "X-Document-Name": "profile.txt"}
     body = b"Reference: ABC123\n"
-    assert login(app, "hr-admin").post(upload, content=body, headers=headers).status_code == 403
+    assert login(app, "biz-ops").post(upload, content=body, headers=headers).status_code == 403
     assert sophia.post(upload, content=body, headers=headers).status_code == 404
     assert director.post(upload, content=body, headers=headers).status_code == 403
     reader.assert_not_awaited()
@@ -939,7 +939,7 @@ def test_onboarding_cannot_be_started_as_a_run():
 def test_a_run_cannot_start_on_an_absent_or_other_team_case():
     app = enabled_app()
     director, maya, sophia = (login(app, item) for item in ("olivia-koh", "maya-lim", "sophia-ng"))
-    created = login(director.app, "hr-admin").post(
+    created = login(director.app, "biz-ops").post(
         "/api/workflows", json={"name": "R", "use_case": "Case refresh", "country": "Singapore"}
     ).json()
     assert sophia.post(
@@ -1035,7 +1035,7 @@ def director_actor():
 
 
 def hr_actor():
-    profile = UserProfile(user_id="hr-admin", display_name="HR", role=Role.HR, team_id=None)
+    profile = UserProfile(user_id="biz-ops", display_name="HR", role=Role.HR, team_id=None)
     return AuthenticatedActor.model_construct(profile=profile)
 
 
@@ -1167,7 +1167,7 @@ def test_a_really_onboarded_company_loads_its_case_data_into_a_workflow():
         director = login(client.app, "olivia-koh")
         current = prepare(client, company)
         assert confirm(client, current)["status"] == "COMPLETED"
-        created = login(director.app, "hr-admin").post(
+        created = login(director.app, "biz-ops").post(
             "/api/workflows", json={"name": "Refresh", "use_case": "R", "country": "SG"}
         ).json()
         url = f"/api/workflows/{created['workflow_id']}"

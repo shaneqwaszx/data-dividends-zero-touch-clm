@@ -192,7 +192,7 @@ test("S1 executing workspace is inert, all 11 business stages inspect, failed do
 
 test("S1 logout and interactive role changes start at each role's normal landing and clear onboarding drafts", async ({ page }) => {
   await page.goto("/");
-  await login(page, "hr-admin");
+  await login(page, "biz-ops");
   await page.getByRole("link", { name: "GoldTier Sandbox", exact: true }).click();
   await logout(page);
   await login(page, "olivia-koh");
@@ -200,7 +200,7 @@ test("S1 logout and interactive role changes start at each role's normal landing
   await expect(page.getByText("Page unavailable", { exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: "Cases", exact: true }).click();
   await logout(page);
-  await login(page, "hr-admin");
+  await login(page, "biz-ops");
   await expect(page).toHaveURL(/\/admin\/users$/);
   await expect(page.getByText("Page unavailable", { exact: true })).toHaveCount(0);
   await logout(page);

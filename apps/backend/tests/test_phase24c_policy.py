@@ -167,7 +167,7 @@ def test_http_proposal_approval_and_direct_mutation_retirement():
         c.headers["X-CSRF-Token"] = response.json()["csrf_token"]
         return c
 
-    hr = client("hr-admin")
+    hr = client("biz-ops")
     rm = client("ethan-tan")
     director = client("olivia-koh")
     baseline = hr.get("/api/policies").json()

@@ -53,7 +53,7 @@ test("Workflow designer read-only smoke for HR, with repeated navigation", async
   // Viewport-sized screenshots: a fullPage capture re-emulates the viewport mid-shot and
   // React Flow then warns about a zero-sized container (seen only under capture, never in use).
   await page.setViewportSize({ width: 1440, height: 1800 });
-  await signIn(page, "hr-admin");
+  await signIn(page, "biz-ops");
   await openDesigner(page);
 
   // Fixed, read-only canvas: no draggable or connectable element, no interactive lock toggle.

@@ -120,7 +120,7 @@ def test_the_run_view_shows_the_frozen_basis_and_the_escalation_is_audited(monke
     ("user_id", "expected"),
     [
         ("sophia-ng", 404),  # another team: a safe 404
-        ("hr-admin", 404),
+        ("biz-ops", 404),
         ("support-user", 404),
         ("olivia-koh", 403),  # case access, but not a filler role
         ("ethan-tan", 200),
@@ -162,7 +162,7 @@ def test_the_gate_is_off_by_default_over_http(monkeypatch):
     with capturing_workflow_store() as store:
         app = create_app(ordinary_test_settings(workflow_manager_enabled=True))
     register_app_store(app, store)
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
     refused = hr.post(
         f"{url}/proposals",

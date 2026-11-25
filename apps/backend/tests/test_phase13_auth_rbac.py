@@ -1320,7 +1320,7 @@ def test_authentication_composition_uses_new_synthetic_profile_settings() -> Non
         profiles,
         {
             **{profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES},
-            "hr-admin": encoded,
+            "biz-ops": encoded,
             "support-user": encoded,
         },
     )

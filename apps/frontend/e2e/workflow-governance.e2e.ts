@@ -15,7 +15,7 @@ const LEGACY_NOTE = "Activated by a Director before approval governance; not ind
 const ADDED_STAGE = "E2E synthetic sanctions attestation";
 const ADDED_FIELD = "Synthetic attestation reference";
 const NEW_WORKFLOW = "E2E synthetic periodic review";
-const HR = "hr-admin";
+const HR = "biz-ops";
 const fixtures = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."), "apps/backend/tests/fixtures/uat");
 const DIRECTOR = "olivia-koh";
 

@@ -88,7 +88,7 @@ def main(argv: list[str]) -> int:
         status, body = call(opener, "/health")
         out = {"row": "health", "http": status, "environment": body.get("environment")}
     elif argv[1] == "search":
-        csrf = login(opener, "hr-admin")
+        csrf = login(opener, "biz-ops")
         status, body = call(
             opener,
             "/api/admin/goldtier-sandbox/search",

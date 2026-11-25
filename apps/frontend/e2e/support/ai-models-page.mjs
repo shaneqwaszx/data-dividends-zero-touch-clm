@@ -16,7 +16,7 @@ export async function buildAiModelsPage(outDir) {
         import {MemoryRouter} from "react-router";
         import AiModelManagement from "./src/pages/AiModelManagement";
         import {paths} from "./src/navigation";
-        const hr = { user_id: "hr-admin", display_name: "HR Admin", role: "HR", team_id: null,
+        const hr = { user_id: "biz-ops", display_name: "HR Admin", role: "HR", team_id: null,
           team_display_name: null, team_type: null, team_description: "", client_scope_label: "",
           capabilities: ["IDENTITY_ADMIN", "MODEL_CONFIG_MANAGE"] };
         const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });

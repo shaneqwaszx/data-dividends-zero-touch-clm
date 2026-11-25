@@ -91,7 +91,7 @@ def test_quoted_and_exported_dotenv_lines_are_read(
 def test_the_hr_key_comes_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """D-106: HR session key, then the process environment, then the .env file."""
 
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=None)
     key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == HR_KEY
     assert status.view()["source"] == "hr_session" and status.view()["persistence"] == "memory_only"
@@ -123,21 +123,21 @@ def test_explicit_mappings_ignore_dotenv_and_hr(
 ) -> None:
     """Tests and seams that pass their own mapping get exactly that mapping."""
 
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=None)
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
     assert key_sources.resolve({})[0] is None
     assert key_sources.resolve({NAME: ENV_KEY})[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
 
 
 def test_a_restart_forgets_the_hr_key() -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=None)
     restarted = key_sources.HrCredential()
     key, status = key_sources.resolve(os.environ, store=restarted)
     assert key is None and status.view()["status"] == "missing"
 
 
 def test_the_status_and_the_secret_never_show_the_key() -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=None)
     key, status = key_sources.resolve()
     assert HR_KEY not in repr(key) and HR_KEY not in str(key)
     assert HR_KEY not in repr(status) and HR_KEY not in str(status.view())
@@ -170,7 +170,7 @@ def test_hr_sees_not_configured_then_saves_tests_and_clears_a_key(
     saved = _put(journey)
     assert saved.status_code == 200, saved.text
     assert saved.json()["source"] == "hr_session" and saved.json()["status"] == "configured"
-    assert saved.json()["set_by"] == "hr-admin"
+    assert saved.json()["set_by"] == "biz-ops"
     test = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test").json()
     assert test["outcome"] == "passed", test
     # The key went to OpenRouter (the mock) as the bearer token, nowhere else.
@@ -290,7 +290,7 @@ def test_the_qualification_process_gets_an_hr_key_only_on_its_standard_input(
     """D-106: never on the command line or in the environment."""
 
     assert model_admin.qualification_handoff("openrouter") == (b"{}", {})  # no HR key
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "biz-ops", session=None)
     assert model_admin.qualification_handoff(None) == (b"{}", {})  # a local model: no key
     payload, generations = model_admin.qualification_handoff("openrouter")
     assert set(generations) == {"openrouter"}
@@ -395,5 +395,5 @@ def test_one_call_pins_the_key_it_checked(tmp_path: Path, monkeypatch: pytest.Mo
     marker, environ = model._pinned()  # type: ignore[union-attr]
     assert marker == key_sources.identity(SecretStr(HR_KEY))
     assert environ is not None and environ[NAME] == HR_KEY
-    key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "hr-admin", session=None)  # a later change
+    key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "biz-ops", session=None)  # a later change
     assert environ[NAME] == HR_KEY  # this call keeps the key it checked

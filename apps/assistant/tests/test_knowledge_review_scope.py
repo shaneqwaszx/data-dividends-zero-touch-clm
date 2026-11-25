@@ -60,7 +60,7 @@ BACKEND_USERS = {
         "ryan-lee", "RELATIONSHIP_MANAGER", "TEAM_B", ["POLICY_VIEW", "CASE_ACCESS"]
     ),
     "hr-global-session": _backend_profile(
-        "hr-admin", "HR", None, ["POLICY_VIEW", "POLICY_MUTATE", "IDENTITY_ADMIN", "TEAM_ADMIN"]
+        "biz-ops", "HR", None, ["POLICY_VIEW", "POLICY_MUTATE", "IDENTITY_ADMIN", "TEAM_ADMIN"]
     ),
 }
 
@@ -221,7 +221,7 @@ def test_a_global_director_drafts_a_team_b_request_visible_to_team_b_only(
 def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:  # noqa: F811
     """RM maya-lim says "Not helpful"; the one Support reviewer, support-user, writes the fix
     and, in the POC's single-reviewer mode, publishes it after confirming; the request is resolved
-    and the next similar question cites it. HR (hr-admin) cannot write the fix."""
+    and the next similar question cites it. HR (biz-ops) cannot write the fix."""
 
     question = {"message": "Client moved office, can I use the document address?"}
     rm = client(kb, "rm-session", single_reviewer=True)

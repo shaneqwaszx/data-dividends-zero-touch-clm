@@ -595,7 +595,7 @@ test("responsive Director policy separates decision authority", async ({ page })
 test("responsive HR administration contains proposal-only policy controls", async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
-  await login(page, "hr-admin");
+  await login(page, "biz-ops");
   for (const width of REPRESENTATIVE_VIEWPORTS) {
     await page.setViewportSize({ width, height: 900 });
     for (const [tab, heading] of [["Users", "Users"], ["Teams", "Teams"], ["Policy", "Policy and rules"]] as const) {

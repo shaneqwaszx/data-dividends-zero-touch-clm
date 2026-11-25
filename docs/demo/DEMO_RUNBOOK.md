@@ -214,7 +214,7 @@ compatible integer field; existing values 1–3, 4–7, and 8–10 display as Lo
 and High. Portfolio ordering remains backend-owned and priority has no risk, SLA,
 routing, escalation, approval, or regulatory meaning.
 
-The sixth bootstrap identity is `hr-admin`. It can administer synthetic users and
+The sixth bootstrap identity is `biz-ops`. It can administer synthetic users and
 teams, but it cannot view cases, Dashboard, Onboarded, Audit, or mutate policy. Policy
 values are read from the backend catalogue; only Relationship Manager and Director can
 edit the two runtime thresholds. Such an edit affects newly created cases only.

@@ -51,7 +51,7 @@ SEEDED = (
     "sophia-ng",
     "ryan-lee",
     "olivia-koh",
-    "hr-admin",
+    "biz-ops",
     "support-user",
 )
 
@@ -73,7 +73,7 @@ def _version(client: RawTestClient, user_id: str) -> int:
     return int(next(item["version"] for item in profiles if item["user_id"] == user_id))
 
 
-def _hr_actor(user_id: str = "hr-admin") -> AuthenticatedActor:
+def _hr_actor(user_id: str = "biz-ops") -> AuthenticatedActor:
     return AuthenticatedActor(
         profile=UserProfile(user_id=user_id, display_name="HR Actor", role=Role.HR, team_id=None)
     )
@@ -91,7 +91,7 @@ def test_hr_changes_own_password_and_must_sign_in_again(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     new_password = secrets.token_urlsafe(24)
     body = {"current_password": TEST_PASSWORD, "new_password": new_password}
     assert client.post(SELF_CHANGE_PATH, json=body).status_code == 403
@@ -99,14 +99,14 @@ def test_hr_changes_own_password_and_must_sign_in_again(
     assert response.status_code == 204
     assert not response.content
     assert client.get("/api/auth/me").status_code == 401
-    assert _login_status(client, "hr-admin", TEST_PASSWORD) == 401
-    assert _login_status(client, "hr-admin", new_password) == 200
+    assert _login_status(client, "biz-ops", TEST_PASSWORD) == 401
+    assert _login_status(client, "biz-ops", new_password) == 200
     assert new_password not in caplog.text
 
 
 def test_self_change_refuses_bad_proof_without_signing_out_or_echoing_input() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     headers = {"X-CSRF-Token": csrf}
     wrong = secrets.token_urlsafe(24)
     replacement = secrets.token_urlsafe(24)
@@ -121,13 +121,13 @@ def test_self_change_refuses_bad_proof_without_signing_out_or_echoing_input() ->
     assert invalid.status_code == 422
     assert wrong not in invalid.text and replacement not in invalid.text
     assert client.get("/api/auth/me").status_code == 200
-    assert _login_status(client, "hr-admin", TEST_PASSWORD) == 200
+    assert _login_status(client, "biz-ops", TEST_PASSWORD) == 200
 
 
 def test_self_change_reuses_login_admission(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.main.LoginAdmission", lambda: LoginAdmission(lambda: 0))
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     headers = {"X-CSRF-Token": csrf}
     body = {
         "current_password": secrets.token_urlsafe(24),
@@ -163,7 +163,7 @@ def test_hr_resets_password_revokes_old_session_and_new_password_logs_in(
     assert target.get("/api/auth/me").status_code == 200
 
     hr = RawTestClient(target.app)
-    csrf = _login(hr, "hr-admin")
+    csrf = _login(hr, "biz-ops")
     before = _version(hr, "ethan-tan")
     new_password = secrets.token_urlsafe(24)
 
@@ -177,7 +177,7 @@ def test_hr_resets_password_revokes_old_session_and_new_password_logs_in(
     body = response.json()
     assert body["user_id"] == "ethan-tan"
     assert body["version"] == before + 1
-    assert body["updated_by"] == "hr-admin"
+    assert body["updated_by"] == "biz-ops"
     assert body["role"] == "RELATIONSHIP_MANAGER" and body["team_id"] == "TEAM_A"
     assert new_password not in response.text
     assert "credential" not in response.text and "password" not in response.text
@@ -198,7 +198,7 @@ def test_hr_resets_password_revokes_old_session_and_new_password_logs_in(
 def test_non_hr_roles_are_forbidden_and_target_is_unchanged(actor_id: str) -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
     hr = RawTestClient(client.app)
-    _login(hr, "hr-admin")
+    _login(hr, "biz-ops")
     before = _version(hr, "sophia-ng")
     csrf = _login(client, actor_id)
     attempted = secrets.token_urlsafe(24)
@@ -222,13 +222,13 @@ def test_unauthenticated_and_missing_csrf_are_refused() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
     body = {"expected_version": 1, "new_password": secrets.token_urlsafe(24)}
     assert client.post(RESET_PATH.format(user_id="maya-lim"), json=body).status_code == 401
-    _login(client, "hr-admin")
+    _login(client, "biz-ops")
     assert client.post(RESET_PATH.format(user_id="maya-lim"), json=body).status_code == 403
 
 
 def test_hr_targets_including_self_are_refused() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     created = client.post(
         "/api/admin/profiles",
         headers={"X-CSRF-Token": csrf},
@@ -242,7 +242,7 @@ def test_hr_targets_including_self_are_refused() -> None:
     )
     assert created.status_code == 201
 
-    for target in ("hr-admin", "hr-second"):
+    for target in ("biz-ops", "hr-second"):
         attempted = secrets.token_urlsafe(24)
         response = client.post(
             RESET_PATH.format(user_id=target),
@@ -253,14 +253,14 @@ def test_hr_targets_including_self_are_refused() -> None:
         assert response.json()["detail"]["code"] == "ADMINISTRATION_FORBIDDEN"
         probe = RawTestClient(client.app)
         assert _login_status(probe, target, attempted) == 401
-        if target != "hr-admin":  # a fresh hr-admin login would replace the acting session
+        if target != "biz-ops":  # a fresh biz-ops login would replace the acting session
             assert _login_status(probe, target, TEST_PASSWORD) == 200
     assert client.get("/api/auth/me").status_code == 200
 
 
 def test_stale_version_conflicts_and_keeps_the_old_credential() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     current = _version(client, "maya-lim")
     first = secrets.token_urlsafe(24)
     assert (
@@ -298,7 +298,7 @@ def test_stale_version_conflicts_and_keeps_the_old_credential() -> None:
 )
 def test_invalid_bodies_are_rejected_without_echoing_input(body: dict[str, Any]) -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
 
     response = client.post(
         RESET_PATH.format(user_id="maya-lim"), headers={"X-CSRF-Token": csrf}, json=body
@@ -313,7 +313,7 @@ def test_invalid_bodies_are_rejected_without_echoing_input(body: dict[str, Any])
 
 def test_unknown_target_is_not_found() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     response = client.post(
         RESET_PATH.format(user_id="no-such-user"),
         headers={"X-CSRF-Token": csrf},
@@ -354,7 +354,7 @@ def test_audit_event_records_actor_target_versions_and_no_secret() -> None:
     event = after.audit_events[-1]
     # Rollback-safe: an existing action tagged by operation, no new action or field.
     assert event.action == "PROFILE_UPDATED"
-    assert event.actor_user_id == "hr-admin"
+    assert event.actor_user_id == "biz-ops"
     assert event.target_id == "ryan-lee"
     assert event.resulting_version == after.version
     assert event.metadata == {
@@ -400,7 +400,7 @@ def test_actor_is_reauthorized_inside_the_lock() -> None:
     assert second is not None
     # The second HR is demoted after their request was authenticated (stale actor object).
     profiles.mutate_authority(
-        actor_user_id="hr-admin",
+        actor_user_id="biz-ops",
         user_id="hr-second",
         expected_version=second.version,
         display_name=second.display_name,
@@ -432,18 +432,18 @@ def test_actor_is_reauthorized_inside_the_lock() -> None:
 
 def test_repository_refuses_hr_target_even_when_called_directly() -> None:
     _, profiles = _repositories()
-    current = profiles.get("hr-admin")
+    current = profiles.get("biz-ops")
     assert current is not None
     with pytest.raises(AdministrationCredentialTargetRefusedError):
         profiles.replace_credential(
-            actor_user_id="hr-admin",
-            user_id="hr-admin",
+            actor_user_id="biz-ops",
+            user_id="biz-ops",
             expected_version=current.version,
             credential_hash=SecretStr(generate_scrypt_password_hash("x" * 12)),
             operation="PASSWORD_RESET",
             updated_at=datetime.now(UTC),
         )
-    assert profiles.get("hr-admin") == current
+    assert profiles.get("biz-ops") == current
 
 
 def test_existing_update_credential_guard_is_unchanged() -> None:
@@ -453,7 +453,7 @@ def test_existing_update_credential_guard_is_unchanged() -> None:
     event = AdministrationAuditEvent(
         event_id=new_event_id(),
         action="PROFILE_UPDATED",
-        actor_user_id="hr-admin",
+        actor_user_id="biz-ops",
         target_id="maya-lim",
         timestamp=datetime.now(UTC),
         resulting_version=current.version + 1,
@@ -512,7 +512,7 @@ def test_self_change_memory_mongo_parity_and_secret_free_audit() -> None:
     teams, memory = _repositories()
     fake = _FakeProfiles(memory.list())
     mongo = MongoProfileRepository(_FakeStore(fake))  # type: ignore[arg-type]
-    current = memory.get("hr-admin")
+    current = memory.get("biz-ops")
     assert current is not None
     new_password = secrets.token_urlsafe(24)
     for repository in (memory, mongo):
@@ -523,13 +523,13 @@ def test_self_change_memory_mongo_parity_and_secret_free_audit() -> None:
             current_password=SecretStr(TEST_PASSWORD),
             new_password=SecretStr(new_password),
         )
-        persisted = repository.get("hr-admin")
+        persisted = repository.get("biz-ops")
         assert persisted is not None
         assert persisted.version == current.version + 1
         assert persisted.security_version == current.security_version + 1
         event = persisted.audit_events[-1]
         assert event.action == "PROFILE_UPDATED"
-        assert event.actor_user_id == event.target_id == "hr-admin"
+        assert event.actor_user_id == event.target_id == "biz-ops"
         assert event.metadata == {
             "operation": "PASSWORD_CHANGED_SELF",
             "previous_version": current.version,
@@ -540,8 +540,8 @@ def test_self_change_memory_mongo_parity_and_secret_free_audit() -> None:
         assert persisted.credential_hash.get_secret_value() not in event.model_dump_json()
         with pytest.raises(AdministrationActorNotAuthorizedError):
             repository.replace_credential(
-                actor_user_id="hr-admin",
-                user_id="hr-admin",
+                actor_user_id="biz-ops",
+                user_id="biz-ops",
                 expected_version=persisted.version,
                 credential_hash=current.credential_hash,
                 operation="PASSWORD_CHANGED_SELF",
@@ -549,7 +549,7 @@ def test_self_change_memory_mongo_parity_and_secret_free_audit() -> None:
                 expected_actor_security_version=current.security_version,
             )
     assert fake.filters == [{
-        "_id": "hr-admin",
+        "_id": "biz-ops",
         "version": current.version,
         "security_version": current.security_version,
     }]
@@ -566,7 +566,7 @@ def test_mongo_store_parity_with_memory_store() -> None:
 
     results = [
         repository.replace_credential(
-            actor_user_id="hr-admin",
+            actor_user_id="biz-ops",
             user_id="olivia-koh",
             expected_version=current.version,
             credential_hash=hashed,
@@ -592,7 +592,7 @@ def test_mongo_store_parity_with_memory_store() -> None:
     for repository in (memory, mongo):
         with pytest.raises(AdministrationConflictError):
             repository.replace_credential(
-                actor_user_id="hr-admin",
+                actor_user_id="biz-ops",
                 user_id="olivia-koh",
                 expected_version=current.version,
                 credential_hash=hashed,
@@ -600,11 +600,11 @@ def test_mongo_store_parity_with_memory_store() -> None:
                 updated_at=now,
             )
         with pytest.raises(AdministrationCredentialTargetRefusedError):
-            hr = repository.get("hr-admin")
+            hr = repository.get("biz-ops")
             assert hr is not None
             repository.replace_credential(
-                actor_user_id="hr-admin",
-                user_id="hr-admin",
+                actor_user_id="biz-ops",
+                user_id="biz-ops",
                 expected_version=hr.version,
                 credential_hash=hashed,
                 operation="PASSWORD_RESET",
@@ -629,7 +629,7 @@ def test_mongo_store_parity_with_memory_store() -> None:
     )
     with pytest.raises(AdministrationConflictError):
         mongo.replace_credential(
-            actor_user_id="hr-admin",
+            actor_user_id="biz-ops",
             user_id="ethan-tan",
             expected_version=racing.version,
             credential_hash=hashed,
@@ -667,7 +667,7 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
             target = RawTestClient(first.app)
             _login(target, "maya-lim")
             hr = RawTestClient(first.app)
-            csrf = _login(hr, "hr-admin")
+            csrf = _login(hr, "biz-ops")
             before = _version(hr, "maya-lim")
             stale_body = {"expected_version": before, "new_password": new_password}
             reset = hr.post(
@@ -687,10 +687,10 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
             )
             assert (
                 hr.post(
-                    RESET_PATH.format(user_id="hr-admin"),
+                    RESET_PATH.format(user_id="biz-ops"),
                     headers={"X-CSRF-Token": csrf},
                     json={
-                        "expected_version": _version(hr, "hr-admin"),
+                        "expected_version": _version(hr, "biz-ops"),
                         "new_password": new_password,
                     },
                 ).status_code
@@ -711,7 +711,7 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
         assert event["action"] == "PROFILE_UPDATED"
         assert event["metadata"]["operation"] == "PASSWORD_RESET"
         assert "sign_in_disabled" not in raw
-        assert event["actor_user_id"] == "hr-admin" and event["target_id"] == "maya-lim"
+        assert event["actor_user_id"] == "biz-ops" and event["target_id"] == "maya-lim"
         assert new_password not in str(raw["audit_events"])
         assert raw["credential_hash"] not in str(raw["audit_events"])
         assert new_password not in str(raw)
@@ -719,7 +719,7 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
         with RawTestClient(create_app(settings)) as second:
             target = RawTestClient(second.app)
             _login(target, "maya-lim", new_password)
-            csrf = _login(second, "hr-admin")
+            csrf = _login(second, "biz-ops")
             disabled = second.post(
                 DISABLE_PATH.format(user_id="maya-lim"),
                 headers={"X-CSRF-Token": csrf},
@@ -730,7 +730,7 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
 
         with RawTestClient(create_app(settings)) as restarted:
             assert _login_status(restarted, "maya-lim", new_password) == 401
-            csrf = _login(restarted, "hr-admin")
+            csrf = _login(restarted, "biz-ops")
             profiles = restarted.get("/api/admin/profiles").json()
             target_profile = next(
                 profile for profile in profiles if profile["user_id"] == "maya-lim"
@@ -745,11 +745,11 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
             assert restarted.get("/api/auth/me").status_code == 401
 
         with RawTestClient(create_app(settings)) as restarted:
-            assert _login_status(restarted, "hr-admin", TEST_PASSWORD) == 401
-            assert _login_status(restarted, "hr-admin", new_hr_password) == 200
+            assert _login_status(restarted, "biz-ops", TEST_PASSWORD) == 401
+            assert _login_status(restarted, "biz-ops", new_hr_password) == 200
 
         hr = cleanup[database][settings.mongo_admin_profiles_collection].find_one(
-            {"_id": "hr-admin"}
+            {"_id": "biz-ops"}
         )
         assert hr is not None
         assert hr["security_version"] == 2
@@ -772,7 +772,7 @@ def test_hr_disables_sign_in_revokes_session_and_reset_re_enables() -> None:
     target = RawTestClient(create_app(ordinary_test_settings()))
     _login(target, "sophia-ng")
     hr = RawTestClient(target.app)
-    csrf = _login(hr, "hr-admin")
+    csrf = _login(hr, "biz-ops")
     before = _version(hr, "sophia-ng")
 
     disabled = hr.post(
@@ -812,7 +812,7 @@ def test_hr_disables_sign_in_revokes_session_and_reset_re_enables() -> None:
 
 def test_disabled_state_survives_a_later_profile_update() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     current = _version(client, "ryan-lee")
     assert (
         client.post(
@@ -833,7 +833,7 @@ def test_disabled_state_survives_a_later_profile_update() -> None:
 
 def test_disabled_account_must_be_reset_before_it_can_become_hr() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     headers = {"X-CSRF-Token": csrf}
     before = _version(client, "ryan-lee")
     assert (
@@ -888,12 +888,12 @@ def test_disable_is_forbidden_for_non_hr(actor_id: str) -> None:
 
 def test_disable_refuses_hr_targets_stale_versions_and_bad_bodies() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     headers = {"X-CSRF-Token": csrf}
-    hr_version = _version(client, "hr-admin")
+    hr_version = _version(client, "biz-ops")
     assert (
         client.post(
-            DISABLE_PATH.format(user_id="hr-admin"),
+            DISABLE_PATH.format(user_id="biz-ops"),
             headers=headers,
             json={"expected_version": hr_version},
         ).status_code

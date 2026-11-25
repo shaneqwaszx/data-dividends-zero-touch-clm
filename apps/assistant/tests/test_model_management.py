@@ -57,7 +57,7 @@ HR_CAPABILITIES = [
     "TEAM_ADMIN",
 ]
 USERS = {
-    "hr-session": ("hr-admin", "HR", None, HR_CAPABILITIES),
+    "hr-session": ("biz-ops", "HR", None, HR_CAPABILITIES),
     "hr2-session": ("hr-second", "HR", None, HR_CAPABILITIES),
     "rm-session": ("ethan-tan", "RELATIONSHIP_MANAGER", "TEAM_A", ["CASE_ACCESS", "POLICY_VIEW"]),
     "co-session": ("maya-lim", "CLIENT_ONBOARDER", "TEAM_A", ["CASE_ACCESS", "POLICY_VIEW"]),
@@ -811,7 +811,7 @@ def test_one_qualification_at_a_time_and_cancel(
 
 def test_a_qualification_past_its_time_limit_stops(tmp_path: Path, server: ModelServer) -> None:
     store = ModelAdminStore(tmp_path / "jobs.sqlite3")
-    qualification_id = store.begin_qualification("p", "f", "b", "hr-admin", 84)
+    qualification_id = store.begin_qualification("p", "f", "b", "biz-ops", 84)
     job = QualificationJob(
         store=store,
         qualification_id=qualification_id,
@@ -821,7 +821,7 @@ def test_a_qualification_past_its_time_limit_stops(tmp_path: Path, server: Model
         declared_tokens=8192,
         max_answer_tokens=600,
         basis="b",
-        started_by="hr-admin",
+        started_by="biz-ops",
         deadline=time.monotonic() - 1,
     )
     job.run()
@@ -968,7 +968,7 @@ def test_the_audit_keeps_only_the_newest_events(
     monkeypatch.setattr("ai_assistant.model_admin_store.MAX_EVENTS", 5)
     store = ModelAdminStore(tmp_path / "a.sqlite3")
     for index in range(12):
-        store.record(actor="hr-admin", role="HR", action="CONNECTION_TEST", outcome=str(index))
+        store.record(actor="biz-ops", role="HR", action="CONNECTION_TEST", outcome=str(index))
     assert [event["outcome"] for event in store.events(100)] == ["11", "10", "9", "8", "7"]
 
 
@@ -1117,11 +1117,11 @@ def test_refused_access_cannot_push_model_changes_out_of_the_audit(
         ("STARTUP_REVERTED", "reverted"),
         ("CONNECTION_TEST", "passed"),
     ]:
-        store.record(actor="hr-admin", role="HR", action=action, outcome=outcome)
+        store.record(actor="biz-ops", role="HR", action=action, outcome=outcome)
     for _ in range(50):
         store.record(actor="ethan-tan", role="RM", action="ACCESS_REFUSED", outcome="refused")
     for _ in range(20):
-        store.record(actor="hr-admin", role="HR", action="CONNECTION_TEST", outcome="failed")
+        store.record(actor="biz-ops", role="HR", action="CONNECTION_TEST", outcome="failed")
     events = store.events(500)
     kept = {(e["action"], e["outcome"]) for e in events}
     assert {("ACTIVATED", "applied"), ("ROLLED_BACK", "applied")} <= kept

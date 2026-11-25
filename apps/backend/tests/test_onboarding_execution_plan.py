@@ -393,7 +393,7 @@ def app_with(store: Any, **overrides: Any) -> Any:
 # B5 - added stages appear after their anchor; they block the send, never pause automation.
 @pytest.mark.parametrize(("stage", "blocks"), [(STAGE, True), (OPTIONAL_STAGE, False)])
 def test_active_added_stages_are_shown_with_send_hold_semantics(stage, blocks) -> None:
-    hr = login(app_with(storage(stage=stage)), "hr-admin")
+    hr = login(app_with(storage(stage=stage)), "biz-ops")
     body = hr.get(PLAN_URL).json()
     optional = body["optional_steps"]
     assert optional["state"] == "ACTIVE" and optional["version"] == 1
@@ -405,7 +405,7 @@ def test_active_added_stages_are_shown_with_send_hold_semantics(stage, blocks) -
 
 
 def test_no_active_workflow_is_reported_as_such() -> None:
-    body = login(app_with(storage(stage=None)), "hr-admin").get(PLAN_URL).json()
+    body = login(app_with(storage(stage=None)), "biz-ops").get(PLAN_URL).json()
     assert body["optional_steps"]["state"] == "NO_ACTIVE_WORKFLOW"
     assert body["optional_steps"]["steps"] == []
     assert body["optional_steps"]["enforced_at_send"] is False
@@ -450,7 +450,7 @@ def test_reading_the_plan_is_strictly_read_only() -> None:
         # ADR-017 3.5: the definition is provisioned once at startup, never on a read.
         assert spy.writes == ["create"]
         spy.writes.clear()
-        hr = login(client.app, "hr-admin")
+        hr = login(client.app, "biz-ops")
         first = hr.get(PLAN_URL)
         second = hr.get(PLAN_URL)
     assert first.status_code == second.status_code == 200
@@ -463,7 +463,7 @@ def test_reading_the_plan_is_strictly_read_only() -> None:
 @pytest.mark.parametrize(
     ("user_id", "status"),
     [
-        ("hr-admin", 200),
+        ("biz-ops", 200),
         ("olivia-koh", 200),
         ("maya-lim", 403),
         ("ethan-tan", 403),
@@ -495,7 +495,7 @@ def test_an_unauthenticated_request_is_refused() -> None:
 def test_manager_off_still_shows_what_the_send_check_enforces(store, state, steps) -> None:
     app = app_with(store(), workflow_manager_enabled=False)
     assert login(app, "olivia-koh").get("/api/workflows").status_code == 404
-    optional = login(app, "hr-admin").get(PLAN_URL).json()["optional_steps"]
+    optional = login(app, "biz-ops").get(PLAN_URL).json()["optional_steps"]
     assert optional["manager_enabled"] is False
     assert optional["state"] == state and len(optional["steps"]) == steps
     assert optional["enforced_at_send"] is (state != "NO_ACTIVE_WORKFLOW")
@@ -532,7 +532,7 @@ def test_the_plan_contains_no_case_data() -> None:
     )
     assert created.status_code == 201, created.text
     case_id = created.json()["case"]["case_id"]
-    text = login(app, "hr-admin").get(PLAN_URL).text
+    text = login(app, "biz-ops").get(PLAN_URL).text
     for secret in (case_id, "202400001A", "Plan Privacy Probe"):
         assert secret not in text
     assert set(json.loads(text)) == {

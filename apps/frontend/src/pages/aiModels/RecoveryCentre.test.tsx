@@ -85,7 +85,7 @@ function mount(fetchMock: ReturnType<typeof vi.fn>): HTMLDivElement {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  act(() => root?.render(<MemoryRouter><QueryClientProvider client={client}><RecoveryCentre userId="hr-admin" onChanged={() => undefined} /></QueryClientProvider></MemoryRouter>));
+  act(() => root?.render(<MemoryRouter><QueryClientProvider client={client}><RecoveryCentre userId="biz-ops" onChanged={() => undefined} /></QueryClientProvider></MemoryRouter>));
   return container;
 }
 
@@ -138,7 +138,7 @@ describe("RecoveryCentre", () => {
     const bodies: unknown[] = [];
     const request = {
       request_id: "a".repeat(32), problem_code: "CLAUDE_BREAKER_OPEN", evidence: breaker.evidence, note: "after the demo",
-      status: "open" as const, created_at: "2026-11-06T02:00:00+00:00", created_by: "hr-admin", closed_at: null, closed_by: null,
+      status: "open" as const, created_at: "2026-11-06T02:00:00+00:00", created_by: "biz-ops", closed_at: null, closed_by: null,
       problem_present: true,
     };
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {

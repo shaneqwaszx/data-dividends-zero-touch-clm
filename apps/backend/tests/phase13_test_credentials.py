@@ -24,7 +24,7 @@ def provision_test_hash_environment() -> None:
     encoded = generate_scrypt_password_hash(TEST_PASSWORD)
     for profile in SYNTHETIC_USER_PROFILES:
         os.environ[credential_setting_key(profile.user_id)] = encoded
-    os.environ[credential_setting_key("hr-admin")] = encoded
+    os.environ[credential_setting_key("biz-ops")] = encoded
     os.environ[credential_setting_key("support-user")] = encoded
 
 
@@ -39,7 +39,7 @@ def build_test_authentication_service(
     teams = InMemoryTeamRepository()
     profiles = InMemoryProfileRepository()
     values = dict(hashes)
-    for bootstrap_user_id in ("hr-admin", "support-user"):
+    for bootstrap_user_id in ("biz-ops", "support-user"):
         if bootstrap_user_id not in values and values:
             values[bootstrap_user_id] = next(iter(values.values()))
     bootstrap_administration(teams, profiles, values)

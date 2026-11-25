@@ -36,7 +36,7 @@ def _orphan(journey: Journey, profile_id: str = OPENROUTER_PROFILE_ID) -> str:
     """A running row whose supervisor stopped stamping a minute ago (a restarted service)."""
 
     qualification_id = _store(journey).begin_qualification(
-        profile_id, _full_fingerprint(journey, profile_id), qualification_basis(), "hr-admin", 2
+        profile_id, _full_fingerprint(journey, profile_id), qualification_basis(), "biz-ops", 2
     )
     with sqlite3.connect(journey.settings.model_admin_db_path) as db:
         db.execute(
@@ -84,7 +84,7 @@ def test_a_supervised_run_is_left_alone(tmp_path: Path, monkeypatch: pytest.Monk
         OPENROUTER_PROFILE_ID,
         _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
         qualification_basis(),
-        "hr-admin",
+        "biz-ops",
         2,
     )
     store.touch(qualification_id)  # a live supervisor's stamp
@@ -285,7 +285,7 @@ def _record(journey: Journey, status: str, code: str | None, summary: dict[str, 
         OPENROUTER_PROFILE_ID,
         _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
         qualification_basis(),
-        "hr-admin",
+        "biz-ops",
         2,
     )
     store.touch(qualification_id)
@@ -645,7 +645,7 @@ def test_an_earlier_database_keeps_its_controls_and_loses_only_the_us1_check(
         )
         db.execute(
             "INSERT INTO spending_controls VALUES (1, 4, 250000, 30, '2026-10-28T01:00:00+00:00',"
-            " 'hr-admin')"
+            " 'biz-ops')"
         )
     store = ModelAdminStore(path)
     kept = store.spending_controls()
@@ -653,9 +653,9 @@ def test_an_earlier_database_keeps_its_controls_and_loses_only_the_us1_check(
         4,
         250_000,
         30,
-        "hr-admin",
+        "biz-ops",
     )
-    assert store.set_spending_controls(4, 5_000_000, 30, "hr-admin") == 5
+    assert store.set_spending_controls(4, 5_000_000, 30, "biz-ops") == 5
     ModelAdminStore(path)  # opening it again changes nothing more
     assert store.spending_controls().daily_cap_micro_usd == 5_000_000
 
@@ -954,10 +954,10 @@ def test_a_local_profile_still_reverts_to_the_baseline_as_documented(
     assert entry is not None
     # A local profile activated with a qualification from older code: at the next start it
     # is out of date and reverts to the baseline (D-093), not to "AI unavailable".
-    qid = store.begin_qualification(entry.profile_id, entry.fingerprint, "old", "hr-admin", 1)
+    qid = store.begin_qualification(entry.profile_id, entry.fingerprint, "old", "biz-ops", 1)
     store.finish_qualification(qid, "passed", None, {"capacity": {"prompt_limit": 1000}})
     choice = Choice(entry.profile_id, entry.fingerprint, qid, 1000)
-    store.activate(store.revision(), choice, None, "hr-admin")
+    store.activate(store.revision(), choice, None, "biz-ops")
     restarted = ModelSelector(selector.settings, None, ModelAdminStore(store._path))  # noqa: SLF001
     assert restarted.current().profile_id == "env_default"
 
@@ -1232,7 +1232,7 @@ def _record_pass(
         OPENROUTER_PROFILE_ID,
         fingerprint or _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
         basis or qualification_basis(),
-        "hr-admin",
+        "biz-ops",
         2,
     )
     store.touch(qualification_id)
@@ -1385,7 +1385,7 @@ def test_a_superseding_quality_failure_is_the_advice_whatever_run_came_later(
             OPENROUTER_PROFILE_ID,
             _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
             "0" * 64 if later == "stale_technical" else qualification_basis(),
-            "hr-admin",
+            "biz-ops",
             2,
         )
         store.touch(qualification_id)

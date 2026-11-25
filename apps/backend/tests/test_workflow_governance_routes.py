@@ -62,7 +62,7 @@ def test_the_governed_lifecycle_over_http_publishes_and_holds_a_new_case():
     assert governance["migrated"] and governance["latest_version"] == 1
     (provenance,) = governance["version_provenance"]
     assert provenance["origin"] == "GOVERNED_APPROVAL"
-    assert (provenance["author_id"], provenance["approved_by"]) == ("hr-admin", "olivia-koh")
+    assert (provenance["author_id"], provenance["approved_by"]) == ("biz-ops", "olivia-koh")
     assert governance["baseline"]["required_stages"] == 1
     case_id = new_case(maya)
     run = maya.get(f"/api/clm/zero-touch/cases/{case_id}/workflows").json()["onboarding"]
@@ -71,7 +71,7 @@ def test_the_governed_lifecycle_over_http_publishes_and_holds_a_new_case():
 
 def test_hr_cannot_decide_and_the_director_cannot_author():
     app = enabled_app()
-    hr, director = login(app, "hr-admin"), login(app, "olivia-koh")
+    hr, director = login(app, "biz-ops"), login(app, "olivia-koh")
     assert (
         director.post(
             f"{URL}/proposals", json={"expected_workflow_revision": 1, "stages": []}
@@ -92,7 +92,7 @@ def test_hr_cannot_decide_and_the_director_cannot_author():
 
 def test_the_acknowledgement_and_a_second_decision_are_refused_with_the_contract_body():
     app = enabled_app()
-    hr, director = login(app, "hr-admin"), login(app, "olivia-koh")
+    hr, director = login(app, "biz-ops"), login(app, "olivia-koh")
     proposal = propose(hr, [STAGE])
     pending = submit(hr, proposal).json()
     purl = f"{URL}/proposals/{proposal['proposal_id']}"
@@ -120,7 +120,7 @@ def test_the_acknowledgement_and_a_second_decision_are_refused_with_the_contract
 def test_a_ratchet_refusal_carries_its_rule_and_every_issue():
     app = enabled_app()
     governed_publish(login(app, "olivia-koh"), ONBOARDING_WORKFLOW_ID, [STAGE])
-    hr = login(app, "hr-admin")  # after publication: a second HR login ends earlier sessions
+    hr = login(app, "biz-ops")  # after publication: a second HR login ends earlier sessions
     removing = propose(hr, [])
     refused = submit(hr, removing)
     assert refused.status_code == 422
@@ -179,7 +179,7 @@ def test_onboarders_rms_and_support_reach_no_governance_route(user_id):
 
 def test_inaccessible_items_are_a_safe_404_and_fixed_routes_are_not_shadowed():
     app = enabled_app()
-    hr, director = login(app, "hr-admin"), login(app, "olivia-koh")
+    hr, director = login(app, "biz-ops"), login(app, "olivia-koh")
     scenarios = hr.get("/api/workflows/simulation-scenarios")
     assert scenarios.status_code == 200 and all(item["synthetic"] for item in scenarios.json())
     assert director.get("/api/workflow-approvals").json() == {"items": []}
@@ -198,7 +198,7 @@ def test_inaccessible_items_are_a_safe_404_and_fixed_routes_are_not_shadowed():
 
 def test_activate_and_put_draft_are_retired():
     app = enabled_app()
-    for user_id in ("hr-admin", "olivia-koh"):
+    for user_id in ("biz-ops", "olivia-koh"):
         client = login(app, user_id)
         assert client.post(f"{URL}/activate", json={}).status_code == 410
         response = client.put(f"{URL}/draft", json={"expected_revision": 1, "stages": []})
@@ -246,7 +246,7 @@ def _legacy_store() -> Any:
 def test_a_legacy_memory_store_is_migrated_with_honest_provenance():
     with capturing_workflow_store(_legacy_store()) as store:
         app = create_app(ordinary_test_settings(workflow_manager_enabled=True))
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     governance = hr.get(URL).json()["governance"]
     (provenance,) = governance["version_provenance"]
     assert provenance["origin"] == "PRE_GOVERNANCE_DIRECTOR_ACTIVATION"
@@ -261,7 +261,7 @@ def test_an_unmigrated_store_answers_503_for_mutations_and_null_governance_for_r
         capturing_workflow_store(_legacy_store()),
     ):
         app = create_app(ordinary_test_settings(workflow_manager_enabled=True))
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     read = hr.get(URL)
     assert read.status_code == 200 and read.json()["governance"] is None
     refused = hr.post(f"{URL}/proposals", json={"expected_workflow_revision": 1})
@@ -279,7 +279,7 @@ def test_a_failed_startup_verification_blocks_mutations_but_not_reads():
         side_effect=RuntimeError("verification failed"),
     ):
         app = enabled_app()
-    hr = login(app, "hr-admin")
+    hr = login(app, "biz-ops")
     read = hr.get(URL)
     assert read.status_code == 200
     assert read.json()["governance"]["can_create_proposal"] is False

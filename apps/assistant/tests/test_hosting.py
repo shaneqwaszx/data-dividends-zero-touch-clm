@@ -66,7 +66,7 @@ def actor(user: str, role: str, team: str, *capabilities: str) -> dict[str, Any]
 SESSIONS = {
     "rm-a": actor("maya-lim", "RM", "team-a", "CASE_ACCESS"),
     "rm-b": actor("ryan-lee", "RM", "team-b", "CASE_ACCESS"),
-    "hr": actor("hr-admin", "HR", "team-hr", "MODEL_CONFIG_MANAGE"),
+    "hr": actor("biz-ops", "HR", "team-hr", "MODEL_CONFIG_MANAGE"),
 }
 
 

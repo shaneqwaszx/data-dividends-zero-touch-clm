@@ -351,9 +351,9 @@ def test_hr_restricts_and_broadening_needs_confirmation_all_audited(
     assert applied.status_code == 200 and not applied.json()["active_restricted"]
     events = _events(journey)
     assert [(e["outcome"], e["code"], e["actor"], e["revision"]) for e in reversed(events)] == [
-        ("applied", "LOCAL_DEFAULT_ALL_CASES_TO_LOCAL_SYNTHETIC_ONLY", "hr-admin", 1),
-        ("refused", "WIDEN_CONFIRMATION_REQUIRED", "hr-admin", None),
-        ("applied", "LOCAL_SYNTHETIC_ONLY_TO_LOCAL_ALL_CASES", "hr-admin", 2),
+        ("applied", "LOCAL_DEFAULT_ALL_CASES_TO_LOCAL_SYNTHETIC_ONLY", "biz-ops", 1),
+        ("refused", "WIDEN_CONFIRMATION_REQUIRED", "biz-ops", None),
+        ("applied", "LOCAL_SYNTHETIC_ONLY_TO_LOCAL_ALL_CASES", "biz-ops", 2),
     ]
     assert all(e["at"] for e in events)
 
@@ -630,11 +630,11 @@ def test_a_policy_change_is_never_stored_without_its_audit_row(
 
     monkeypatch.setattr(ModelAdminStore, "_insert_event", staticmethod(broken))
     with pytest.raises(sqlite3.OperationalError):
-        store.set_data_access_policy(0, True, "hr-admin")
+        store.set_data_access_policy(0, True, "biz-ops")
     monkeypatch.undo()
     assert store.data_access_policy().revision == 0
-    assert store.set_data_access_policy(0, True, "hr-admin", role="HR") == 1
-    store.set_data_access_policy(1, False, "hr-admin", role="HR")
+    assert store.set_data_access_policy(0, True, "biz-ops", role="HR") == 1
+    store.set_data_access_policy(1, False, "biz-ops", role="HR")
     events = [e for e in store.events(10) if e["action"] == ACTION]
     assert [(e["code"], e["revision"], e["outcome"]) for e in reversed(events)] == [
         ("LOCAL_DEFAULT_ALL_CASES_TO_LOCAL_SYNTHETIC_ONLY", 1, "applied"),
@@ -650,7 +650,7 @@ def test_concurrent_changes_from_one_view_apply_only_once(tmp_path: Path) -> Non
     def change(flag: bool) -> None:
         barrier.wait()
         try:
-            store.set_data_access_policy(0, flag, "hr-admin")
+            store.set_data_access_policy(0, flag, "biz-ops")
             outcomes.append("applied")
         except RevisionConflict:
             outcomes.append("conflict")

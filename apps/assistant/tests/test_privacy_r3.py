@@ -323,7 +323,7 @@ def test_f3_an_uncleared_claude_call_reserves_and_sends_nothing(
 def test_f4_an_it_qualification_and_runtime_send_the_minimised_facts(tmp_path: Path) -> None:
     server = ModelServer()
     store = ModelAdminStore(tmp_path / "jobs.sqlite3")
-    qualification_id = store.begin_qualification("p", "f", "b", "hr-admin", 84)
+    qualification_id = store.begin_qualification("p", "f", "b", "biz-ops", 84)
     QualificationJob(
         store=store,
         qualification_id=qualification_id,
@@ -333,7 +333,7 @@ def test_f4_an_it_qualification_and_runtime_send_the_minimised_facts(tmp_path: P
         declared_tokens=8192,
         max_answer_tokens=600,
         basis="b",
-        started_by="hr-admin",
+        started_by="biz-ops",
         deadline=time.monotonic() + 600,
     ).run()
     sent = bodies(server)

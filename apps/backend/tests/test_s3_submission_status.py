@@ -241,7 +241,7 @@ def test_completed_verification_rejects_invalid_input_without_echo(sandbox_runti
     assert retained["target_submission"]["state"] == "SUBMISSION_CONFIRMED"
 
 
-@pytest.mark.parametrize("user,status", [("sophia-ng", 404), ("hr-admin", 404)])
+@pytest.mark.parametrize("user,status", [("sophia-ng", 404), ("biz-ops", 404)])
 def test_completed_verification_requires_current_case_access(sandbox_runtime, user, status):
     client, guard = sandbox_runtime
     summary, _ = prepare_case(client, guard, TEST_PASSWORD)

@@ -102,7 +102,7 @@ const catalogue = (extra: PolicyRule[] = []): PolicyCatalogue => ({
   ],
 });
 
-function actor(capabilities: Capability[], user_id = "hr-admin"): AuthenticatedProfile {
+function actor(capabilities: Capability[], user_id = "biz-ops"): AuthenticatedProfile {
   return {
     user_id, display_name: user_id, role: "HR", team_id: null, team_display_name: null, team_type: null,
     team_description: "", client_scope_label: "", capabilities,
@@ -305,10 +305,10 @@ describe("WorkflowDesigner", () => {
     respond(plan());
     const client = new QueryClient();
     await render(HR, client);
-    expect(executionPlanQueryKeys.plan("hr-admin")).toEqual(["auth", "hr-admin", "workflows", "execution-plan"]);
-    expect(client.getQueryData(executionPlanQueryKeys.plan("hr-admin"))).toBeTruthy();
+    expect(executionPlanQueryKeys.plan("biz-ops")).toEqual(["auth", "biz-ops", "workflows", "execution-plan"]);
+    expect(client.getQueryData(executionPlanQueryKeys.plan("biz-ops"))).toBeTruthy();
     clearSessionQueries(client);
-    expect(client.getQueryData(executionPlanQueryKeys.plan("hr-admin"))).toBeUndefined();
+    expect(client.getQueryData(executionPlanQueryKeys.plan("biz-ops"))).toBeUndefined();
   });
 
   it("F7 a refused or failed load shows a safe message, never a blank canvas", async () => {

@@ -176,7 +176,7 @@ def _audit(settings_path: Path, profile_id: str, outcome: str = "passed") -> Non
         )
         db.execute(
             "INSERT INTO events (at, actor, action, profile_id, outcome) VALUES"
-            " ('2026-11-15T00:00:00+00:00', 'hr-admin', 'CONNECTION_TEST', ?, ?)",
+            " ('2026-11-15T00:00:00+00:00', 'biz-ops', 'CONNECTION_TEST', ?, ?)",
             (profile_id, outcome),
         )
 

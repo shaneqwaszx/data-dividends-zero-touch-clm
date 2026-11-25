@@ -281,7 +281,7 @@ def test_http_same_evidence_roles_typed_schema_and_no_raw_fixtures():
         c.headers["X-CSRF-Token"] = login.json()["csrf_token"]
         return c
 
-    hr, director = client("hr-admin"), client("olivia-koh")
+    hr, director = client("biz-ops"), client("olivia-koh")
     base = hr.get("/api/policies").json()
     draft = hr.post(
         "/api/policies/proposals",

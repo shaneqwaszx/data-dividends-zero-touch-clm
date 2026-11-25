@@ -43,7 +43,7 @@ _LIFECYCLE_AUTH_ENV = {
     credential_setting_key(profile.user_id): _LIFECYCLE_HASH
     for profile in SYNTHETIC_USER_PROFILES
 }
-_LIFECYCLE_AUTH_ENV[credential_setting_key("hr-admin")] = _LIFECYCLE_HASH
+_LIFECYCLE_AUTH_ENV[credential_setting_key("biz-ops")] = _LIFECYCLE_HASH
 _LIFECYCLE_AUTH_ENV[credential_setting_key("support-user")] = _LIFECYCLE_HASH
 
 _CREATION_TIME_PATTERN = re.compile(

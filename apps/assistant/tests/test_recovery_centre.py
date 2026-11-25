@@ -269,19 +269,19 @@ def test_the_diagnosis_does_not_mutate_its_input() -> None:
 def test_requests_are_one_per_problem_audited_and_closed_once(tmp_path: Path) -> None:
     store = ModelAdminStore(tmp_path / "state.sqlite3")
     evidence = [{"label": "Breaker code", "value": "reconcile_drift"}]
-    request_id = store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "hr-admin")
+    request_id = store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "biz-ops")
     with pytest.raises(RecoveryRequestRefused) as refused:
-        store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "hr-admin")
+        store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "biz-ops")
     assert refused.value.code == "RECOVERY_REQUEST_EXISTS"
     assert store.recovery_request(request_id)["evidence"] == evidence
-    store.close_recovery_request(request_id, "withdrawn", "hr-admin")
+    store.close_recovery_request(request_id, "withdrawn", "biz-ops")
     with pytest.raises(RecoveryRequestRefused) as refused:
-        store.close_recovery_request(request_id, "resolved", "hr-admin")
+        store.close_recovery_request(request_id, "resolved", "biz-ops")
     assert refused.value.code == "RECOVERY_REQUEST_CLOSED"
     actions = [event["action"] for event in store.events(10)]
     assert actions[:2] == ["RECOVERY_WITHDRAWN", "RECOVERY_REQUESTED"]
     # Withdrawn requests free the problem for a new one.
-    store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "hr-admin")
+    store.open_recovery_request("CLAUDE_BREAKER_OPEN", evidence, None, "biz-ops")
 
 
 # --- the routes ----------------------------------------------------------------------------

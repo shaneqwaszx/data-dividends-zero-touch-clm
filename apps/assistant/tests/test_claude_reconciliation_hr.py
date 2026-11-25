@@ -112,7 +112,7 @@ class World:
         as_of = viewed if kind == rc.KIND_VIEWED else int((self.clock.now - as_of_ago) * 1000)
         return rc.Reading(usage, as_of, kind, viewed, *scopes)
 
-    def preview(self, usage: int, actor: str = "hr-admin", **kwargs: Any) -> dict[str, Any]:
+    def preview(self, usage: int, actor: str = "biz-ops", **kwargs: Any) -> dict[str, Any]:
         return self.recon.preview(self.reading(usage, **kwargs), actor=actor, session="s1")
 
     def apply(self, preview: dict[str, Any], *, confirm: int | None = None) -> dict[str, Any]:
@@ -121,13 +121,13 @@ class World:
             preview["preview_id"],
             confirm_usage_micro_usd=usage if confirm is None else confirm,
             scopes=(True, True, True),
-            actor="hr-admin",
+            actor="biz-ops",
             role="HR",
             session="s1",
         )
 
     def resolve(self, run_id: str) -> dict[str, Any]:
-        return self.recon.resolve(run_id, actor="hr-admin", role="HR")
+        return self.recon.resolve(run_id, actor="biz-ops", role="HR")
 
     def past_bound(self) -> None:
         self.clock.advance(rc.APPLY_SECONDS + rc.BUSY_SECONDS + rc.RESOLVE_GRACE_SECONDS + 1)
@@ -423,7 +423,7 @@ def test_any_ledger_write_between_preview_and_apply_refuses_without_writing(
 
 def test_a_second_tab_cannot_reuse_the_state(tmp_path: Path) -> None:
     world = World(tmp_path)
-    first = world.preview(20_000, actor="hr-admin")
+    first = world.preview(20_000, actor="biz-ops")
     second = world.preview(20_000, actor="hr-two")
     world.apply(first)
     with _refused("PREVIEW_UNKNOWN"):  # invalidated when the first intent was written

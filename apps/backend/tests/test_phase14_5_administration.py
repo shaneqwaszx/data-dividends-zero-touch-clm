@@ -41,7 +41,7 @@ def _repositories():
             "sophia-ng",
             "ryan-lee",
             "olivia-koh",
-            "hr-admin",
+            "biz-ops",
             "support-user",
         )
     }
@@ -53,7 +53,7 @@ def _repositories():
 def _hr() -> AuthenticatedActor:
     return AuthenticatedActor(
         profile=UserProfile(
-            user_id="hr-admin",
+            user_id="biz-ops",
             display_name="POC HR Administrator",
             role=Role.HR,
             team_id=None,
@@ -70,8 +70,8 @@ def test_seed_teams_and_profiles_preserve_ids_with_alpha_beta() -> None:
     ]
     assert [item.normalized_client_scope_label for item in teams.list()] == ["alpha", "beta"]
     assert [item.user_id for item in profiles.list()] == [
+        "biz-ops",
         "ethan-tan",
-        "hr-admin",
         "maya-lim",
         "olivia-koh",
         "ryan-lee",
@@ -170,8 +170,8 @@ def test_team_id_validation_rejects_noncanonical_values() -> None:
                 version=1,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
-                created_by="hr-admin",
-                updated_by="hr-admin",
+                created_by="biz-ops",
+                updated_by="biz-ops",
                 audit_events=(),
             )
 
@@ -202,7 +202,7 @@ def test_profile_mongo_codec_round_trips_seeded_roles_and_new_profile() -> None:
         team_id=TeamId.TEAM_B,
         password=TEST_PASSWORD,
     )
-    selected_ids = ("maya-lim", "ethan-tan", "olivia-koh", "hr-admin")
+    selected_ids = ("maya-lim", "ethan-tan", "olivia-koh", "biz-ops")
     selected = [profiles.get(user_id) for user_id in selected_ids]
     assert all(record is not None for record in selected)
 
@@ -256,7 +256,7 @@ def _login(client: RawTestClient, user_id: str) -> str:
 
 def test_hr_admin_api_creates_dynamic_team_and_safe_profile() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     teams = client.get("/api/admin/teams")
     profiles = client.get("/api/admin/profiles")
 
@@ -317,7 +317,7 @@ def test_hr_admin_api_creates_dynamic_team_and_safe_profile() -> None:
 
 def test_team_api_rejects_browser_authored_normalized_coverage() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
 
     response = client.post(
         "/api/admin/teams",
@@ -345,7 +345,7 @@ def test_non_hr_is_denied_admin_and_hr_is_denied_cases() -> None:
     assert client.get("/api/clm/zero-touch/cases?team_filter=TEAM_A").status_code == 403
 
     hr_client = RawTestClient(client.app)
-    _login(hr_client, "hr-admin")
+    _login(hr_client, "biz-ops")
     assert hr_client.get("/api/clm/zero-touch/cases").status_code == 403
     assert hr_client.get("/api/clm/zero-touch/dashboard").status_code == 403
 
@@ -356,7 +356,7 @@ def test_hr_authority_change_revokes_existing_session() -> None:
     assert client.get("/api/auth/me").status_code == 200
 
     hr_client = RawTestClient(client.app)
-    hr_csrf = _login(hr_client, "hr-admin")
+    hr_csrf = _login(hr_client, "biz-ops")
     profiles = hr_client.get("/api/admin/profiles").json()
     ethan = next(item for item in profiles if item["user_id"] == "ethan-tan")
     changed = hr_client.patch(
@@ -378,12 +378,12 @@ def test_hr_authority_change_revokes_existing_session() -> None:
 
 def test_hr_cannot_self_demote() -> None:
     client = RawTestClient(create_app(ordinary_test_settings()))
-    csrf = _login(client, "hr-admin")
+    csrf = _login(client, "biz-ops")
     profile = next(
-        item for item in client.get("/api/admin/profiles").json() if item["user_id"] == "hr-admin"
+        item for item in client.get("/api/admin/profiles").json() if item["user_id"] == "biz-ops"
     )
     response = client.patch(
-        "/api/admin/profiles/hr-admin",
+        "/api/admin/profiles/biz-ops",
         headers={"X-CSRF-Token": csrf},
         json={"expected_version": profile["version"], "role": "DIRECTOR"},
     )
@@ -401,13 +401,13 @@ def test_hr_cannot_self_demote_when_another_hr_exists() -> None:
         team_id=None,
         password=TEST_PASSWORD,
     )
-    current = profiles.get("hr-admin")
+    current = profiles.get("biz-ops")
     assert current is not None
 
     with pytest.raises(AdministrationValidationError):
         service.update_profile(
             _hr(),
-            "hr-admin",
+            "biz-ops",
             expected_version=current.version,
             display_name=None,
             role=Role.DIRECTOR,
@@ -432,7 +432,7 @@ def test_concurrent_cross_demotion_atomically_preserves_exactly_one_hr() -> None
     )
     start = Barrier(3)
     actors = {
-        "hr-admin": _hr(),
+        "biz-ops": _hr(),
         "hr-second": AuthenticatedActor(
             profile=UserProfile(
                 user_id="hr-second", display_name="Second HR", role=Role.HR, team_id=None
@@ -460,13 +460,13 @@ def test_concurrent_cross_demotion_atomically_preserves_exactly_one_hr() -> None
         return "succeeded"
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(demote, "hr-admin", "hr-second")
-        second = pool.submit(demote, "hr-second", "hr-admin")
+        first = pool.submit(demote, "biz-ops", "hr-second")
+        second = pool.submit(demote, "hr-second", "biz-ops")
         start.wait()
         outcomes = [first.result(), second.result()]
 
     assert sorted(outcomes) == ["rejected", "succeeded"]
-    final = [profiles.get("hr-admin"), profiles.get("hr-second")]
+    final = [profiles.get("biz-ops"), profiles.get("hr-second")]
     assert all(item is not None for item in final)
     records = [item for item in final if item is not None]
     assert sum(item.role == Role.HR for item in records) == 1
