@@ -73,6 +73,7 @@ import WorkflowDesigner from "./pages/WorkflowDesigner";
 import WorkflowTab, { WorkflowCasesPage, WorkflowRunPage } from "./pages/WorkflowTab";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { hasCapability, paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
+import { roleLabel } from "./roleLabels";
 import {
   formatTimestamp,
   goldTierJourneyLabel,
@@ -1384,14 +1385,14 @@ export function OperatorAccount({
         <span className="operator-account__identity">
           <span>{profile.display_name}</span>
           <span className="operator-account__metadata">
-            {profile.role.replaceAll("_", " ")} · {profile.team_display_name ?? "Global scope"} · {profile.team_id ? `Coverage: ${profile.client_scope_label}` : profile.team_description}
+            {roleLabel(profile.role)} · {profile.team_display_name ?? "Global scope"} · {profile.team_id ? `Coverage: ${profile.client_scope_label}` : profile.team_description}
           </span>
         </span>
         <span aria-hidden="true" className="operator-account__chevron">⌄</span>
       </button>
       {open && (
         <div id="operator-account-disclosure" className="operator-account__disclosure">
-          <strong>{profile.role.replaceAll("_", " ")}</strong>
+          <strong>{roleLabel(profile.role)}</strong>
           <span>{profile.team_display_name ?? "Global scope"}</span>
           <span>{profile.team_description}</span>
           <button type="button" className="btn btn-ghost" onClick={onLogout}>Sign out</button>

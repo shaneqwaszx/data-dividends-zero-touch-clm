@@ -9,6 +9,7 @@ import {
   resetAdminProfilePassword,
   updateAdminProfile,
 } from "../api";
+import { roleLabel } from "../roleLabels";
 import type { AdminProfile, AuthenticatedTeam, Role, TeamId } from "../types";
 
 type ChangeOwnPassword = (currentPassword: string, newPassword: string) => Promise<void>;
@@ -185,7 +186,7 @@ export default function AdminUsers({
       <h3>Create user</h3>
       <label>User ID<input value={userId} pattern="[a-z][a-z0-9-]{2,31}" required onChange={(event) => setUserId(event.target.value)} /></label>
       <label>Display name<input value={displayName} minLength={2} maxLength={80} required onChange={(event) => setDisplayName(event.target.value)} /></label>
-      <label>Role<select value={role} onChange={(event) => { const next = event.target.value as Role; setRole(next); if (next === "DIRECTOR" || next === "HR" || next === "SUPPORT") setTeamId(""); }}><option value="CLIENT_ONBOARDER">Client onboarder</option><option value="RELATIONSHIP_MANAGER">Relationship manager</option><option value="DIRECTOR">Director</option><option value="HR">HR</option><option value="SUPPORT">Support</option></select></label>
+      <label>Role<select value={role} onChange={(event) => { const next = event.target.value as Role; setRole(next); if (next === "DIRECTOR" || next === "HR" || next === "SUPPORT") setTeamId(""); }}><option value="CLIENT_ONBOARDER">Client onboarder</option><option value="RELATIONSHIP_MANAGER">Relationship manager</option><option value="DIRECTOR">Director</option><option value="HR">Biz Ops</option><option value="SUPPORT">Support</option></select></label>
       {needsTeam && <label>Team<select value={teamId} required onChange={(event) => setTeamId(event.target.value)}><option value="">Select a team</option>{teams.map((team) => <option key={team.team_id} value={team.team_id}>{team.display_name}</option>)}</select></label>}
       <label>Temporary password<input type="password" value={password} minLength={12} maxLength={128} required autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} /></label>
       <label>Confirm password<input type="password" value={passwordConfirmation} minLength={12} maxLength={128} required autoComplete="new-password" onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
@@ -194,7 +195,7 @@ export default function AdminUsers({
     <div className="table-card table-scroll" tabIndex={0}><table className="table"><thead><tr><th>User</th><th>Role</th><th>Team</th><th>Version</th><th>Action</th></tr></thead><tbody>
       {profiles.map((profile) => <tr key={profile.user_id}>
         <td><strong>{profile.display_name}</strong><div className="text-muted">{profile.user_id}</div></td>
-        <td>{profile.role.replaceAll("_", " ")}</td>
+        <td>{roleLabel(profile.role)}</td>
         <td>{profile.team_display_name ?? "Global"}</td>
         <td>{profile.version}</td>
         <td>

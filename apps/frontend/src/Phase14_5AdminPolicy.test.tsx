@@ -27,7 +27,7 @@ import type { AuthenticatedProfile, PolicyCatalogue, PolicyRule } from "./types"
 
 const hr: AuthenticatedProfile = {
   user_id: "biz-ops",
-  display_name: "POC HR Administrator",
+  display_name: "POC Biz Ops Administrator",
   role: "HR",
   team_id: null,
   team_display_name: null,
