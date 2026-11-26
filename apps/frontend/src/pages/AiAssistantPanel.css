@@ -260,6 +260,36 @@
   line-height: 1.4;
 }
 
+.ai-external-notice__summary,
+.ai-external-notice__details {
+  margin: 0;
+}
+
+.ai-external-notice__details {
+  margin-top: 4px;
+}
+
+/* The compact notice's "Show full notice" control: a native button styled as a text link. */
+.ai-external-notice__toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent-700, #7d5411);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ai-external-notice__toggle:hover:not(:disabled) {
+  background: none;
+  color: var(--color-accent-700, #7d5411);
+}
+
+.ai-external-notice__toggle:focus-visible {
+  outline: 2px solid var(--color-accent-700, #7d5411);
+  outline-offset: 2px;
+}
+
 .ai-assistant-thread > .ai-external-notice {
   margin: 0 14px 6px;
 }

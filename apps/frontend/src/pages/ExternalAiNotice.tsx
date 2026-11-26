@@ -27,6 +27,8 @@
  * always shown, and the service alone decides what is sent.
  */
 
+import { useId, useState } from "react";
+
 import type { ExternalAiStatus } from "../aiAssistant";
 
 export type ExternalAiSurface = "case" | "general" | "support" | "try" | "insights";
@@ -105,6 +107,32 @@ export function externalAiNoticeText(surface: ExternalAiSurface, named: External
   );
 }
 
+// Compact notice (FYP demonstration, owner-approved): the summary is always visible, collapsed or
+// not, and on its own still says what is sent, to which provider, that it is sent even if no
+// answer is shown, and that the placeholder replacement is not complete. Expanding adds the full
+// text below it, unchanged. The control is a native button with aria-expanded (keyboard operable).
+const SUMMARY_TAIL = "Names and identifiers are replaced with placeholders first, but this is not complete.";
+
+/** The always-visible summary line for a surface (also used by the tests). */
+export function externalAiNoticeSummary(surface: ExternalAiSurface, named: ExternalAiNamed = "anthropic"): string {
+  if (named === "openrouter") {
+    return (
+      `When GPT-OSS-120B (OpenRouter) is asked ${WHEN[surface]}, ${SENT[surface]} are sent to OpenRouter, ` +
+      `even if no GPT-OSS-120B answer is shown. ${SUMMARY_TAIL}`
+    );
+  }
+  if (named === "either") {
+    return (
+      `When an external AI model is asked ${WHEN[surface]}, ${SENT[surface]} are sent to Anthropic (Claude) ` +
+      `or OpenRouter (GPT-OSS-120B), even if no AI answer is shown. ${SUMMARY_TAIL}`
+    );
+  }
+  return (
+    `When Claude (Anthropic) is asked ${WHEN[surface]}, ${SENT[surface]} are sent to Anthropic, ` +
+    `even if no Claude answer is shown. ${SUMMARY_TAIL}`
+  );
+}
+
 export default function ExternalAiNotice({
   surface,
   id,
@@ -116,9 +144,25 @@ export default function ExternalAiNotice({
   status?: ExternalAiStatus | null;
 }) {
   const named = noticeProvider(surface, status);
+  const [open, setOpen] = useState(false);
+  const detailsId = `${useId()}-details`;
   return (
-    <p className="ai-external-notice" id={id} data-testid="external-ai-notice" data-surface={surface} data-provider={named}>
-      <strong>External AI · synthetic data only.</strong> {externalAiNoticeText(surface, named)}
-    </p>
+    <div className="ai-external-notice" id={id} data-testid="external-ai-notice" data-surface={surface} data-provider={named}>
+      <p className="ai-external-notice__summary" data-testid="external-ai-notice-summary">
+        <strong>External AI · synthetic data only.</strong> {externalAiNoticeSummary(surface, named)}{" "}
+        <button
+          type="button"
+          className="ai-external-notice__toggle"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "Hide full notice" : "Show full notice"}
+        </button>
+      </p>
+      <p className="ai-external-notice__details" id={detailsId} data-testid="external-ai-notice-details" hidden={!open}>
+        {externalAiNoticeText(surface, named)}
+      </p>
+    </div>
   );
 }
