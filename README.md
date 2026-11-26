@@ -209,8 +209,17 @@ Prerequisites beyond the quick start:
 
 - Your **own** ACRA API Marketplace Mock credentials in the root `.env`
   (`ACRA_API_MARKETPLACE_MOCK_CLIENT_ID`, `ACRA_API_MARKETPLACE_MOCK_SECRET_KEY`). Without
-  them, use `ACRA_CONNECTOR_MODE = "mock"` instead (the synthetic local registry); there
-  is no automatic fallback.
+  them, in Terminal 1 set `$env:ACRA_CONNECTOR_MODE = "mock"` (the synthetic local
+  registry) **and** remove the `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY` line: the hybrid
+  overlay is accepted only on the Marketplace Mock lane, so startup stops if both are set.
+  There is no automatic fallback.
+- The AI Assistant's own dependencies (one time, from the repository root; the quick
+  start installs only the backend):
+
+  ```powershell
+  .\.venv\Scripts\python.exe -m pip install -e .\apps\assistant
+  ```
+
 - Login hashes in `.env` (see [Signing in](#signing-in)).
 - For AI answers: [Ollama](https://ollama.com) running with `ollama pull ministral-3:8b`.
   Without a model, the assistant still opens and answers from case data only.
@@ -231,8 +240,9 @@ Set-Location -LiteralPath '.\apps\backend'
 ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-`dev_preflight.py` prints the composed connectors and whether credentials are present,
-without printing any secret. Fix anything it reports before relying on the backend.
+`dev_preflight.py` reports the persistence mode, the configured ACRA and GoldTier modes,
+the composed ACRA connector, and whether ACRA credentials are present, without printing
+any secret. Fix anything it reports before relying on the backend.
 
 Terminal 2 — frontend (port 5173):
 
@@ -255,7 +265,7 @@ $env:AI_ASSISTANT_LLM_MODEL = "ministral-3:8b"
 ```
 
 Check it with `http://127.0.0.1:8100/assistant/health`, then use **Ask AI Assistant**
-(bottom right) on a case page. Its dependencies are already in the backend `.venv`.
+(bottom right) on a case page.
 Model profiles, model administration, and paid/remote providers (OpenRouter, Claude)
 are optional, owner-gated settings described in `apps/assistant/.env.example` and
 [AI model configuration](docs/integration/AI_MODEL_CONFIGURATION.md); none is needed
@@ -513,7 +523,7 @@ Instead give the recipient:
    to copy to `.env` / `apps/assistant/.env`. They contain no secrets.
 3. Instructions to generate **their own** login hashes (see [Signing in](#signing-in))
    and to obtain **their own** ACRA API Marketplace Mock credentials, or to run with
-   `ACRA_CONNECTOR_MODE=mock`, which needs none.
+   `ACRA_CONNECTOR_MODE=mock` without the hybrid overlay, which needs none.
 
 If a shared credential is truly unavoidable, send that single value through a password
 manager or another encrypted channel (never email, chat, or a commit), and rotate it once
