@@ -107,7 +107,7 @@ def test_the_vocabulary_holds_no_known_person_name() -> None:
     vocab = pb.vocabulary()
     boundary = json.loads((HERE / "ai_assistant" / "synthetic_boundary.json").read_text("utf-8"))
     for viewer in boundary["viewers"]:
-        if viewer in ("POC HR Administrator", "Support User"):
+        if viewer in ("POC Biz Ops Administrator", "Support User"):
             continue
         for word in re.findall(r"[^\W\d_]+", viewer):
             assert word.casefold() not in vocab.words, word

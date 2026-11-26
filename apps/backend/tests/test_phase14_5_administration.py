@@ -54,7 +54,7 @@ def _hr() -> AuthenticatedActor:
     return AuthenticatedActor(
         profile=UserProfile(
             user_id="biz-ops",
-            display_name="POC HR Administrator",
+            display_name="POC Biz Ops Administrator",
             role=Role.HR,
             team_id=None,
         )

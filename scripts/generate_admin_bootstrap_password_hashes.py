@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
             (profile.user_id, profile.display_name)
             for profile in SYNTHETIC_USER_PROFILES
         ),
-        ("biz-ops", "POC HR Administrator"),
+        ("biz-ops", "POC Biz Ops Administrator"),
         ("support-user", "Support User"),
     ]
     parser = argparse.ArgumentParser(description=__doc__)
