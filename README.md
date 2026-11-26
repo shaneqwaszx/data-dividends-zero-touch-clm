@@ -58,6 +58,10 @@ determination, or live ACRA/GoldTier interoperability.
   media routing, and aggregation across every current document before Ownership or
   Mock GoldTier may proceed. The Start workspace shows the accepted document count and
   selected byte total against the 25 MiB technical limit.
+- A separate, read-only AI Assistant service (`apps/assistant`, port 8100) that explains
+  one case to the signed-in user from the backend's own case data. It cannot change a
+  case and falls back to a case-data answer when no model is available. See
+  [apps/assistant/README.md](apps/assistant/README.md).
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, production reviewer policy, and Ready-for-Approval remain blocked or
@@ -78,8 +82,9 @@ take precedence over `.env`.
 - Backend health: `http://127.0.0.1:8000/health`
 - API docs: `http://127.0.0.1:8000/docs`
 
-After pulling a new `main`, rerun the dependency install steps (`pip install -e` and
-`npm ci`); new backend or frontend packages are not installed automatically.
+After pulling a new `main`, rerun the dependency install steps (`pip install -e` for
+the backend, and for `apps/assistant` if you run the AI Assistant, plus `npm ci`); new
+packages are not installed automatically.
 
 ### Windows
 
@@ -164,6 +169,126 @@ If your `.env` selects `CLM_PERSISTENCE_MODE=mongo` and Mongo is not reachable, 
 fails closed; add `CLM_PERSISTENCE_MODE=memory` to the backend command to run without
 it. `.env` values that are invalid in combination with the Mock ACRA lane (for example
 `GARDEN_SUPPLEMENT_ENABLED=true`) also stop startup; these apply on both platforms.
+
+## Signing in
+
+Every page needs a signed-in POC account. The accounts are fixed synthetic profiles:
+
+| User ID | Display name | Role |
+|---|---|---|
+| `maya-lim` | Maya Lim | Client onboarder |
+| `sophia-ng` | Sophia Ng | Client onboarder |
+| `ethan-tan` | Ethan Tan | Relationship manager |
+| `ryan-lee` | Ryan Lee | Relationship manager |
+| `olivia-koh` | Olivia Koh | Director |
+| `biz-ops` | POC HR Administrator | HR |
+| `support-user` | Support User | Support |
+
+Passwords are never stored in the repository. Each account's scrypt hash is read from
+`.env` (`PHASE13_<USER_ID>_PASSWORD_HASH`, for example `PHASE13_MAYA_LIM_PASSWORD_HASH`;
+`biz-ops` uses `PHASE14_5_HR_ADMIN_PASSWORD_HASH`). When the backend first creates the
+accounts, a missing or malformed hash is a configuration error that names the setting to
+fix, and the backend does not start. A new setup therefore needs **all seven** hashes; in
+memory mode the accounts are created again on every start, so all seven are always
+required. Choose your own passwords and generate the lines to paste into your `.env`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py
+```
+
+In memory mode, to change only some passwords later, regenerate just those lines (keep
+the others in `.env`). In Mongo mode, accounts that already exist keep their stored hash,
+so editing `.env` does not change their passwords.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py --user maya-lim --user biz-ops
+```
+
+The script prompts for each password (input is hidden) and prints only the hash lines.
+
+## Full local stack — Marketplace Mock + AI Assistant (Windows, three terminals)
+
+This is the composition used for the fuller demo: the official ACRA API Marketplace
+Mock with the whitelisted direct-holder ownership overlay, local PDF text extraction,
+Mock GoldTier, memory persistence, and the AI Assistant. Run each block in its own
+PowerShell window from your clone (replace `<repo>` with its path). Process variables
+take precedence over `.env`.
+
+Prerequisites beyond the quick start:
+
+- Your **own** ACRA API Marketplace Mock credentials in the root `.env`
+  (`ACRA_API_MARKETPLACE_MOCK_CLIENT_ID`, `ACRA_API_MARKETPLACE_MOCK_SECRET_KEY`). Without
+  them, in Terminal 1 set `$env:ACRA_CONNECTOR_MODE = "mock"` (the synthetic local
+  registry) **and** remove the `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY` line: the hybrid
+  overlay is accepted only on the Marketplace Mock lane, so startup stops if both are set.
+  Also make sure your `.env` does not set `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY` to
+  `hybrid_direct_overlay` or `ACRA_MARKETPLACE_OPQ_SCENARIO` to anything other than
+  `five_layer_simulation` (the `.env.example` values are safe). There is no automatic
+  fallback.
+- The AI Assistant's own dependencies (one time, from the repository root; the quick
+  start's `pip install` covers only the backend):
+
+  ```powershell
+  .\.venv\Scripts\python.exe -m pip install -e .\apps\assistant
+  ```
+
+- Login hashes in `.env` (see [Signing in](#signing-in)).
+- For AI answers: [Ollama](https://ollama.com) running with `ollama pull ministral-3:8b`.
+  Without a model, the assistant still opens and answers from case data only.
+
+Terminal 1 — backend (port 8000):
+
+```powershell
+Set-Location -LiteralPath '<repo>'
+$env:APP_ENV = "development"
+$env:CLM_PERSISTENCE_MODE = "memory"
+$env:ACRA_CONNECTOR_MODE = "api_marketplace_mock"
+$env:ACRA_MARKETPLACE_OWNERSHIP_OVERLAY = "hybrid_direct_overlay"
+$env:REGISTRY_CACHE_MODE = "auto"
+$env:IDP_CONNECTOR_MODE = "local_pdf_text"
+$env:GOLDTIER_CONNECTOR_MODE = "mock"
+$env:PHASE13_BROWSER_ORIGIN = "http://127.0.0.1:5173"
+.\.venv\Scripts\python.exe scripts\dev_preflight.py
+if ($LASTEXITCODE -eq 0) {
+  Set-Location -LiteralPath '.\apps\backend'
+  ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+} else {
+  Write-Error "Preflight failed; fix the reported configuration first."
+}
+```
+
+`dev_preflight.py` reports the persistence mode, the configured ACRA and GoldTier modes,
+the composed ACRA connector, and whether ACRA credentials are present, without printing
+any secret. It exits nonzero when it finds a settings, ACRA credential/connector, or
+Mongo problem, and the backend is then not started. It does not check login hashes; a
+missing hash is reported when the backend itself starts.
+
+Terminal 2 — frontend (port 5173):
+
+```powershell
+Set-Location -LiteralPath '<repo>\apps\frontend'
+$env:VITE_BACKEND_PROXY_TARGET = "http://127.0.0.1:8000"
+$env:VITE_AI_ASSISTANT_PROXY_TARGET = "http://127.0.0.1:8100"
+npm.cmd run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Terminal 3 — AI Assistant (port 8100), using a local Ollama model:
+
+```powershell
+Set-Location -LiteralPath '<repo>\apps\assistant'
+$env:AI_ASSISTANT_CLM_BACKEND_URL = "http://127.0.0.1:8000"
+$env:AI_ASSISTANT_LLM_ENABLED = "true"
+$env:AI_ASSISTANT_LLM_BASE_URL = "http://127.0.0.1:11434/v1"
+$env:AI_ASSISTANT_LLM_MODEL = "ministral-3:8b"
+..\..\.venv\Scripts\python.exe -m uvicorn ai_assistant.main:app --host 127.0.0.1 --port 8100
+```
+
+Check it with `http://127.0.0.1:8100/assistant/health`, then use **Ask AI Assistant**
+(bottom right) on a case page.
+Model profiles, model administration, and paid/remote providers (OpenRouter, Claude)
+are optional, owner-gated settings described in `apps/assistant/.env.example` and
+[AI model configuration](docs/integration/AI_MODEL_CONFIGURATION.md); none is needed
+for the local demo, and remote providers spend money on whoever's key is configured.
 
 ## Zero-touch demo
 
@@ -405,6 +530,25 @@ not validated. Contradictory examples must not become canonical fixtures.
 
 See [POC security boundaries](docs/security/POC_SECURITY_BOUNDARIES.md).
 
+## Handing the project over
+
+Do not copy your `.env` (or `apps/assistant/.env`) to someone else. It holds account-
+specific secrets: ACRA Marketplace credentials, any AI provider keys (which spend money),
+GoldTier sandbox settings, Mongo connection details, and your login password hashes.
+Instead give the recipient:
+
+1. The repository (clone from GitHub) and this README.
+2. [.env.example](.env.example) and [apps/assistant/.env.example](apps/assistant/.env.example)
+   to copy to `.env` / `apps/assistant/.env`. They contain no secrets.
+3. Instructions to generate **their own** login hashes (see [Signing in](#signing-in))
+   and to obtain **their own** ACRA API Marketplace Mock credentials, or to run with
+   `ACRA_CONNECTOR_MODE=mock` without the hybrid overlay, which needs none.
+
+If a shared credential is truly unavoidable, send that single value through a password
+manager or another encrypted channel (never email, chat, or a commit), and rotate it once
+the handover is complete. Local-only state (`.runtime/`, `apps/assistant/data/`, any
+personal worktree paths) is not part of the handover.
+
 ## Handoff documents
 
 - [Final deliverable index](docs/FINAL_DELIVERABLE_INDEX.md)
@@ -418,6 +562,7 @@ See [POC security boundaries](docs/security/POC_SECURITY_BOUNDARIES.md).
 
 - `apps/backend/` — FastAPI domain, connectors, orchestration, and tests
 - `apps/frontend/` — React/TypeScript/Vite sponsor UI and tests
+- `apps/assistant/` — read-only AI Assistant service (FastAPI, port 8100) and tests
 - `docs/` — architecture, contracts, UAT, demo, security, and integration handoff
 - `.ai-pipeline/` — phase planners and quality/review reports
 - `scripts/` — demo lifecycle, secret, smoke, and contract validation tools
