@@ -741,6 +741,12 @@ SINGLE_SERVICE_PINS = {
         "aeeb96ad78c12652cec8303193c6cee00af544ec",
         "assistant",
     ),
+    "NL_OPQ_ASSISTANT_LINEAGE": (
+        "origin/release/nl-opq-b409077a",
+        "1db9106fce7fee01b5f8ffe888c5f8da838fbea5",
+        "884028dd10c273965fe11044b0bec9379a8a2cf9",
+        "assistant",
+    ),
 }
 
 
