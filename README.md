@@ -82,8 +82,9 @@ take precedence over `.env`.
 - Backend health: `http://127.0.0.1:8000/health`
 - API docs: `http://127.0.0.1:8000/docs`
 
-After pulling a new `main`, rerun the dependency install steps (`pip install -e` and
-`npm ci`); new backend or frontend packages are not installed automatically.
+After pulling a new `main`, rerun the dependency install steps (`pip install -e` for
+the backend, and for `apps/assistant` if you run the AI Assistant, plus `npm ci`); new
+packages are not installed automatically.
 
 ### Windows
 
@@ -187,11 +188,17 @@ Passwords are never stored in the repository. Each account's scrypt hash is read
 `.env` (`PHASE13_<USER_ID>_PASSWORD_HASH`, for example `PHASE13_MAYA_LIM_PASSWORD_HASH`;
 `biz-ops` uses `PHASE14_5_HR_ADMIN_PASSWORD_HASH`). When the backend first creates the
 accounts, a missing or malformed hash is a configuration error that names the setting to
-fix. Choose your own passwords and generate the lines to paste into your `.env`:
+fix, and the backend does not start. A new setup therefore needs **all seven** hashes; in
+memory mode the accounts are created again on every start, so all seven are always
+required. Choose your own passwords and generate the lines to paste into your `.env`:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py
-# or only some accounts:
+```
+
+To replace the hash for only some accounts later (the others must stay in `.env`):
+
+```powershell
 .\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py --user maya-lim --user biz-ops
 ```
 
@@ -212,9 +219,12 @@ Prerequisites beyond the quick start:
   them, in Terminal 1 set `$env:ACRA_CONNECTOR_MODE = "mock"` (the synthetic local
   registry) **and** remove the `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY` line: the hybrid
   overlay is accepted only on the Marketplace Mock lane, so startup stops if both are set.
-  There is no automatic fallback.
+  Also make sure your `.env` does not set `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY` to
+  `hybrid_direct_overlay` or `ACRA_MARKETPLACE_OPQ_SCENARIO` to anything other than
+  `five_layer_simulation` (the `.env.example` values are safe). There is no automatic
+  fallback.
 - The AI Assistant's own dependencies (one time, from the repository root; the quick
-  start installs only the backend):
+  start's `pip install` covers only the backend):
 
   ```powershell
   .\.venv\Scripts\python.exe -m pip install -e .\apps\assistant
@@ -236,13 +246,15 @@ $env:REGISTRY_CACHE_MODE = "auto"
 $env:IDP_CONNECTOR_MODE = "local_pdf_text"
 $env:PHASE13_BROWSER_ORIGIN = "http://127.0.0.1:5173"
 .\.venv\Scripts\python.exe scripts\dev_preflight.py
+if ($LASTEXITCODE -ne 0) { throw "Preflight failed; fix the reported configuration first." }
 Set-Location -LiteralPath '.\apps\backend'
 ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 `dev_preflight.py` reports the persistence mode, the configured ACRA and GoldTier modes,
 the composed ACRA connector, and whether ACRA credentials are present, without printing
-any secret. Fix anything it reports before relying on the backend.
+any secret. It exits nonzero when it finds a problem, and the `throw` line then stops the
+block before the backend starts.
 
 Terminal 2 — frontend (port 5173):
 
