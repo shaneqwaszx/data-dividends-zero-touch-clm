@@ -196,7 +196,9 @@ required. Choose your own passwords and generate the lines to paste into your `.
 .\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py
 ```
 
-To replace the hash for only some accounts later (the others must stay in `.env`):
+In memory mode, to change only some passwords later, regenerate just those lines (keep
+the others in `.env`). In Mongo mode, accounts that already exist keep their stored hash,
+so editing `.env` does not change their passwords.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\generate_admin_bootstrap_password_hashes.py --user maya-lim --user biz-ops
@@ -244,17 +246,22 @@ $env:ACRA_CONNECTOR_MODE = "api_marketplace_mock"
 $env:ACRA_MARKETPLACE_OWNERSHIP_OVERLAY = "hybrid_direct_overlay"
 $env:REGISTRY_CACHE_MODE = "auto"
 $env:IDP_CONNECTOR_MODE = "local_pdf_text"
+$env:GOLDTIER_CONNECTOR_MODE = "mock"
 $env:PHASE13_BROWSER_ORIGIN = "http://127.0.0.1:5173"
 .\.venv\Scripts\python.exe scripts\dev_preflight.py
-if ($LASTEXITCODE -ne 0) { throw "Preflight failed; fix the reported configuration first." }
-Set-Location -LiteralPath '.\apps\backend'
-..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+if ($LASTEXITCODE -eq 0) {
+  Set-Location -LiteralPath '.\apps\backend'
+  ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+} else {
+  Write-Error "Preflight failed; fix the reported configuration first."
+}
 ```
 
 `dev_preflight.py` reports the persistence mode, the configured ACRA and GoldTier modes,
 the composed ACRA connector, and whether ACRA credentials are present, without printing
-any secret. It exits nonzero when it finds a problem, and the `throw` line then stops the
-block before the backend starts.
+any secret. It exits nonzero when it finds a settings, ACRA credential/connector, or
+Mongo problem, and the backend is then not started. It does not check login hashes; a
+missing hash is reported when the backend itself starts.
 
 Terminal 2 — frontend (port 5173):
 
