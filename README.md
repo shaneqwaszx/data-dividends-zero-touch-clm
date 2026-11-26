@@ -181,7 +181,7 @@ Every page needs a signed-in POC account. The accounts are fixed synthetic profi
 | `ethan-tan` | Ethan Tan | Relationship manager |
 | `ryan-lee` | Ryan Lee | Relationship manager |
 | `olivia-koh` | Olivia Koh | Director |
-| `biz-ops` | POC HR Administrator | HR |
+| `biz-ops` | POC Biz Ops Administrator | HR (shown as Biz Ops in the UI) |
 | `support-user` | Support User | Support |
 
 Passwords are never stored in the repository. Each account's scrypt hash is read from
