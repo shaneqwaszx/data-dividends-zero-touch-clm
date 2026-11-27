@@ -3093,3 +3093,39 @@ R4 remediation (2026-11-17, after the independent R3 Quality Gate FAIL: R3-1 to 
 | P34 | **Exact payload binding (R3-3).** The serialised body's ordered (role, text) projection, in the Anthropic or the OpenAI shape, must equal the cleared call's protected messages; unapproved keys or text-bearing fields are refused (`WIRE_UNAPPROVED_SHAPE`), exactly one final user turn is required (`WIRE_HISTORY`), and anything else is `WIRE_PROJECTION`. |
 
 The R3 residual on name-capable ordinary words no longer applies: person-written text is never admitted. Coverage, incorrect matches and fallback are measured separately (`outputs/assistant-privacy-20261116/r4/R4_R3-1_INTENT_MEASUREMENT.md`); answer quality on canonical questions is unmeasured until a separately approved paid requalification. Further case topics are a separate proposal (`R4_ENHANCEMENT_PROPOSAL_CASE_TOPICS.md`), not R4 scope.
+
+## D-148 - The guard keeps a correct "not Live" sentence in closed forms only (ACCEPTED 2026-11-27 by the owner; amends D-115 negations)
+
+Status: `ACCEPTED` on 2026-11-27 by the owner (in chat: "Accept and add it", on the draft reviewed with Remediation R1 candidate `480c95a1`). Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Not sponsor-confirmed. Nothing is Live.
+
+**Problem: GPT-OSS 120B kept failing G-6** (kept/written model sentences ≥ 0.70; D-093 M4, unchanged).
+
+- Hosted runs `9faf4d9e` (0.6667) and `70443157` (0.60), and local run `33387904` (0.60).
+- Each run with recorded reason codes (`9faf4d9e`, `70443157`; `33387904` ran on code without them) lost one correct sentence on P01#1 ("Which registry was used for this company, and is that registry live?") as `live_claim`.
+- Any truthful answer such as "That ACRA data is Mock data, not a Live integration." trips the Live check (`guardrails._LIVE`), and the closed exemptions in `claims.negated_sentence` had no form for it.
+- The service's own approved sentence `guide.MOCK_NOT_LIVE` ("Mock, Local and Sandbox evidence do not establish Live integration or KYC approval.") was removed the same way, as `authority_claim`.
+- Keeping that one sentence would have lifted both runs with recorded codes above 0.70: to 0.83 and 0.80.
+- Prompt steering alone (copilot RULES 7, release `db4f39f5`) gave one hosted pass and one fail on the same basis.
+- After a quality failure the configuration cannot be rerun unchanged (D-098 R4).
+
+| # | Rule |
+|---|---|
+| N1 | **Closed "not Live" forms.** `claims.negated_sentence` accepts three additional whole sentences, matched with `fullmatch` after lower-casing:<br>(a) `<subject> is\|are <label>( data\| evidence\| registry)?, not (a\|an\|the)? live <thing>`<br>(b) `(<subject> is\|are (marked)? <label>, so)? <subject> is not\|isn't\|are not\|aren't (from)? (a\|an\|the)? live <thing>`<br>(c) exactly `guide.MOCK_NOT_LIVE`, imported, not copied.<br>`<subject>` is a closed list (it, this, that, the/this/that data, the/this/that ACRA data, the registry data, the/this registry, the ACRA registry, the registry record, the ACRA record, the record, the evidence, the source, this source). `<label>` is mock, local or sandbox. `<thing>` is an optional ACRA/GoldTier qualifier plus registry, integration, connection, system, source, data or environment. |
+| N2 | **Nothing else is exempt.** These forms only cancel a `live_claim` or `authority_claim` from the shared checks, exactly as the existing D-115 negations do. Every other check runs first and unchanged: invented source, self-action, verified UBO, classification, relationship, status, unsupported value and unsupported name. A sentence with any added clause, reversal, authority word or open subject is still removed. |
+| N3 | **Typography, fail closed.** Before matching, quotation marks that wrap exactly an environment label (`"Mock"`, `“Local”`) are dropped, and a spaced dash used as a comma (` - `, ` – `, ` — `) becomes a comma. Any other double quotation mark makes the sentence match no form, so a quoted "not", "live" or authority word never reads as a negation (QG H-1). An existing D-115 form is never accepted where it was refused before, except for typographic copies that say the same as the plain form: a spaced dash after a leading "No" or "So" ("No — the UBO has not been officially verified." reads as "No, the UBO has not…"), and a left single quotation mark used as an apostrophe ("hasn‘t" reads as "hasn't"). |
+| N4 | **Steering stays.** RULES 4 and 7 (ported from `9a107196`) still ask the model to name an environment by its label and not to write live, production or real even to deny it. N1 is the safety net for a correct answer that does so anyway. |
+| N5 | **Unchanged:** the G-6 threshold 0.70 and every other gate; the qualification manifest (`P01#1,P02#0`); the `live_claim` check itself, including its existing exemption for a sentence mentioning "status" (narrowing it removed an approved catalog line, so it is a separate follow-up); `unsupported_value` (the knowledge "25%" on P02 stays removed); the D-142 privacy boundary rules (the privacy vocabulary and synthetic boundary are regenerated by their own scripts for the new RULES text: +3 vocabulary words, 5 words moved from the code to the prompt vocabulary; reviewed under D-142); and RBAC, team scope and the safe `404`. |
+| N6 | **Consequences.** The qualification basis moves (`claims.py` and `copilot.py` are basis files). Every GPT-OSS and Claude qualification on code with this change is out of date until requalified (D-098 R4 eligibility). Requalification is a separate owner-approved paid step: one 2-call GPT-OSS run (about US$0.07) and one Claude run. If G-6 fails again, the per-turn reason codes (R0 diagnostics) name the rule, and nothing is rerun without new approval. |
+
+**Known limits, accepted with this decision**
+- The label in N1 is not checked against the case evidence. A model could write "It is Sandbox data, not a live integration." about Mock data and keep it. It states no Live claim, but its label could be wrong.
+- "The data is live, not mock." is kept on main and stays kept. `_LIVE` has no "data is live" alternative. This is a follow-up and existed before this change.
+- The "status" exemption gap stays open, as in N5.
+
+**Evidence**
+- Candidate `fix/gpt-oss-g6-main-port-r4`, patch sha256 `480c95a1…`, basis `a6ef34be`.
+- Independent QG R1 `PASS WITH NOTES`: 249 adversarial sentences; H-1 closed; M-1 is this record.
+- Offline replay through the real qualification path, synthetic answers: plain style 1.0 (was 0.75); typographic style 1.0 (was 0.625); markdown-mixed style 0.625 (P02 figure, plus a phrasing outside the forms).
+- Diagnosis: `gptoss-g6-run-33387904-diagnosis.md`.
+
+**Rollback:** remove N1 to N3 from `claims.py`. RULES steering (N4) and R0 diagnostics can stay. The basis moves again, so both models requalify.
