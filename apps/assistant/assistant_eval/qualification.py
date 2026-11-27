@@ -55,6 +55,7 @@ from ai_assistant.remote_test import RemoteTestModel, connection_check, qualific
 from ai_assistant.synthetic_eligibility import mode as synthetic_dev_mode
 
 from . import gold as gold_mod
+from . import guard_reasons
 from .hosted_paths import run_paths
 from .runner import EMBEDDER, Workspace, run
 from .runner import settings as runner_settings
@@ -175,7 +176,7 @@ class QualificationJob:
             (EVAL_FIXTURES / "snapshots.json").read_text(encoding="utf-8")
         )
         try:
-            with Workspace() as workspace:
+            with Workspace() as workspace, guard_reasons.recording():
                 result = run(
                     scenarios,
                     lambda capture: self.harness_model(capture, watched),
@@ -217,7 +218,8 @@ class QualificationJob:
             )
         }
         summary["metrics"]["largest_prompt_bound"] = largest_bound
-        summary["lines"] = line_breakdown(turns)
+        # R0: which guard rule left each sentence out (closed codes and counts only).
+        summary["lines"] = {**line_breakdown(turns), **guard_reasons.reason_breakdown(turns)}
         if quality == "SCORED" and gold is not None:
             summary["quality"]["gold"] = gold_based(turns, gold, snapshots)
         summary["gates"] = gates(
@@ -362,7 +364,7 @@ class RemoteQualificationJob:
                 "synthetic_dev_decision": self.settings.synthetic_dev_decision,
             }
         )
-        with Workspace() as workspace:
+        with Workspace() as workspace, guard_reasons.recording():
             result = run(
                 scenarios,
                 lambda capture: watched,
@@ -417,7 +419,8 @@ class RemoteQualificationJob:
         summary["metrics"]["call_errors"] = dict(
             sorted(Counter(call.error_class for call in calls if call.error_class).items())
         )
-        summary["lines"] = line_breakdown(turns)
+        # R0: which guard rule left each sentence out (closed codes and counts only).
+        summary["lines"] = {**line_breakdown(turns), **guard_reasons.reason_breakdown(turns)}
         summary["gates"] = _remote_gates(
             gates(
                 connection=connection,

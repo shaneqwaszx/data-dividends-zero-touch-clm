@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from .guide import MOCK_NOT_LIVE
+
 # --- names ----------------------------------------------------------------------------------
 
 # Spellings of the same recognised company suffix. Only these, punctuation, spacing and
@@ -431,6 +433,17 @@ _SUBJECT = (
     r"|candidate|candidates)"
 )
 _AUTHORITY_WORD = r"(?:verified|confirmed|approved|certified)"
+# R4 (G-6): what a "not Live" sentence may be about, its environment label, and the Live
+# thing it denies. All closed; the sentence must still be one whole form.
+_ENV_SUBJECT = (
+    r"(?:it|this|that|the data|this data|that data|the acra data|this acra data|that acra data"
+    r"|the registry data|the registry|this registry|the acra registry|the registry record"
+    r"|the acra record|the record|the evidence|the source|this source)"
+)
+_ENV_LABEL = r"(?:mock|local|sandbox)"
+_LIVE_THING = (
+    r"(?:acra |goldtier )?(?:registry|integration|connection|system|source|data|environment)"
+)
 _OFFICIALLY = r"(?: (?:officially|legally|formally|independently))?"
 _NEGATED_SENTENCES = tuple(
     re.compile(pattern)
@@ -464,17 +477,40 @@ _NEGATED_SENTENCES = tuple(
         r" (?:has not|hasn't|is not|isn't|was not|wasn't) (?:run in|connected to|from|tested in)"
         r" (?:a |an |the )?(?:live|production) (?:environment|system|registry|acra registry"
         r"|connection|service)$",
+        # R4 (G-6): the correct answer to "is it live?", in closed forms only.
+        # "That ACRA data is Mock data, not a Live integration."
+        rf"^{_ENV_SUBJECT} (?:is|are) {_ENV_LABEL}(?: data| evidence| registry)?, not "
+        rf"(?:a |an |the )?live {_LIVE_THING}$",
+        # "It is not a live registry." / "The registry data is not from a Live integration."
+        # / "The data is marked Mock, so it is not from a Live integration."
+        rf"^(?:{_ENV_SUBJECT} (?:is|are) (?:marked )?{_ENV_LABEL}, so )?{_ENV_SUBJECT}"
+        rf" (?:is not|isn't|are not|aren't) (?:from )?(?:a |an |the )?live {_LIVE_THING}$",
+        # The service's own approved sentence (guide.MOCK_NOT_LIVE), exactly.
+        re.escape(MOCK_NOT_LIVE.lower().rstrip(".")),
     )
 )
 _LEAD = re.compile(r"^(?:no|so),\s+", re.I)
+# R4 (G-6, QG H-1): only quotation marks that wrap exactly an environment label ("Mock") are
+# dropped. Any other double quotation mark fails closed: a quoted "not", "live" or authority word
+# could reverse or hedge the sentence, so it is never read as a closed form.
+_QUOTED_LABEL = re.compile('["“„] ?(mock|local|sandbox) ?["”]')
+_QUOTES = re.compile('["“”„]')
+_SPACED_DASH = re.compile(" [-–—] ")
 
 
 def negated_sentence(sentence: str) -> bool:
     """True when the whole sentence is one of the closed negated or conditional forms above,
     and so asserts no authority, verification, approval or Live claim."""
 
-    text = _LEAD.sub("", " ".join(sentence.lower().replace("\u2019", "'").split()))
-    text = text.strip().rstrip(".!")
+    text = " ".join(sentence.lower().replace("\u2019", "'").replace("\u2018", "'").split())
+    # R4 (G-6): a quoted environment label loses its quotation marks and a spaced dash used as a
+    # comma becomes one, so a typographic copy of a closed form matches; the whole sentence must
+    # still match. Any other quotation mark: not a closed form (QG H-1).
+    text = _QUOTED_LABEL.sub(r"\1", text)
+    if _QUOTES.search(text):
+        return False
+    text = _SPACED_DASH.sub(", ", text)
+    text = _LEAD.sub("", text).strip().rstrip(".!")
     return any(form.fullmatch(text) for form in _NEGATED_SENTENCES)
 
 
